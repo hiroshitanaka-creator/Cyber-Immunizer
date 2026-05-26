@@ -147,13 +147,21 @@ class TestReadmeLinksToRunbook:
         )
 
     def test_readme_runbook_link_is_near_phase1c_section(self) -> None:
-        """The runbook link in README must appear near the Phase 1-C / preflight section."""
-        runbook_pos = self.content.find("API_ACTIVATION_RUNBOOK.md")
-        assert runbook_pos != -1, "docs/API_ACTIVATION_RUNBOOK.md not found in README"
+        """The runbook link in README must appear near the Phase 1-C / preflight section.
 
+        The project structure tree may also reference API_ACTIVATION_RUNBOOK.md before
+        the Phase 1-C section, so we search for the occurrence that appears AFTER
+        Phase 1-C rather than using the first occurrence in the file.
+        """
         # Phase 1-C section should appear in the README
         phase1c_pos = self.content.find("Phase 1-C")
         assert phase1c_pos != -1, "Phase 1-C section not found in README"
+
+        # Find the runbook link that appears AFTER Phase 1-C (the Phase 1-D reference)
+        runbook_pos = self.content.find("API_ACTIVATION_RUNBOOK.md", phase1c_pos)
+        assert runbook_pos != -1, (
+            "docs/API_ACTIVATION_RUNBOOK.md link not found in README after Phase 1-C section"
+        )
 
         # The runbook link must appear within a reasonable distance (5000 chars) of Phase 1-C
         distance = abs(runbook_pos - phase1c_pos)
