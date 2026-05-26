@@ -442,30 +442,37 @@ class TestReadmeLinksAndStatus:
                 f"README.md Phase 2-D row must NOT contain {token!r}, got: {row!r}"
             )
 
-    def test_readme_phase2e_next(self) -> None:
-        """README.md table row for Phase 2-E must show Next / ⏭."""
+    def test_readme_phase2e_completed(self) -> None:
+        """README.md table row for Phase 2-E must show Completed / ✅.
+
+        Phase 2-E update: Phase 2-E (API activation checklist hardening) is now
+        completed as docs/tests only. Updated from 'Next' to 'Completed'.
+        """
         # Must explicitly have Phase 2-E — generic "API activation checklist" alone is insufficient
         assert "Phase 2-E" in self.content, (
             "README.md must explicitly mention Phase 2-E (not just generic checklist text)"
         )
         row = _extract_phase_row(self.content, "Phase 2-E")
         assert row, "README.md must contain a table row for Phase 2-E"
-        has_next = (
-            "Next" in row
-            or "next" in row
-            or "⏭" in row
+        has_completed = (
+            "Completed" in row
+            or "completed" in row
+            or "✅" in row
         )
-        assert has_next, (
-            f"README.md Phase 2-E row must indicate Next/⏭, got: {row!r}"
+        assert has_completed, (
+            f"README.md Phase 2-E row must indicate Completed/✅, got: {row!r}"
         )
 
-    def test_readme_phase2e_not_pending_or_completed(self) -> None:
-        """README.md Phase 2-E row must NOT show Pending / ⏳ or Completed / ✅."""
+    def test_readme_phase2e_not_pending_or_next(self) -> None:
+        """README.md Phase 2-E row must NOT show Pending / ⏳ or Next / ⏭.
+
+        Phase 2-E update: Phase 2-E is now Completed; ⏭ Next is no longer valid.
+        """
         row = _extract_phase_row(self.content, "Phase 2-E")
         assert row, "README.md must contain a table row for Phase 2-E"
-        forbidden_completed = ["✅ Completed", "✅Completed", "完了"]
-        forbidden_pending = ["⏳ Pending", "⏳Pending"]
-        for token in forbidden_completed + forbidden_pending:
+        forbidden_pending = ["⏳ Pending", "⏳Pending", "⏳"]
+        forbidden_next = ["⏭ Next", "⏭Next", "⏭"]
+        for token in forbidden_pending + forbidden_next:
             assert token not in row, (
                 f"README.md Phase 2-E row must NOT contain {token!r}, got: {row!r}"
             )
@@ -545,8 +552,12 @@ class TestPhase2PlanLinksAndStatus:
                 f"docs/PHASE_2_PLAN.md Phase 2-D row must NOT contain {token!r}, got: {row!r}"
             )
 
-    def test_phase2_plan_phase2e_next(self) -> None:
-        """PHASE_2_PLAN.md table row for Phase 2-E must show Next / ⏭ / 次."""
+    def test_phase2_plan_phase2e_completed(self) -> None:
+        """PHASE_2_PLAN.md table row for Phase 2-E must show Completed / ✅.
+
+        Phase 2-E update: Phase 2-E (API activation checklist hardening) is now
+        completed as docs/tests only. Updated from 'Next' to 'Completed'.
+        """
         # Must explicitly have Phase 2-E — generic checklist text alone is insufficient
         assert "Phase 2-E" in self.content, (
             "docs/PHASE_2_PLAN.md must explicitly mention Phase 2-E "
@@ -554,21 +565,23 @@ class TestPhase2PlanLinksAndStatus:
         )
         row = _extract_phase_row(self.content, "Phase 2-E")
         assert row, "docs/PHASE_2_PLAN.md must contain a table row for Phase 2-E"
-        has_next = (
-            "Next" in row
-            or "next" in row
-            or "次" in row
-            or "⏭" in row
+        has_completed = (
+            "Completed" in row
+            or "completed" in row
+            or "✅" in row
         )
-        assert has_next, (
-            f"docs/PHASE_2_PLAN.md Phase 2-E row must indicate Next/⏭/次, got: {row!r}"
+        assert has_completed, (
+            f"docs/PHASE_2_PLAN.md Phase 2-E row must indicate Completed/✅, got: {row!r}"
         )
 
-    def test_phase2_plan_phase2e_not_pending(self) -> None:
-        """PHASE_2_PLAN.md Phase 2-E row must NOT show Pending / ⏳ / 未着手."""
+    def test_phase2_plan_phase2e_not_pending_or_next(self) -> None:
+        """PHASE_2_PLAN.md Phase 2-E row must NOT show Pending / ⏳ / 未着手 or Next / ⏭.
+
+        Phase 2-E update: Phase 2-E is now Completed; ⏭ Next is no longer valid.
+        """
         row = _extract_phase_row(self.content, "Phase 2-E")
         assert row, "docs/PHASE_2_PLAN.md must contain a table row for Phase 2-E"
-        forbidden = ["⏳ Pending", "⏳Pending", "⏳"]
+        forbidden = ["⏳ Pending", "⏳Pending", "⏳", "未着手", "⏭ Next", "⏭Next", "⏭"]
         for token in forbidden:
             assert token not in row, (
                 f"docs/PHASE_2_PLAN.md Phase 2-E row must NOT contain {token!r}, got: {row!r}"

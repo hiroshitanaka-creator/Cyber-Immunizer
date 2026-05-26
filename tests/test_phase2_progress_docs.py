@@ -1,16 +1,22 @@
-"""tests/test_phase2_progress_docs.py — Phase 2-A/B/C/D completion and Phase 2-E next tests.
+"""tests/test_phase2_progress_docs.py — Phase 2-A/B/C/D/E completion tests.
 
 Verifies that:
-- README.md explicitly records Phase 2-A, 2-B, 2-C, 2-D as completed
-- README.md records Phase 2-E as Next
+- README.md explicitly records Phase 2-A, 2-B, 2-C, 2-D, 2-E as completed
 - docs/PHASE_2_PLAN.md contains the same progress information
 - Neither README nor PHASE_2_PLAN contains false completion claims
   (Phase 3 started, API connected, live_model_enabled=true)
+- Phase 3 is not started
+- API is not connected
+- Phase 2 complete does not mean API connected
 
 PR #26 Codex comment fixes:
 1. Phase 2-E validation requires explicit "Phase 2-E" label (no skip if absent).
 2. Phase 2-D must be verified as Completed (all variants), not as Next/Pending.
    Phase status is validated via Markdown table row extraction, not window search.
+
+Phase 2-E update:
+- Phase 2-E is now Completed (was Next in PR #26 state).
+- Added regression guards for Phase 3 not started / API not connected.
 """
 from __future__ import annotations
 
@@ -175,12 +181,11 @@ class TestReadmePhase2DCompleted(_DocFixture):
             )
 
 
-class TestReadmePhase2ENext(_DocFixture):
-    """Phase 2-E must be marked as Next in README.md.
+class TestReadmePhase2ECompleted(_DocFixture):
+    """Phase 2-E must be marked as Completed in README.md.
 
-    PR #26 Codex fix: Phase 2-E validation now requires the explicit
-    'Phase 2-E' label.  Generic 'API activation checklist' text alone is
-    insufficient, and state validation is never skipped.
+    Phase 2-E update: Phase 2-E is now Completed (was Next in PR #26 state).
+    Phase 2-E (API activation checklist hardening) is docs/tests only.
     """
 
     _path = _README
@@ -192,18 +197,29 @@ class TestReadmePhase2ENext(_DocFixture):
             "generic 'API activation checklist' text alone is insufficient"
         )
 
-    def test_readme_phase2e_is_next(self) -> None:
-        """README.md Phase 2-E table row must show Next / ⏭."""
+    def test_readme_phase2e_is_completed(self) -> None:
+        """README.md Phase 2-E table row must show Completed / ✅."""
         row = _extract_phase_row(self.content, "Phase 2-E")
         assert row, "README.md must contain a Markdown table row for Phase 2-E"
-        has_next = (
-            "Next" in row
-            or "next" in row
-            or "⏭" in row
+        has_completed = (
+            "Completed" in row
+            or "completed" in row
+            or "✅" in row
         )
-        assert has_next, (
-            f"README.md Phase 2-E row must indicate Next/⏭, got: {row!r}"
+        assert has_completed, (
+            f"README.md Phase 2-E row must indicate Completed/✅, got: {row!r}"
         )
+
+    def test_readme_phase2e_not_next_or_pending(self) -> None:
+        """README.md Phase 2-E row must NOT show Next / ⏭ / Pending."""
+        row = _extract_phase_row(self.content, "Phase 2-E")
+        assert row, "README.md must contain a Markdown table row for Phase 2-E"
+        forbidden_tokens = ["⏭ Next", "⏭Next", "⏭", "⏳ Pending", "⏳Pending", "⏳"]
+        for token in forbidden_tokens:
+            assert token not in row, (
+                f"README.md Phase 2-E row must NOT contain {token!r} — "
+                f"Phase 2-E is completed, got: {row!r}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -338,12 +354,11 @@ class TestPhase2PlanPhase2DCompleted(_DocFixture):
             )
 
 
-class TestPhase2PlanPhase2ENext(_DocFixture):
-    """Phase 2-E must be marked as Next in PHASE_2_PLAN.md.
+class TestPhase2PlanPhase2ECompleted(_DocFixture):
+    """Phase 2-E must be marked as Completed in PHASE_2_PLAN.md.
 
-    PR #26 Codex fix: Phase 2-E validation now requires the explicit
-    'Phase 2-E' label and validates state unconditionally (no 'if has_phase2e'
-    skip).  State is validated via table row extraction.
+    Phase 2-E update: Phase 2-E is now Completed (was Next in PR #26 state).
+    Phase 2-E (API activation checklist hardening) is docs/tests only.
     """
 
     _path = _PHASE2_PLAN
@@ -360,31 +375,34 @@ class TestPhase2PlanPhase2ENext(_DocFixture):
             "alone is insufficient"
         )
 
-    def test_phase2_plan_phase2e_is_next(self) -> None:
-        """PHASE_2_PLAN.md Phase 2-E table row must show Next / ⏭ / 次."""
-        # State validation is never skipped — Phase 2-E must exist and be Next
+    def test_phase2_plan_phase2e_is_completed(self) -> None:
+        """PHASE_2_PLAN.md Phase 2-E table row must show Completed / ✅."""
         row = _extract_phase_row(self.content, "Phase 2-E")
         assert row, (
             "docs/PHASE_2_PLAN.md must contain a Markdown table row for Phase 2-E"
         )
-        has_next = (
-            "Next" in row
-            or "next" in row
-            or "次" in row
-            or "⏭" in row
+        has_completed = (
+            "Completed" in row
+            or "completed" in row
+            or "✅" in row
         )
-        assert has_next, (
-            f"docs/PHASE_2_PLAN.md Phase 2-E row must indicate Next/⏭/次, got: {row!r}"
+        assert has_completed, (
+            f"docs/PHASE_2_PLAN.md Phase 2-E row must indicate Completed/✅, got: {row!r}"
         )
 
-    def test_phase2_plan_phase2e_not_pending(self) -> None:
-        """PHASE_2_PLAN.md Phase 2-E row must NOT show ⏳ Pending / 未着手."""
+    def test_phase2_plan_phase2e_not_next_or_pending(self) -> None:
+        """PHASE_2_PLAN.md Phase 2-E row must NOT show Next / ⏭ / ⏳ Pending / 未着手."""
         row = _extract_phase_row(self.content, "Phase 2-E")
         assert row, "docs/PHASE_2_PLAN.md must contain a Markdown table row for Phase 2-E"
-        forbidden_tokens = ["⏳ Pending", "⏳Pending", "⏳"]
+        forbidden_tokens = [
+            "⏭ Next", "⏭Next", "⏭",
+            "⏳ Pending", "⏳Pending", "⏳",
+            "未着手",
+        ]
         for token in forbidden_tokens:
             assert token not in row, (
-                f"docs/PHASE_2_PLAN.md Phase 2-E row must NOT contain {token!r}, got: {row!r}"
+                f"docs/PHASE_2_PLAN.md Phase 2-E row must NOT contain {token!r} — "
+                f"Phase 2-E is completed, got: {row!r}"
             )
 
 
@@ -481,4 +499,135 @@ class TestNoFalseCompletionClaims:
                 checklist_section = self.plan[checklist_start:]
             assert "live_model_enabled=true" not in checklist_section, (
                 "PHASE_2_PLAN.md progress checklist must NOT contain live_model_enabled=true"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 not started / API not connected guards (Phase 2-E addition)
+# ---------------------------------------------------------------------------
+
+
+class TestPhase3NotStartedAndApiNotConnected:
+    """Guard that Phase 3 is not started and API is not connected.
+
+    Phase 2-E addition: explicit positive checks that README and PHASE_2_PLAN
+    record the correct post-Phase-2 state.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _load_both(self) -> None:
+        assert _README.exists()
+        assert _PHASE2_PLAN.exists()
+        self.readme = _README.read_text(encoding="utf-8")
+        self.plan = _PHASE2_PLAN.read_text(encoding="utf-8")
+
+    def test_readme_states_phase3_not_started(self) -> None:
+        """README.md must state that Phase 3 is not started."""
+        content_lower = self.readme.lower()
+        assert (
+            "phase 3 is not started" in content_lower
+            or "phase 3 not started" in content_lower
+            or (
+                "phase 3" in content_lower
+                and "human owner" in content_lower
+                and ("not started" in content_lower or "requires" in content_lower)
+            )
+        ), (
+            "README.md must state that Phase 3 is not started / requires Human Owner decision"
+        )
+
+    def test_readme_states_api_not_connected(self) -> None:
+        """README.md must state that API remains not connected."""
+        content_lower = self.readme.lower()
+        assert (
+            "api remains not connected" in content_lower
+            or "api connection | not connected" in content_lower
+            or "not connected" in content_lower
+            or "未接続" in self.readme
+        ), (
+            "README.md must state that API remains not connected"
+        )
+
+    def test_readme_phase2_complete_does_not_claim_api_connected(self) -> None:
+        """README.md Phase 2 completion note must not claim API is connected."""
+        content_lower = self.readme.lower()
+        assert "api connected" not in content_lower, (
+            "README.md must NOT say 'API connected' — "
+            "Phase 2 completion does not mean API is connected"
+        )
+
+    def test_phase2_plan_states_phase3_not_started(self) -> None:
+        """PHASE_2_PLAN.md must state that Phase 3 is not started."""
+        content_lower = self.plan.lower()
+        assert (
+            "phase 3 not started" in content_lower
+            or "phase 3 requires" in content_lower
+            or (
+                "phase 3" in content_lower
+                and "human owner" in content_lower
+                and ("requires" in content_lower or "decision" in content_lower)
+            )
+        ), (
+            "PHASE_2_PLAN.md must state that Phase 3 is not started / requires Human Owner decision"
+        )
+
+    def test_phase2_plan_states_api_not_connected(self) -> None:
+        """PHASE_2_PLAN.md must state that API remains not connected / disconnected."""
+        content_lower = self.plan.lower()
+        assert (
+            "api remains disconnected" in content_lower
+            or "api 未接続" in self.plan
+            or "api未接続" in self.plan
+            or "not connected" in content_lower
+            or "disconnected" in content_lower
+            or "未接続" in self.plan
+        ), (
+            "PHASE_2_PLAN.md must state that API remains not connected"
+        )
+
+    def test_phase2_plan_phase2_complete_does_not_mean_api_connected(self) -> None:
+        """PHASE_2_PLAN.md must clarify that Phase 2 completion ≠ API activated / Phase 3 begun."""
+        content_lower = self.plan.lower()
+        assert (
+            "does not mean phase 3 is underway" in content_lower
+            or "does not mean phase 3" in content_lower
+            or "phase 3 requires human owner" in content_lower
+            or (
+                "phase 3" in content_lower
+                and "human owner" in content_lower
+                and ("requires" in content_lower or "decision" in content_lower)
+            )
+        ), (
+            "PHASE_2_PLAN.md must clarify that Phase 2 complete does not mean Phase 3 is underway"
+        )
+
+    def test_readme_live_model_enabled_remains_false(self) -> None:
+        """README.md must state that live_model_enabled remains false."""
+        content_lower = self.readme.lower()
+        assert (
+            "live_model_enabled remains false" in content_lower
+            or "live_model_enabled | false" in content_lower
+            or (
+                "live_model_enabled" in content_lower
+                and "false" in content_lower
+            )
+        ), (
+            "README.md must state that live_model_enabled remains false"
+        )
+
+    def test_phase2_plan_phase3_started_not_in_progress_table(self) -> None:
+        """PHASE_2_PLAN.md progress checklist must NOT claim Phase 3 started."""
+        checklist_start = self.plan.find("Phase 2 進捗チェックリスト")
+        if checklist_start != -1:
+            next_section = self.plan.find("\n## ", checklist_start + 1)
+            if next_section != -1:
+                checklist_section = self.plan[checklist_start:next_section]
+            else:
+                checklist_section = self.plan[checklist_start:]
+            content_lower = checklist_section.lower()
+            assert "phase 3 started" not in content_lower, (
+                "PHASE_2_PLAN.md progress checklist must NOT claim Phase 3 started"
+            )
+            assert "api connected" not in content_lower, (
+                "PHASE_2_PLAN.md progress checklist must NOT claim API connected"
             )
