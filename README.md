@@ -306,7 +306,96 @@ pip install "google-genai>=1.0.0" "pydantic>=2.0"
 
 ---
 
-## GitHub Actions ワークフロー
+## Google AI Pro / $10 GenAI & Cloud クレジット戦略
+
+### Google AI Pro の GenAI & Cloud クレジットとは
+
+Google AI Pro（旧 Google One AI Premium）または Google Developer Program への参加により、毎月 $10 の GenAI & Cloud 開発者クレジットが提供される場合があります。このクレジットは **Gemini アプリの使用制限とは別物**です。
+
+> ⚠️ **重要な区別:**
+> - **Google AI Pro アプリのサブスクリプション**（gemini.google.com）：Gemini チャットアプリの使用枠
+> - **Gemini API プロジェクトクォータ**（Google AI Studio / Cloud Billing）：API 呼び出し用の別枠
+>
+> API を呼び出すには、Cloud Billing にリンクされた Google Cloud / AI Studio プロジェクトが必要です。
+
+### データプライバシーの重要な注意点
+
+| API 種別 | データの扱い |
+|---|---|
+| **Gemini API 無料クォータ** | Google によるモデル改善に使用される可能性あり |
+| **Gemini API 有料クォータ** | プロンプト・レスポンスはモデル改善に使用されない |
+
+> **Cyber-Immunizer は、有料クォータを使用している場合でも、シークレット・APIキー・環境変数・プライベートな脆弱性情報・実ユーザーログ・フルリポジトリテキスト・生のエクスプロイトペイロードをプロンプトに含めません。**
+> プロンプトに含まれるのは：検出器の変異領域コード・検出器インターフェースの要約・中和された脅威IDのみです。
+
+### `gemini-paid-credit` モードの設定と使用方法
+
+#### 前提条件
+
+1. **Google AI Pro の GenAI & Cloud クレジットをアクティベート**
+   - Google Developer Program にて確認・有効化
+2. **Cloud Billing リンク済みプロジェクトの設定**
+   - Google AI Studio または Google Cloud Console でプロジェクトを作成
+3. **GEMINI_API_KEY を GitHub Secrets に登録**
+4. **`data/genome.json` の設定変更**（レビュー済みコミットで実施）:
+   ```json
+   { "live_model_enabled": true }
+   ```
+5. **workflow_dispatch で `mode=gemini-paid-credit` を選択**
+
+#### 推奨ワークフローモード一覧
+
+| モード | 動作 | API 消費 |
+|---|---|---|
+| `noop`（デフォルト・スケジュール実行） | パッチ生成なし | ゼロ |
+| `offline-sample` | ビルトインサンプルパッチを使用 | ゼロ |
+| `live-model` | Gemini API 呼び出し（基本フリーティア用） | あり |
+| `gemini-paid-credit` | Gemini API 呼び出し（月次・日次予算キャップ付き） | あり（課金） |
+
+#### 予算管理（`data/api_usage_ledger.json`）
+
+`gemini-paid-credit` モードは呼び出しごとにコストを推定し、`data/api_usage_ledger.json` に記録します。
+
+- 月次上限（`monthly_api_budget_usd`）と日次上限（`daily_api_budget_usd`）を超える場合は呼び出しを拒否
+- コスト推定は**保守的な過大見積もり**（`ceil(chars / 4)` トークン換算）
+- 実際のトークン数は API レスポンスメタデータから取得（利用可能な場合）
+
+#### ローカル実行コマンド
+
+```bash
+# 安全なローカル開発（APIキー不要）
+python scripts/propose_mutation.py --offline-sample --json
+
+# 有料クレジットモード（明示的ダブルオプトイン + genome 設定が必要）
+export GEMINI_API_KEY=your_api_key_here
+python scripts/propose_mutation.py --gemini-paid-credit --allow-live-model --json
+
+# noop（スケジュール実行のデフォルト）
+python scripts/propose_mutation.py --noop --json
+```
+
+#### 安全ゲート一覧（`gemini-paid-credit` モード）
+
+| ゲート | 条件 |
+|---|---|
+| 明示的オプトイン | `--gemini-paid-credit` + `--allow-live-model` の両フラグ必須 |
+| API キー | `GEMINI_API_KEY` 環境変数が設定されていること |
+| ライブモード有効 | `genome.live_model_enabled == true` |
+| 有料ティア確認 | `genome.require_paid_tier == true` |
+| 無料専用モード無効 | `genome.free_tier_only == false` |
+| 月次予算 | `genome.monthly_api_budget_usd > 0` かつ月次支出 + 推定コスト ≤ 上限 |
+| 日次予算 | `genome.daily_api_budget_usd > 0` かつ日次支出 + 推定コスト ≤ 上限 |
+| リクエスト数制限 | `genome.max_model_requests_per_run <= 1` |
+| グラウンディング無効 | `genome.allow_google_search_grounding == false` |
+| コード実行無効 | `genome.allow_code_execution_tool == false` |
+| URL コンテキスト無効 | `genome.allow_url_context == false` |
+| フルリポジトリ送信禁止 | `genome.send_repository_full_text == false` |
+| 生ペイロード送信禁止 | `genome.send_raw_payloads == false` |
+| シークレット送信禁止 | `genome.send_secrets == false` |
+| プロンプト長制限 | プロンプト全体が `genome.max_prompt_chars`（デフォルト 12000）以下 |
+| プリフライトスキャン | プロンプトに機密トークンが含まれないこと |
+
+---
 
 `.github/workflows/immunization_loop.yml` は **propose / evaluate / promote** の3ジョブを意図的に分離しています。
 
@@ -328,6 +417,7 @@ pip install "google-genai>=1.0.0" "pydantic>=2.0"
 | `noop` | propose / evaluate / promote をすべてスキップ（ブランチテスト用） |
 | `offline-sample` | 組み込みサンプルパッチを使用（APIキー不要） |
 | `live-model` | Gemini API を呼び出す（GEMINI_API_KEY 必須） |
+| `gemini-paid-credit` | Gemini API を呼び出す（月次・日次予算キャップ付き、Google AI Pro クレジット用） |
 
 **スケジュール実行（毎日 02:00 UTC）は常に `noop` モード**で動作します。意図しないAPI呼び出しを防ぎ、`offline-sample` や `live-model` は手動 `workflow_dispatch` でのみ使用します。
 

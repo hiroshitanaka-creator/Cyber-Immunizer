@@ -12,19 +12,20 @@ on:
           - noop
           - offline-sample
           - live-model
+          - gemini-paid-credit
   schedule:
     # Scheduled runs always use noop to avoid unintended API calls.
-    # Trigger a manual workflow_dispatch with mode=offline-sample or
-    # mode=live-model to actually run an evolution cycle.
+    # Trigger a manual workflow_dispatch with mode=offline-sample,
+    # mode=live-model, or mode=gemini-paid-credit to run an evolution cycle.
     - cron: "0 2 * * *"
 
 jobs:
   # -----------------------------------------------------------------------
   # Job 1: PROPOSE
-  # Runs the mutation proposer (noop / offline sample / live model).
+  # Runs the mutation proposer (noop / offline sample / live model / paid).
   # Has read-only permissions and may receive GEMINI_API_KEY.
   # Does NOT execute candidate code.
-  # GEMINI_API_KEY is scoped to this job only.
+  # GEMINI_API_KEY is scoped to this job only; absent from evaluate/promote.
   # -----------------------------------------------------------------------
   propose:
     name: Propose Mutation
@@ -33,6 +34,7 @@ jobs:
       contents: read
     outputs:
       patch_exists: ${{ steps.propose.outputs.patch_exists }}
+      ledger_changed: ${{ steps.propose.outputs.ledger_changed }}
 
     steps:
       - name: Checkout repository
@@ -59,9 +61,20 @@ jobs:
             echo "effective_mode=${{ github.event.inputs.mode || 'noop' }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install Gemini dependencies (live-model only)
-        if: steps.mode.outputs.effective_mode == 'live-model'
+      - name: Install Gemini dependencies (live-model and gemini-paid-credit)
+        if: >
+          steps.mode.outputs.effective_mode == 'live-model' ||
+          steps.mode.outputs.effective_mode == 'gemini-paid-credit'
         run: pip install "google-genai>=1.0.0" "pydantic>=2.0"
+
+      - name: Capture ledger checksum before proposal
+        id: ledger_before
+        run: |
+          if [ -f "data/api_usage_ledger.json" ]; then
+            echo "checksum=$(sha256sum data/api_usage_ledger.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          else
+            echo "checksum=" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Propose mutation patch
         id: propose
@@ -77,6 +90,8 @@ jobs:
             python scripts/propose_mutation.py --offline-sample --json
           elif [ "$EFFECTIVE_MODE" = "live-model" ]; then
             python scripts/propose_mutation.py --live-model --allow-live-model --json
+          elif [ "$EFFECTIVE_MODE" = "gemini-paid-credit" ]; then
+            python scripts/propose_mutation.py --gemini-paid-credit --allow-live-model --json
           else
             echo "Unknown mode: $EFFECTIVE_MODE" >&2
             exit 1
@@ -88,12 +103,33 @@ jobs:
             echo "patch_exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+          # Detect ledger changes (for gemini-paid-credit mode)
+          BEFORE="${{ steps.ledger_before.outputs.checksum }}"
+          if [ -f "data/api_usage_ledger.json" ]; then
+            AFTER=$(sha256sum data/api_usage_ledger.json | cut -d' ' -f1)
+          else
+            AFTER=""
+          fi
+          if [ "$BEFORE" != "$AFTER" ]; then
+            echo "ledger_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ledger_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload mutation patch artifact
         if: steps.propose.outputs.patch_exists == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: mutation-patch
           path: .cyber_immunizer/mutation_patch.json
+          retention-days: 1
+
+      - name: Upload API usage ledger artifact (if changed)
+        if: steps.propose.outputs.ledger_changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-usage-ledger
+          path: data/api_usage_ledger.json
           retention-days: 1
 
   # -----------------------------------------------------------------------
@@ -190,10 +226,12 @@ print('true' if fr.get('passed_adoption_gate') else 'false')
   # Has write permissions, but NO model API secrets.
   # Does not execute candidate code — only copies files and updates data.
   # GEMINI_API_KEY is intentionally absent from this job.
+  # If a ledger artifact exists (from gemini-paid-credit), it is committed
+  # along with the promoted detector.
   # -----------------------------------------------------------------------
   promote:
     name: Promote Candidate
-    needs: evaluate
+    needs: [propose, evaluate]
     if: needs.evaluate.outputs.passed_adoption_gate == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -232,6 +270,14 @@ print('true' if fr.get('passed_adoption_gate') else 'false')
           name: fitness-report
           path: .cyber_immunizer/
 
+      - name: Download API usage ledger (if exists from gemini-paid-credit)
+        if: needs.propose.outputs.ledger_changed == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: api-usage-ledger
+          path: data/
+        continue-on-error: true
+
       - name: Promote candidate
         run: |
           python scripts/promote_candidate.py \
@@ -247,6 +293,10 @@ print('true' if fr.get('passed_adoption_gate') else 'false')
           git config user.name "Cyber-Immunizer Bot"
           git config user.email "cyber-immunizer-bot@noreply.github.com"
           git add core/detector.py data/genome.json data/evolution_history.json README.md
+          # Include ledger if it was updated during gemini-paid-credit
+          if [ -f "data/api_usage_ledger.json" ]; then
+            git add data/api_usage_ledger.json
+          fi
           git diff --cached --quiet || git commit -m \
             "chore(immunizer): promote generation $(python -c \"import json; print(json.load(open('data/genome.json'))['generation'])\")"
           git push

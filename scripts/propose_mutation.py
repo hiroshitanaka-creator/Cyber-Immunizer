@@ -2,7 +2,9 @@
 
 Usage:
     python scripts/propose_mutation.py [--noop] [--offline-sample]
-                                       [--live-model --allow-live-model] [--json]
+                                       [--live-model --allow-live-model]
+                                       [--gemini-paid-credit --allow-live-model]
+                                       [--json]
 
 Modes:
     --noop
@@ -14,34 +16,26 @@ Modes:
         Safe for local development and CI smoke-tests.
 
     --live-model --allow-live-model
-        Call the Gemini API to propose a mutation.  Both flags must be given
-        together; requiring --allow-live-model prevents accidental API calls.
-        Additional pre-flight gates apply (see below).
+        Call the Gemini API (free-tier / basic paid) to propose a mutation.
+        Both flags must be given together; requiring --allow-live-model prevents
+        accidental API calls.  Additional pre-flight gates apply (see below).
 
-Live-model pre-flight gates (all must pass):
-    1. --allow-live-model flag present
-    2. GEMINI_API_KEY env var set
-    3. genome.live_model_enabled == true
-    4. genome.max_model_requests_per_run <= 1
-    5. Prompt length <= genome.max_prompt_chars
-    6. genome.model_name must not contain "pro" when genome.free_tier_only == true
-    7. genome.allow_google_search_grounding == false
-    8. genome.allow_code_execution_tool == false
-    9. Prompt preflight secret scan passes
+    --gemini-paid-credit --allow-live-model
+        Call the Gemini API specifically for the Google AI Pro $10/month
+        GenAI & Cloud developer credit.  Enforces additional budget gates:
+        require_paid_tier, free_tier_only==false, monthly_api_budget_usd > 0,
+        daily_api_budget_usd > 0, and hard budget caps via api_budget.py.
+        Appends a usage record to data/api_usage_ledger.json after each call.
 
-SAFETY NOTE:
-    The LLM is never asked to generate exploit payloads, attack code, or
-    anything outside the internal logic of inspect_request().
-    Live model calls are disabled by default (genome.live_model_enabled=false)
-    to prevent accidental API usage without explicit opt-in.
-
-    Sensitive data (secrets, env vars, full repo, raw exploit strings,
-    real user logs) is never included in the prompt.
-    A preflight scan rejects prompts that inadvertently contain secret tokens.
-
-    The model output is validated against a strict JSON schema before the
-    patch file is written. Unsafe replacement_code (imports, eval, exec, open,
-    subprocess, socket, os., dunder access) is rejected before writing.
+SAFETY CONSTRAINTS (all modes):
+    - No secrets, env vars, full repo text, raw exploit strings, real user logs,
+      or private vulnerability details are ever sent to Gemini.
+    - The model output is validated against a strict JSON schema before the
+      patch file is written.
+    - Unsafe replacement_code is rejected before writing.
+    - Generated code is never executed in this script.
+    - GEMINI_API_KEY must only be present in the propose CI job.
+    - The schedule forces noop; live API calls are always manual opt-in.
 """
 from __future__ import annotations
 
@@ -58,6 +52,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 _GENOME_PATH = _PROJECT_ROOT / "data" / "genome.json"
 _DETECTOR_PATH = _PROJECT_ROOT / "core" / "detector.py"
 _THREATS_PATH = _PROJECT_ROOT / "data" / "active_threats.json"
+_LEDGER_PATH = _PROJECT_ROOT / "data" / "api_usage_ledger.json"
 _OUT_DIR = _PROJECT_ROOT / ".cyber_immunizer"
 _OUT_PATCH = _OUT_DIR / "mutation_patch.json"
 
@@ -94,7 +89,8 @@ _BLOCKED_PROMPT_TOKENS: tuple[str, ...] = (
 
 # ---------------------------------------------------------------------------
 # Post-flight: tokens that must never appear in replacement_code.
-# Checked case-sensitively (Python keywords are case-sensitive).
+# This is a conservative content-level filter; the AST policy in
+# core/policy.py provides the authoritative structural check.
 # ---------------------------------------------------------------------------
 _BLOCKED_CODE_TOKENS: tuple[str, ...] = (
     "import",
@@ -104,6 +100,10 @@ _BLOCKED_CODE_TOKENS: tuple[str, ...] = (
     "subprocess",
     "socket",
     "os.",
+    "pathlib",
+    "shutil",
+    "urllib",
+    "requests",
     "__",
 )
 
@@ -219,7 +219,7 @@ STRICT RULES — YOU MUST FOLLOW ALL OF THEM:
    or any other network I/O.
 6. Do NOT use imports. The replacement_code field must contain ONLY
    Python logic — no import statements of any kind.
-7. Do NOT use file I/O. No open(), pathlib, io, or file operations.
+7. Do NOT use file I/O. No open(), pathlib, io, shutil, or file operations.
 8. Do NOT use subprocess. No subprocess, os.system, os.popen, or
    shell execution of any kind.
 9. Do NOT use eval, exec, compile, reflection, dunder access.
@@ -261,13 +261,13 @@ Detector interface summary:
     query (MappingProxyType[str, str]), headers (MappingProxyType[str, str]),
     body (str)
   DetectionResult fields: blocked (bool), reason (str),
-    confidence (float 0.0–1.0), matched_signals (tuple[str, ...])
+    confidence (float 0.0-1.0), matched_signals (tuple[str, ...])
 
 Neutralized active threat IDs (safe identifiers only):
 {threat_ids}
 
 Propose a mutation that improves defensive coverage while maintaining
-low false positives. Use only neutralized symbolic indicators —
+low false positives. Use only neutralized symbolic indicators --
 never raw exploit strings. Return JSON only.
 """
 
@@ -358,7 +358,7 @@ def _validate_patch_schema(data: object) -> str:
     if missing:
         return f"patch is missing required fields: {missing}"
 
-    # No extra fields
+    # No extra fields (additionalProperties: false)
     extra = [k for k in data if k not in _REQUIRED_PATCH_FIELDS]
     if extra:
         return f"patch contains unexpected extra fields: {extra}"
@@ -435,7 +435,93 @@ def _build_user_prompt(genome: dict, detector_source: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Live Gemini API call (only called when all gates pass)
+# Raw Gemini API call (shared by both live-model and gemini-paid-credit)
+# ---------------------------------------------------------------------------
+
+
+def _call_gemini_api(
+    api_key: str,
+    model_name: str,
+    user_prompt: str,
+    max_output_tokens: int,
+    temperature: float,
+) -> tuple[str | None, int | None, int | None, str]:
+    """Issue a single Gemini API call.
+
+    Returns (raw_text, actual_input_tokens, actual_output_tokens, error).
+    On error, raw_text is None and error is non-empty.
+    actual_input_tokens / actual_output_tokens may be None if the API
+    does not return usage metadata.
+    """
+    try:
+        from google import genai  # type: ignore[import]
+        from google.genai import types as genai_types  # type: ignore[import]
+    except ImportError:
+        return None, None, None, (
+            "google-genai is not installed. "
+            "Install the gemini extra: pip install 'cyber-immunizer[gemini]' "
+            "or: pip install 'google-genai>=1.0.0'"
+        )
+
+    try:
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=user_prompt,
+            config=genai_types.GenerateContentConfig(
+                system_instruction=_LLM_SYSTEM_PROMPT,
+                response_mime_type="application/json",
+                response_schema=_PATCH_SCHEMA_FOR_GEMINI,
+                max_output_tokens=max_output_tokens,
+                temperature=temperature,
+            ),
+        )
+        raw_text: str = response.text
+
+        # Extract actual token counts if available in response metadata
+        actual_input_tokens: int | None = None
+        actual_output_tokens: int | None = None
+        try:
+            usage = response.usage_metadata
+            if usage is not None:
+                actual_input_tokens = getattr(usage, "prompt_token_count", None)
+                actual_output_tokens = getattr(usage, "candidates_token_count", None)
+        except Exception:
+            pass
+
+        return raw_text, actual_input_tokens, actual_output_tokens, ""
+    except Exception as exc:
+        return None, None, None, f"Gemini API call failed: {exc}"
+
+
+# ---------------------------------------------------------------------------
+# Parse and validate Gemini response
+# ---------------------------------------------------------------------------
+
+
+def _parse_and_validate_response(raw_text: str) -> tuple[dict | None, str]:
+    """Parse JSON, validate schema, and check replacement_code safety.
+
+    Returns (patch, error).
+    """
+    try:
+        patch = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        return None, f"Gemini response is not valid JSON: {exc}"
+
+    schema_err = _validate_patch_schema(patch)
+    if schema_err:
+        return None, f"Gemini response failed schema validation: {schema_err}"
+
+    code_err = _validate_replacement_code(patch["replacement_code"])
+    if code_err:
+        return None, f"Gemini replacement_code validation failed: {code_err}"
+
+    return patch, ""
+
+
+# ---------------------------------------------------------------------------
+# Live Gemini API call — free-tier / --live-model path
 # ---------------------------------------------------------------------------
 
 
@@ -444,10 +530,11 @@ def _propose_via_gemini_live(
     detector_source: str,
     api_key: str,
 ) -> tuple[dict | None, str]:
-    """Call the Gemini API and return (patch, error).
+    """Call the Gemini API for the --live-model path. Returns (patch, error).
 
-    This function is only reached after all safety gates have passed.
-    It does NOT check allow_live_model or live_model_enabled — callers do that.
+    This function is only reached after all --live-model safety gates pass.
+    Does NOT check allow_live_model or live_model_enabled — callers do that.
+    Does NOT track budget (use _propose_via_gemini_paid_credit for that).
     """
     model_name: str = genome.get("model_name", "gemini-2.0-flash")
     max_output_tokens: int = int(genome.get("max_output_tokens", 2048))
@@ -466,57 +553,108 @@ def _propose_via_gemini_live(
             "Refusing to call Gemini."
         )
 
-    # Preflight secret scan — last line of defence before sending to Gemini
+    # Preflight secret scan
     scan_err = _preflight_secret_scan(full_prompt_for_scan)
     if scan_err:
         return None, scan_err
 
-    # Import google-genai (optional dependency)
-    try:
-        from google import genai  # type: ignore[import]
-        from google.genai import types as genai_types  # type: ignore[import]
-    except ImportError:
+    raw_text, _inp_tok, _out_tok, api_err = _call_gemini_api(
+        api_key, model_name, user_prompt, max_output_tokens, temperature
+    )
+    if api_err:
+        return None, api_err
+
+    return _parse_and_validate_response(raw_text)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Paid-credit Gemini API call — --gemini-paid-credit path
+# ---------------------------------------------------------------------------
+
+
+def _propose_via_gemini_paid_credit(
+    genome: dict,
+    detector_source: str,
+    api_key: str,
+    ledger_path: Path,
+) -> tuple[dict | None, str]:
+    """Call Gemini with full budget enforcement and ledger tracking.
+
+    Returns (patch, error).
+    All safety gates have been validated by the caller (propose_mutation).
+    This function:
+      1. Builds and secret-scans the prompt
+      2. Estimates cost and asserts budget availability
+      3. Calls Gemini once
+      4. Appends a usage record (success or failure) to the ledger
+      5. Validates the response
+    """
+    # Import budget module (standard library only)
+    from scripts import api_budget as budget  # type: ignore[import]
+
+    model_name: str = genome.get("model_name", "gemini-2.0-flash")
+    max_output_tokens: int = int(genome.get("max_output_tokens", 2048))
+    temperature: float = float(genome.get("temperature", 0.2))
+    max_prompt_chars: int = int(genome.get("max_prompt_chars", 12000))
+    api_mode: str = genome.get("api_mode", "gemini_paid_credit")
+
+    # Build user prompt (never includes secrets)
+    user_prompt = _build_user_prompt(genome, detector_source)
+    full_prompt_for_scan = _LLM_SYSTEM_PROMPT + "\n" + user_prompt
+
+    # Prompt length gate
+    if len(full_prompt_for_scan) > max_prompt_chars:
         return None, (
-            "google-genai is not installed. "
-            "Install the gemini extra: pip install 'cyber-immunizer[gemini]' "
-            "or: pip install 'google-genai>=1.0.0'"
+            f"Prompt too long: {len(full_prompt_for_scan)} chars "
+            f"exceeds max_prompt_chars={max_prompt_chars}. "
+            "Refusing to call Gemini."
         )
 
-    # Single API call (max_model_requests_per_run enforced by caller)
+    # Preflight secret scan — must pass before cost estimation
+    scan_err = _preflight_secret_scan(full_prompt_for_scan)
+    if scan_err:
+        return None, scan_err
+
+    # Cost estimation
+    input_chars = len(full_prompt_for_scan)
+    output_chars = max_output_tokens * 4  # conservative: assume full output
+    est_input_tokens = budget.estimate_tokens_from_chars(input_chars)
+    est_output_tokens = budget.estimate_tokens_from_chars(output_chars)
+    est_cost = budget.estimate_cost_usd(est_input_tokens, est_output_tokens, model_name)
+
+    # Load ledger and assert budget
     try:
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=model_name,
-            contents=user_prompt,
-            config=genai_types.GenerateContentConfig(
-                system_instruction=_LLM_SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                response_schema=_PATCH_SCHEMA_FOR_GEMINI,
-                max_output_tokens=max_output_tokens,
-                temperature=temperature,
-            ),
-        )
-        raw_text: str = response.text
-    except Exception as exc:
-        return None, f"Gemini API call failed: {exc}"
+        ledger = budget.load_ledger(ledger_path)
+    except ValueError as exc:
+        return None, f"API usage ledger is malformed; refusing call: {exc}"
 
-    # Parse JSON response
-    try:
-        patch = json.loads(raw_text)
-    except json.JSONDecodeError as exc:
-        return None, f"Gemini response is not valid JSON: {exc}"
+    budget_ok, budget_err = budget.assert_budget_available(genome, ledger, est_cost)
+    if not budget_ok:
+        return None, budget_err
 
-    # Validate against the full schema (including maxLength / maxItems)
-    schema_err = _validate_patch_schema(patch)
-    if schema_err:
-        return None, f"Gemini response failed schema validation: {schema_err}"
+    # Single Gemini API call
+    raw_text, actual_input_tokens, actual_output_tokens, api_err = _call_gemini_api(
+        api_key, model_name, user_prompt, max_output_tokens, temperature
+    )
 
-    # Validate replacement_code for forbidden patterns
-    code_err = _validate_replacement_code(patch["replacement_code"])
-    if code_err:
-        return None, f"Gemini replacement_code validation failed: {code_err}"
+    # Append usage record regardless of success/failure
+    budget.append_usage_record(
+        ledger_path,
+        provider="gemini",
+        api_mode=api_mode,
+        model=model_name,
+        estimated_input_chars=input_chars,
+        estimated_output_chars=output_chars,
+        actual_input_tokens=actual_input_tokens,
+        actual_output_tokens=actual_output_tokens,
+        success=(api_err == ""),
+        error=api_err,
+    )
 
-    return patch, ""
+    if api_err:
+        return None, api_err
+
+    return _parse_and_validate_response(raw_text)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -529,15 +667,15 @@ def propose_mutation(
     offline_sample: bool = False,
     live_model: bool = False,
     allow_live_model: bool = False,
+    gemini_paid_credit: bool = False,
 ) -> tuple[dict | None, str]:
     """Propose a mutation patch. Returns (patch, error).
 
     Args:
-        offline_sample: Return the built-in sample patch immediately.
-        live_model: Call the Gemini API (requires allow_live_model=True and
-                    all pre-flight gates).
-        allow_live_model: Explicit opt-in flag; live_model is silently
-                         refused without it.
+        offline_sample:      Return the built-in sample patch immediately.
+        live_model:          Call Gemini (free-tier path).
+        allow_live_model:    Explicit opt-in flag required by both live modes.
+        gemini_paid_credit:  Call Gemini with budget enforcement and ledger.
     """
     # Load genome for configuration and rate-limit checks
     try:
@@ -555,16 +693,16 @@ def propose_mutation(
     if offline_sample:
         return _SAMPLE_MUTATION, ""
 
-    # ---- Live model mode ----
-    if live_model:
-        # Gate 1: explicit opt-in flag
+    # ---- Paid-credit mode ----
+    if gemini_paid_credit:
+        # Gate: explicit opt-in flag
         if not allow_live_model:
             return None, (
-                "--live-model requires --allow-live-model. "
-                "Pass both flags together to explicitly opt in to API calls."
+                "--gemini-paid-credit requires --allow-live-model. "
+                "Pass both flags together to explicitly opt in to paid API calls."
             )
 
-        # Gate 2: API key
+        # Gate: API key
         api_key = os.environ.get("GEMINI_API_KEY", "")
         if not api_key:
             return None, (
@@ -572,7 +710,7 @@ def propose_mutation(
                 "Set GEMINI_API_KEY or use --offline-sample."
             )
 
-        # Gate 3: genome.live_model_enabled
+        # Gate: live_model_enabled
         if not genome.get("live_model_enabled", False):
             return None, (
                 "genome.live_model_enabled is false. "
@@ -580,7 +718,37 @@ def propose_mutation(
                 "live API calls."
             )
 
-        # Gate 4: max_model_requests_per_run
+        # Gate: require_paid_tier
+        if not genome.get("require_paid_tier", False):
+            return None, (
+                "genome.require_paid_tier is false. "
+                "Set require_paid_tier=true in data/genome.json to confirm "
+                "you are using paid API quota."
+            )
+
+        # Gate: free_tier_only must be false
+        if genome.get("free_tier_only", True):
+            return None, (
+                "genome.free_tier_only is true. "
+                "Set free_tier_only=false in data/genome.json to enable "
+                "paid-credit mode (requires billing-linked project)."
+            )
+
+        # Gate: monthly budget must be > 0
+        if float(genome.get("monthly_api_budget_usd", 0.0)) <= 0:
+            return None, (
+                "genome.monthly_api_budget_usd is 0 or negative. "
+                "Set a positive monthly budget to allow paid API calls."
+            )
+
+        # Gate: daily budget must be > 0
+        if float(genome.get("daily_api_budget_usd", 0.0)) <= 0:
+            return None, (
+                "genome.daily_api_budget_usd is 0 or negative. "
+                "Set a positive daily budget to allow paid API calls."
+            )
+
+        # Gate: max_model_requests_per_run
         max_requests = int(genome.get("max_model_requests_per_run", 1))
         if max_requests > 1:
             return None, (
@@ -588,7 +756,86 @@ def propose_mutation(
                 "must be <= 1 for safety. Reduce it in data/genome.json."
             )
 
-        # Gate 5: model safety — reject "pro" models when free_tier_only=true
+        # Gate: no Google Search grounding
+        if genome.get("allow_google_search_grounding", False):
+            return None, (
+                "genome.allow_google_search_grounding is true. "
+                "Grounding is disabled for safety; set it to false."
+            )
+
+        # Gate: no code execution tool
+        if genome.get("allow_code_execution_tool", False):
+            return None, (
+                "genome.allow_code_execution_tool is true. "
+                "Code execution tool is disabled for safety; set it to false."
+            )
+
+        # Gate: no URL context
+        if genome.get("allow_url_context", False):
+            return None, (
+                "genome.allow_url_context is true. "
+                "URL context is disabled for safety; set it to false."
+            )
+
+        # Gate: must not send full repository
+        if genome.get("send_repository_full_text", False):
+            return None, (
+                "genome.send_repository_full_text is true. "
+                "Full repository text must never be sent to Gemini."
+            )
+
+        # Gate: must not send raw payloads
+        if genome.get("send_raw_payloads", False):
+            return None, (
+                "genome.send_raw_payloads is true. "
+                "Raw payloads must never be sent to Gemini."
+            )
+
+        # Gate: must not send secrets
+        if genome.get("send_secrets", False):
+            return None, (
+                "genome.send_secrets is true. "
+                "Secrets must never be sent to Gemini."
+            )
+
+        return _propose_via_gemini_paid_credit(
+            genome, detector_source, api_key, _LEDGER_PATH
+        )
+
+    # ---- Live model mode (free-tier / backward-compat path) ----
+    if live_model:
+        # Gate: explicit opt-in flag
+        if not allow_live_model:
+            return None, (
+                "--live-model requires --allow-live-model. "
+                "Pass both flags together to explicitly opt in to API calls."
+            )
+
+        # Gate: API key
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        if not api_key:
+            return None, (
+                "GEMINI_API_KEY environment variable is not set. "
+                "Set GEMINI_API_KEY or use --offline-sample."
+            )
+
+        # Gate: genome.live_model_enabled
+        if not genome.get("live_model_enabled", False):
+            return None, (
+                "genome.live_model_enabled is false. "
+                "Set live_model_enabled=true in data/genome.json to enable "
+                "live API calls."
+            )
+
+        # Gate: max_model_requests_per_run
+        max_requests = int(genome.get("max_model_requests_per_run", 1))
+        if max_requests > 1:
+            return None, (
+                f"genome.max_model_requests_per_run is {max_requests}; "
+                "must be <= 1 for safety. Reduce it in data/genome.json."
+            )
+
+        # Gate: model safety — reject "pro" models when free_tier_only=true
         model_name: str = genome.get("model_name", "gemini-2.0-flash")
         if genome.get("free_tier_only", True) and "pro" in model_name.lower():
             return None, (
@@ -598,14 +845,14 @@ def propose_mutation(
                 "with explicit budget approval."
             )
 
-        # Gate 6: no Google Search grounding
+        # Gate: no Google Search grounding
         if genome.get("allow_google_search_grounding", False):
             return None, (
                 "genome.allow_google_search_grounding is true. "
                 "Grounding is disabled for safety; set it to false."
             )
 
-        # Gate 7: no code execution tool
+        # Gate: no code execution tool
         if genome.get("allow_code_execution_tool", False):
             return None, (
                 "genome.allow_code_execution_tool is true. "
@@ -617,7 +864,8 @@ def propose_mutation(
     # ---- No mode selected ----
     return None, (
         "No mutation mode selected. "
-        "Use --noop, --offline-sample, or --live-model --allow-live-model."
+        "Use --noop, --offline-sample, --live-model --allow-live-model, "
+        "or --gemini-paid-credit --allow-live-model."
     )
 
 
@@ -649,8 +897,17 @@ def main(argv: list[str] | None = None) -> int:
         "--live-model",
         action="store_true",
         help=(
-            "Call the Gemini API to propose a mutation. "
+            "Call the Gemini API (free-tier path) to propose a mutation. "
             "Requires --allow-live-model and all pre-flight gates."
+        ),
+    )
+    parser.add_argument(
+        "--gemini-paid-credit",
+        action="store_true",
+        help=(
+            "Call the Gemini API with budget enforcement and ledger tracking "
+            "(Google AI Pro $10/month GenAI & Cloud credit path). "
+            "Requires --allow-live-model and all paid-tier gates."
         ),
     )
     parser.add_argument(
@@ -658,14 +915,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help=(
             "Explicit opt-in to live API calls. "
-            "Must be combined with --live-model. "
-            "Without this flag, --live-model is refused."
+            "Must be combined with --live-model or --gemini-paid-credit. "
+            "Without this flag, live API calls are refused."
         ),
     )
     parser.add_argument(
         "--json",
         action="store_true",
-        help="Output a JSON summary (always on for --noop).",
+        help="Output a JSON summary.",
     )
     args = parser.parse_args(argv)
 
@@ -682,6 +939,7 @@ def main(argv: list[str] | None = None) -> int:
         offline_sample=args.offline_sample,
         live_model=args.live_model,
         allow_live_model=args.allow_live_model,
+        gemini_paid_credit=args.gemini_paid_credit,
     )
 
     if err:
@@ -696,7 +954,13 @@ def main(argv: list[str] | None = None) -> int:
     _OUT_DIR.mkdir(parents=True, exist_ok=True)
     _OUT_PATCH.write_text(json.dumps(patch, indent=2), encoding="utf-8")
 
-    mode = "live-model" if args.live_model else "offline-sample"
+    if args.gemini_paid_credit:
+        mode = "gemini-paid-credit"
+    elif args.live_model:
+        mode = "live-model"
+    else:
+        mode = "offline-sample"
+
     output = {
         "success": True,
         "patch_path": str(_OUT_PATCH),
