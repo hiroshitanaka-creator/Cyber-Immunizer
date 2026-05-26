@@ -129,16 +129,43 @@ class TestRollbackBacktrackDesignContent:
         )
 
     def test_no_write_permission_for_generated_code(self) -> None:
-        """ROLLBACK_BACKTRACK_DESIGN.md must state that generated code must not run with write permissions."""
-        assert (
-            "write権限" in self.content
+        """ROLLBACK_BACKTRACK_DESIGN.md must explicitly state the prohibition on running
+        generated code in a job with write permissions.
+
+        Mere presence of the words 'generated code' is insufficient —
+        the document must contain an explicit prohibition phrase.
+        """
+        explicit_prohibition_found = (
+            "generated codeをwrite権限jobで実行しない" in self.content
             or "write権限jobで実行しない" in self.content
-            or "write permissions" in self.content.lower()
-            or "generated code" in self.content.lower()
-        ), (
-            "ROLLBACK_BACKTRACK_DESIGN.md must state that generated code must not run "
-            "in a job with write permissions"
+            or "generated code must not run with write permissions" in self.content.lower()
+            or "generated code must not be executed in write-permission jobs" in self.content.lower()
         )
+        assert explicit_prohibition_found, (
+            "ROLLBACK_BACKTRACK_DESIGN.md must contain an explicit prohibition such as "
+            "'generated codeをwrite権限jobで実行しない' or "
+            "'generated code must not run with write permissions'. "
+            "Simply mentioning 'generated code' is not sufficient."
+        )
+
+    def test_no_write_permission_for_generated_code_regression_guard(self) -> None:
+        """ROLLBACK_BACKTRACK_DESIGN.md must NOT contain any text that permits running
+        generated code with write permissions.
+
+        This guards against accidental future document degradation.
+        """
+        prohibited_phrases = [
+            "generated code may run with write permissions",
+            "generated code can run with write permissions",
+            "generated codeをwrite権限jobで実行する",
+            "write権限でgenerated codeを実行する",
+            "write権限でgenerated codeを実行してよい",
+        ]
+        for phrase in prohibited_phrases:
+            assert phrase not in self.content, (
+                f"ROLLBACK_BACKTRACK_DESIGN.md must NOT contain '{phrase}'. "
+                "This phrase would incorrectly permit running generated code with write permissions."
+            )
 
     def test_dry_run_default_policy(self) -> None:
         """ROLLBACK_BACKTRACK_DESIGN.md must state that dry-run is the default."""
@@ -242,14 +269,45 @@ class TestRollbackBacktrackDesignContent:
         )
 
     def test_ledger_not_in_apply_path(self) -> None:
-        """ROLLBACK_BACKTRACK_DESIGN.md must state that API usage ledger is not modified."""
-        assert (
+        """ROLLBACK_BACKTRACK_DESIGN.md must explicitly state that the API usage ledger
+        is NOT modified or rolled back during rollback/backtrack operations.
+
+        Mere presence of the words 'API usage ledger' is insufficient —
+        the document must contain an explicit prohibition phrase.
+        """
+        explicit_prohibition_found = (
             "API usage ledgerは変更しない" in self.content
-            or "API usage ledger" in self.content
-        ), (
-            "ROLLBACK_BACKTRACK_DESIGN.md must explicitly state the API usage ledger "
-            "is not modified during rollback/backtrack"
+            or "API usage ledgerは巻き戻さない" in self.content
+            or "api_usage_ledger.json must NOT be rolled back" in self.content
+            or "api_usage_ledger.json must not be rolled back" in self.content
+            or "API usage ledger is not modified" in self.content
+            or "API usage ledger must not be modified" in self.content
         )
+        assert explicit_prohibition_found, (
+            "ROLLBACK_BACKTRACK_DESIGN.md must contain an explicit prohibition such as "
+            "'API usage ledgerは変更しない' or 'API usage ledgerは巻き戻さない'. "
+            "Simply mentioning 'API usage ledger' is not sufficient."
+        )
+
+    def test_ledger_not_in_apply_path_regression_guard(self) -> None:
+        """ROLLBACK_BACKTRACK_DESIGN.md must NOT contain any text that includes the ledger
+        in the rollback/backtrack scope.
+
+        This guards against accidental future document degradation.
+        """
+        prohibited_phrases = [
+            "API usage ledger is included in rollback",
+            "api_usage_ledger.json をrollback対象に含める",
+            "api_usage_ledger.json もrollbackする",
+            "api_usage_ledger.json を巻き戻す",
+            "ledgerをrollbackする",
+            "ledger も rollback 対象",
+        ]
+        for phrase in prohibited_phrases:
+            assert phrase not in self.content, (
+                f"ROLLBACK_BACKTRACK_DESIGN.md must NOT contain '{phrase}'. "
+                "The API usage ledger must never be included in rollback/backtrack scope."
+            )
 
 
 # ---------------------------------------------------------------------------
