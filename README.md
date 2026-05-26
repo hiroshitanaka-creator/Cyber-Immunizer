@@ -136,6 +136,7 @@ Cyber-Immunizer/
 │   ├── test_api_activation_docs.py   # API Activation Runbook 存在・内容テスト（19件）
 │   ├── test_phase1_baseline_docs.py  # Phase 1 baseline 文書存在・Safety invariants テスト（25件）
 │   ├── test_phase2_plan_docs.py      # Phase 2 計画文書・定義整合性テスト（28件）
+│   ├── test_phase2_progress_docs.py  # Phase 2-A/B/C 完了・Phase 2-D next 進捗記載テスト（16件）
 │   └── test_pyproject.py             # pyproject.toml 設定・依存関係テスト（15件）
 ├── .github/
 │   ├── PULL_REQUEST_TEMPLATE.md  # PR 監査チェックリスト（GPT Audit Gate 用）
@@ -653,11 +654,12 @@ PR テンプレート（`.github/PULL_REQUEST_TEMPLATE.md`）に GPT Audit Gate 
 | `test_api_activation_docs.py` | 19 | API Activation Runbook 存在・GEMINI_API_KEY 登録禁止・live_model_enabled 手順・cron 禁止・README リンク |
 | `test_phase1_baseline_docs.py` | 25 | Phase 1 baseline 文書の存在・Safety invariants 記載・Exit criteria・Phase 2 移行条件 |
 | `test_phase2_plan_docs.py` | 28 | Phase 2 計画文書存在・API未接続制約・AUDIT_CHARTER 旧表現不在・README 表現整合性 |
+| `test_phase2_progress_docs.py` | 16 | Phase 2-A/B/C 完了・Phase 2-D next・Phase 2-E pending の記載検証・Phase 3 未着手／API 未接続の誤表現不在確認 |
 | `test_pyproject.py` | 15 | pyproject.toml 設定・パッケージメタデータ・依存関係・dev/gemini オプション |
 
 ```bash
 python -m pytest -v
-# 535 passed
+# 731 passed
 ```
 
 テストはすべて `tmp_path` インジェクションまたはファイルシステム参照（読み取り専用）を使用し、`core/detector.py` や `data/genome.json` などの実リポジトリファイルを変更しません。
@@ -694,7 +696,29 @@ python -m pytest -v
 
 Phase 2 の計画・実施内容・禁止事項の詳細は **[`docs/PHASE_2_PLAN.md`](docs/PHASE_2_PLAN.md)** を参照してください。
 
-### Phase 2-B: Rollback / Backtrack Design (design-only)
+### Phase 2 Progress Checkpoint (as of PR #22 / #23 / #24)
+
+| Phase item | Status |
+|---|---|
+| Phase 2-A: README dashboard accuracy improvement | ✅ Completed |
+| Phase 2-B: rollback / backtrack design documentation | ✅ Completed |
+| Phase 2-C: evolution_history audit specification | ✅ Completed |
+| Phase 2-D: offline-sample dry-run / promote separation design | ⏭ Next |
+| Phase 2-E: API activation checklist hardening | ⏳ Pending |
+
+> ℹ️ Phase 2-D (offline-sample dry-run / promote separation design) is the next item.
+> Phase 2-E (API activation checklist hardening) follows after Phase 2-D.
+> Phase 3 (real Gemini API connection) starts only after Human Owner explicit decision.
+
+### Phase 2-A: README Dashboard Accuracy Improvement (completed)
+
+README dashboard accuracy improvement was completed in PR #22.
+
+- Status block fields and display accuracy reviewed and updated
+- Phase 2 plan document linked from README
+- Current phase (Phase 2: API-disconnected operation) explicitly stated
+
+### Phase 2-B: Rollback / Backtrack Design (design-only, completed)
 
 Rollback / backtrack design is documented in **[`docs/ROLLBACK_BACKTRACK_DESIGN.md`](docs/ROLLBACK_BACKTRACK_DESIGN.md)**.
 

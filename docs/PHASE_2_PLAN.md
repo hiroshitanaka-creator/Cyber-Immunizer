@@ -6,6 +6,22 @@
 
 ---
 
+## Phase 2 進捗チェックリスト
+
+| Phase item | Status |
+|---|---|
+| Phase 2-A: README dashboard accuracy improvement | ✅ Completed (PR #22) |
+| Phase 2-B: rollback / backtrack design documentation | ✅ Completed (PR #23) |
+| Phase 2-C: evolution_history audit specification | ✅ Completed (PR #24) |
+| Phase 2-D: offline-sample dry-run / promote separation design | ⏭ Next |
+| Phase 2-E: API activation checklist hardening | ⏳ Pending |
+
+> ℹ️ **次の作業 (Next):** Phase 2-D — offline-sample の dry-run / promote 分離設計  
+> **未着手 (Pending):** Phase 2-E — API 接続前の運用チェックリスト整備  
+> Phase 3（実 Gemini API 接続）は Human Owner の明示的決定後にのみ開始されます。
+
+---
+
 ## Phase 2 の目的
 
 Phase 1 で確立した安全基盤（MAPE-K ループ・AST ポリシー・サブプロセス隔離・API 予算管理・fail-closed 設計）の上に、**API を接続しない状態での運用耐性**をさらに強化することです。
