@@ -77,7 +77,7 @@ jobs:
       #    Verifies the proposer runs without error in safe noop mode
       #    (no API call, no patch file written).
       # -----------------------------------------------------------------------
-      - name: Smoke test: propose_mutation --noop
+      - name: "Smoke test: propose_mutation --noop"
         run: |
           python scripts/propose_mutation.py \
             --noop \
@@ -88,7 +88,7 @@ jobs:
       #    Generates the built-in sample patch without any API call.
       #    Verifies schema validation and patch file output.
       # -----------------------------------------------------------------------
-      - name: Smoke test: propose_mutation --offline-sample
+      - name: "Smoke test: propose_mutation --offline-sample"
         run: |
           mkdir -p .cyber_immunizer
           python scripts/propose_mutation.py \
@@ -105,7 +105,7 @@ jobs:
       #      exit 1  only on tool failures (AST violation, timeout, crash)
       #    This ensures a legitimate score-improvement rejection does not fail CI.
       # -----------------------------------------------------------------------
-      - name: Smoke test: apply_mutation (offline sample patch)
+      - name: "Smoke test: apply_mutation (offline sample patch)"
         run: |
           python scripts/apply_mutation.py \
             --patch .cyber_immunizer/mutation_patch.json \
@@ -113,7 +113,7 @@ jobs:
             --out .cyber_immunizer/candidate_detector.py \
             --json
 
-      - name: Smoke test: evaluate_candidate (soft-reject)
+      - name: "Smoke test: evaluate_candidate (soft-reject)"
         run: |
           python scripts/evaluate_candidate.py \
             --candidate .cyber_immunizer/candidate_detector.py \
