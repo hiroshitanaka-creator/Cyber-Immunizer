@@ -654,12 +654,30 @@ python -m pytest -v
 |---|---|
 | Phase 1 baseline is frozen | `docs/PHASE_1_BASELINE.md` にすべての完了範囲・Safety invariants・Exit criteria が記録されている |
 | API is intentionally not connected yet | `GEMINI_API_KEY` は未登録・`live_model_enabled=false` のまま |
-| Next phase starts only after human owner decides | Human Owner が明示的に `GEMINI_API_KEY` を GitHub Secrets に登録することを決定した後のみ Phase 2 が開始される |
+| Next phase starts only after human owner decides | Human Owner が明示的に `GEMINI_API_KEY` を GitHub Secrets に登録することを決定した後のみ Phase 3 が開始される |
 
 > ⚠️ **CI テスト・noop・offline-sample・preflight は Phase 1 の範囲で動作確認済みです。**  
-> 実際の Gemini API 呼び出しは Phase 2 以降であり、Human Owner の決定なく開始してはなりません。
+> 実際の Gemini API 呼び出しは Phase 3 以降であり、Human Owner の決定なく開始してはなりません。
 
 詳細は [`docs/PHASE_1_BASELINE.md`](docs/PHASE_1_BASELINE.md) および [`docs/AUDIT_CHARTER.md`](docs/AUDIT_CHARTER.md) の Phase transition rule を参照してください。
+
+---
+
+## Phase 2: API未接続運用強化（現在進行中）
+
+**Phase 2 は API を接続しないまま、運用耐性・ドキュメント品質・監査品質を強化するフェーズです。**
+
+| 項目 | 内容 |
+|---|---|
+| **現在のフェーズ** | Phase 2: API未接続運用強化 |
+| **API接続状態** | 未接続（`live_model_enabled=false` を維持） |
+| **GEMINI_API_KEY** | 未登録（Phase 3 以降で Human Owner の判断のもと登録） |
+| **API接続予定** | Phase 3 以降（Human Owner の明示的決定が必要） |
+
+Phase 2 の計画・実施内容・禁止事項の詳細は **[`docs/PHASE_2_PLAN.md`](docs/PHASE_2_PLAN.md)** を参照してください。
+
+> ⚠️ **Phase 2 中は `live_model_enabled=true` への変更・`GEMINI_API_KEY` 登録・実 Gemini API call は行いません。**  
+> これらの変更を含む PR は GPT Audit Gate によって BLOCK または REQUEST CHANGES の対象になります。
 
 ---
 
