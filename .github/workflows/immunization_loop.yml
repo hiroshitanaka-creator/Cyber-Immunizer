@@ -4,13 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: >
-          Evolution mode:
-            noop          — skip propose/evaluate/promote (dry-run / branch test)
-            offline-sample — use built-in sample patch, no API call
-            live-model    — call Gemini API (requires GEMINI_API_KEY secret)
+        description: "Mutation proposal mode"
         required: false
-        default: "offline-sample"
+        default: "noop"
         type: choice
         options:
           - noop
@@ -25,9 +21,10 @@ on:
 jobs:
   # -----------------------------------------------------------------------
   # Job 1: PROPOSE
-  # Runs the mutation proposer (offline sample or live model).
+  # Runs the mutation proposer (noop / offline sample / live model).
   # Has read-only permissions and may receive GEMINI_API_KEY.
   # Does NOT execute candidate code.
+  # GEMINI_API_KEY is scoped to this job only.
   # -----------------------------------------------------------------------
   propose:
     name: Propose Mutation
@@ -46,6 +43,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install base dependencies
+        run: pip install -e ".[dev]"
+
       - name: Create working directory
         run: mkdir -p .cyber_immunizer
 
@@ -56,25 +56,27 @@ jobs:
           if [ "${{ github.event_name }}" = "schedule" ]; then
             echo "effective_mode=noop" >> "$GITHUB_OUTPUT"
           else
-            echo "effective_mode=${{ github.event.inputs.mode || 'offline-sample' }}" >> "$GITHUB_OUTPUT"
+            echo "effective_mode=${{ github.event.inputs.mode || 'noop' }}" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Install Gemini dependencies (live-model only)
+        if: steps.mode.outputs.effective_mode == 'live-model'
+        run: pip install "google-genai>=1.0.0" "pydantic>=2.0"
 
       - name: Propose mutation patch
         id: propose
         env:
+          # GEMINI_API_KEY is only present in the propose job.
+          # It is intentionally absent from evaluate and promote jobs.
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EFFECTIVE_MODE: ${{ steps.mode.outputs.effective_mode }}
         run: |
           if [ "$EFFECTIVE_MODE" = "noop" ]; then
-            echo "Mode is noop — skipping proposal."
-            echo "patch_exists=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "$EFFECTIVE_MODE" = "offline-sample" ]; then
+            python scripts/propose_mutation.py --noop --json
+          elif [ "$EFFECTIVE_MODE" = "offline-sample" ]; then
             python scripts/propose_mutation.py --offline-sample --json
           elif [ "$EFFECTIVE_MODE" = "live-model" ]; then
-            python scripts/propose_mutation.py --allow-live-model --json
+            python scripts/propose_mutation.py --live-model --allow-live-model --json
           else
             echo "Unknown mode: $EFFECTIVE_MODE" >&2
             exit 1
@@ -100,6 +102,7 @@ jobs:
   # Has read-only permissions and NO secrets.
   # Generated candidate code is never executed with write permissions or API keys.
   # Uses --soft-reject so adoption gate failures are not treated as CI errors.
+  # GEMINI_API_KEY is intentionally absent from this job.
   # -----------------------------------------------------------------------
   evaluate:
     name: Apply and Evaluate Candidate
@@ -120,6 +123,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Install base dependencies
+        run: pip install -e ".[dev]"
 
       - name: Create working directory
         run: mkdir -p .cyber_immunizer
@@ -183,6 +189,7 @@ print('true' if fr.get('passed_adoption_gate') else 'false')
   # Promotes the candidate ONLY if the adoption gate passed.
   # Has write permissions, but NO model API secrets.
   # Does not execute candidate code — only copies files and updates data.
+  # GEMINI_API_KEY is intentionally absent from this job.
   # -----------------------------------------------------------------------
   promote:
     name: Promote Candidate
@@ -206,6 +213,9 @@ print('true' if fr.get('passed_adoption_gate') else 'false')
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Install base dependencies
+        run: pip install -e ".[dev]"
 
       - name: Create working directory
         run: mkdir -p .cyber_immunizer

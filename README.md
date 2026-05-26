@@ -246,18 +246,63 @@ python scripts/update_readme.py
 
 ### LLM連携（Gemini）
 
-ライブ API 呼び出しは**明示的なオプトイン**が必要です。`GEMINI_API_KEY` が設定されていても、`--allow-live-model` フラグなしでは API は呼び出されません。
+ライブ API 呼び出しは**明示的なオプトイン**が必要です。複数の安全ゲートをすべてクリアした場合のみ API が呼び出されます。
+
+#### 推奨コマンド
 
 ```bash
-# オフラインサンプルのみ（APIキー不要、デフォルト推奨）
+# 推奨: オフラインサンプル（APIキー不要、デフォルト推奨）
 python scripts/propose_mutation.py --offline-sample --json
 
-# ライブモデル呼び出し（明示的オプトイン必須）
+# ライブモデル呼び出し（明示的ダブルオプトイン必須）
 export GEMINI_API_KEY=your_api_key_here
-python scripts/propose_mutation.py --allow-live-model --json
+python scripts/propose_mutation.py --live-model --allow-live-model --json
+
+# noop モード（パッチ生成なし、スケジュール実行のデフォルト）
+python scripts/propose_mutation.py --noop --json
 ```
 
-> 注意: MVP では Gemini API の実呼び出しはスタブ状態です。`--allow-live-model` フラグを渡しても実際のAPI呼び出しは行われず、スタブエラーが返ります。次スプリントで実装予定。スケジュール実行（cron）は常に `noop` モードで動作し、意図しないAPI呼び出しを防ぎます。
+#### Gemini API フリーティア運用ガイド
+
+> ⚠️ **重要: Google AI Pro アプリのサブスクリプションと Gemini API プロジェクトクォータは別物です。**
+> Google One AI Premium / Google AI Pro のアプリサブスクリプションは Gemini アプリ（gemini.google.com）で使用するものであり、API プロジェクトの無料クォータとは独立しています。API コールには別途 Google AI Studio / Google Cloud のプロジェクトが必要です。
+
+| 項目 | 推奨設定 |
+|---|---|
+| **モデル選択** | Flash / Flash-Lite 系（例: `gemini-2.0-flash`）を使用。Pro Preview は避ける |
+| **free_tier_only** | `true`（デフォルト）— Pro 系モデルを自動拒否 |
+| **live_model_enabled** | `false`（デフォルト）— 明示的に `true` にするまで API 呼び出し不可 |
+| **monthly_api_budget_usd** | `0`（デフォルト）— 無料枠のみ使用 |
+| **スケジュール実行** | 常に `noop` モード — 意図しない API コールを防ぐ |
+
+> ⚠️ **プライバシー注意: Gemini API の無料クォータで送信したデータは、Google によるモデル改善に使用される場合があります。**
+> シークレット、APIキー、環境変数、プライベートな脆弱性情報、実ユーザーログを絶対にプロンプトに含めないでください。
+> このシステムはプロンプト送信前に自動スキャンを実行し、機密トークンを検出した場合は送信を拒否します。
+
+#### 安全ゲート一覧（ライブモード）
+
+| ゲート | 条件 |
+|---|---|
+| 明示的オプトイン | `--live-model` + `--allow-live-model` の両フラグ必須 |
+| API キー | `GEMINI_API_KEY` 環境変数が設定されていること |
+| ゲノム設定 | `genome.live_model_enabled == true` |
+| リクエスト数制限 | `genome.max_model_requests_per_run <= 1` |
+| モデル安全性 | `free_tier_only=true` の場合、`model_name` に `"pro"` を含まないこと |
+| グラウンディング無効 | `genome.allow_google_search_grounding == false` |
+| コード実行無効 | `genome.allow_code_execution_tool == false` |
+| プロンプト長制限 | プロンプト全体が `genome.max_prompt_chars`（デフォルト 12000）以下 |
+| プリフライトスキャン | プロンプトに機密トークンが含まれないこと |
+
+#### Gemini オプション依存関係のインストール
+
+```bash
+# ライブモードを使用する場合のみ（通常の pytest 実行には不要）
+pip install "cyber-immunizer[gemini]"
+# または
+pip install "google-genai>=1.0.0" "pydantic>=2.0"
+```
+
+通常の `python -m pytest` 実行には `google-genai` は不要です。
 
 ---
 
@@ -326,9 +371,9 @@ python -m pytest -v
 
 | フェーズ | 内容 |
 |---|---|
-| **v0.1（現在）** | ローカルファーストの MVP スキャフォールド |
-| **v0.2** | Gemini API 実呼び出し実装、プロセス隔離強化（`resource.setrlimit`） |
-| **v0.3** | テストケース自動拡張、スコア履歴ダッシュボード |
+| **v0.1** | ローカルファーストの MVP スキャフォールド |
+| **v0.2（現在）** | Gemini API 実呼び出し実装（安全なフリーティア戦略、スキーマ拘束、プリフライトスキャン） |
+| **v0.3** | プロセス隔離強化（`resource.setrlimit`）、テストケース自動拡張、スコア履歴ダッシュボード |
 | **v0.4** | 複数検出器の並列評価、アンサンブル昇格 |
 | **将来** | 実WAFへの統合（別途セキュリティレビュー必須） |
 
