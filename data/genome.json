@@ -8,5 +8,15 @@
   "max_model_requests_per_run": 1,
   "max_fp_rate": 0.05,
   "min_regression_pass_rate": 1.0,
-  "max_avg_latency_ms": 100.0
+  "max_avg_latency_ms": 100.0,
+  "model_provider": "gemini",
+  "model_name": "gemini-2.0-flash",
+  "max_prompt_chars": 12000,
+  "max_output_tokens": 2048,
+  "temperature": 0.2,
+  "live_model_enabled": false,
+  "allow_google_search_grounding": false,
+  "allow_code_execution_tool": false,
+  "monthly_api_budget_usd": 0,
+  "free_tier_only": true
 }
