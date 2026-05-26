@@ -103,8 +103,10 @@ Cyber-Immunizer/
 │   ├── evolution_history.json  # 進化の全履歴
 │   └── api_usage_ledger.json   # Gemini API 使用量台帳（gemini-paid-credit モード）
 ├── docs/
-│   ├── AUDIT_CHARTER.md    # GPT Audit Gate 憲章（役割・カテゴリ・決定基準・出力フォーマット）
-│   └── PHASE_1_BASELINE.md # Phase 1 完了状態の固定記録（Safety invariants・Exit criteria）
+│   ├── AUDIT_CHARTER.md         # GPT Audit Gate 憲章（役割・カテゴリ・決定基準・Phase 2/3 transition rule）
+│   ├── PHASE_1_BASELINE.md      # Phase 1 完了状態の固定記録（Safety invariants・Exit criteria）
+│   ├── PHASE_2_PLAN.md          # Phase 2 計画文書（API未接続運用強化・やること/やらないこと・Phase 3条件）
+│   └── API_ACTIVATION_RUNBOOK.md # API有効化手順書（Phase 3 で実施・GEMINI_API_KEY 登録〜live_model_enabled=true）
 ├── intelligence/
 │   └── threat_feeds.py     # 脅威インテリジェンスモジュール（スタブ）
 ├── scripts/
@@ -116,16 +118,24 @@ Cyber-Immunizer/
 │   ├── api_budget.py           # API 予算管理（標準ライブラリのみ、fail-closed）
 │   └── update_readme.py        # READMEステータスブロック更新
 ├── tests/
-│   ├── test_contract.py              # 検出器インターフェース契約テスト
-│   ├── test_ast_policy.py            # ASTポリシー検証テスト
-│   ├── test_fitness.py               # 適合度評価テスト
-│   ├── test_mutation_boundaries.py   # 変異境界テスト
-│   ├── test_promote_candidate.py     # 昇格ゲートテスト（tmp_path使用、実ファイル非破壊）
-│   ├── test_types.py                 # Request イミュータビリティテスト
+│   ├── test_contract.py              # 検出器インターフェース契約テスト（20件）
+│   ├── test_ast_policy.py            # ASTポリシー検証テスト（32件）
+│   ├── test_fitness.py               # 適合度評価テスト（22件）
+│   ├── test_mutation_boundaries.py   # 変異境界テスト（12件）
+│   ├── test_promote_candidate.py     # 昇格ゲートテスト（tmp_path使用、実ファイル非破壊）（15件）
+│   ├── test_types.py                 # Request イミュータビリティテスト（24件）
 │   ├── test_gemini_integration.py    # Gemini API 統合テスト（68件、モック使用）
-│   ├── test_api_budget.py            # API 予算管理テスト（49件）
-│   ├── test_gemini_paid_credit.py    # Gemini 有料クレジットモードテスト（44件）
-│   └── test_audit_docs.py            # 監査ドキュメント存在・内容テスト
+│   ├── test_api_budget.py            # API 予算管理テスト（51件）
+│   ├── test_gemini_paid_credit.py    # Gemini 有料クレジットモードテスト（48件）
+│   ├── test_audit_docs.py            # 監査ドキュメント存在・内容テスト（36件）
+│   ├── test_workflow.py              # immunization_loop ワークフロー構造テスト（54件）
+│   ├── test_ci_workflow.py           # CI ワークフロー構成テスト（13件）
+│   ├── test_preflight_mode.py        # gemini-paid-credit-preflight モードテスト（39件）
+│   ├── test_preflight_workflow.py    # preflight ワークフロー統合テスト（14件）
+│   ├── test_api_activation_docs.py   # API Activation Runbook 存在・内容テスト（19件）
+│   ├── test_phase1_baseline_docs.py  # Phase 1 baseline 文書存在・Safety invariants テスト（25件）
+│   ├── test_phase2_plan_docs.py      # Phase 2 計画文書・定義整合性テスト（28件）
+│   └── test_pyproject.py             # pyproject.toml 設定・依存関係テスト（15件）
 ├── .github/
 │   ├── PULL_REQUEST_TEMPLATE.md  # PR 監査チェックリスト（GPT Audit Gate 用）
 │   └── workflows/
@@ -623,23 +633,30 @@ PR テンプレート（`.github/PULL_REQUEST_TEMPLATE.md`）に GPT Audit Gate 
 
 ## テスト構成
 
-| テストファイル | カバレッジ |
-|---|---|
-| `test_contract.py` | 検出器の関数シグネチャ・戻り値型・信頼度範囲・無害リクエストの非ブロック・シンボリック指標の検出 |
-| `test_ast_policy.py` | `os` / `subprocess` / `eval` / `exec` / dunder・type/dir/super/breakpoint等の拒否、安全なコードの受理 |
-| `test_fitness.py` | ベースライン評価、全ブロック器の失敗、全許可器の失敗、リグレッション強制、スコア完全決定論性（レイテンシ除外を検証） |
-| `test_mutation_boundaries.py` | マーカー外の不変性、マーカーの存在、重複マーカーの拒否、マーカー含有コードの拒否、不正パッチの拒否 |
-| `test_promote_candidate.py` | ハッシュ検証・スキーマ検証・採用失敗時の拒否・ast_policy_ok=False時の拒否・fp_rate超過時の拒否（すべて `tmp_path` 使用、実ファイル非破壊） |
-| `test_types.py` | `Request.query` / `Request.headers` の MappingProxyType イミュータビリティ、構築後のソースdict変更の影響なし |
-| `test_gemini_integration.py` | noop・offline-sample・live-model モード、プリフライトスキャン、スキーマ検証、replacement_code 検証（68件） |
-| `test_api_budget.py` | トークン推定・月次/日次集計・月次/日次超過拒否・ledger 破損 fail-closed（上書き禁止）・不明モデル保守的コスト（51件） |
-| `test_gemini_paid_credit.py` | paid-credit ゲート拒否・予算超過拒否・シークレットスキャン・スキーマ検証・ledger 追記・ledger 書き込み失敗→hard error（48件） |
-| `test_audit_docs.py` | AUDIT_CHARTER.md 存在・PR テンプレート存在・BLOCK/REQUEST CHANGES/APPROVE 条件・symbolic indicator 整合性 |
-| `test_workflow.py` | persist-ledger ジョブ存在・権限・if条件に always() 必須・GEMINI_API_KEY 不在・candidate artifact 不在・promote の ledger 責務分離・concurrency・propose `set +e` 構造・finalize-propose-status の != success 厳格化・promote の persist-ledger sequencing（39件） |
+| テストファイル | 件数 | カバレッジ |
+|---|---|---|
+| `test_contract.py` | 20 | 検出器の関数シグネチャ・戻り値型・信頼度範囲・無害リクエストの非ブロック・シンボリック指標の検出 |
+| `test_ast_policy.py` | 32 | `os` / `subprocess` / `eval` / `exec` / dunder・type/dir/super/breakpoint等の拒否、安全なコードの受理 |
+| `test_fitness.py` | 22 | ベースライン評価、全ブロック器の失敗、全許可器の失敗、リグレッション強制、スコア完全決定論性（レイテンシ除外を検証） |
+| `test_mutation_boundaries.py` | 12 | マーカー外の不変性、マーカーの存在、重複マーカーの拒否、マーカー含有コードの拒否、不正パッチの拒否 |
+| `test_promote_candidate.py` | 15 | ハッシュ検証・スキーマ検証・採用失敗時の拒否・ast_policy_ok=False時の拒否・fp_rate超過時の拒否（すべて `tmp_path` 使用、実ファイル非破壊） |
+| `test_types.py` | 24 | `Request.query` / `Request.headers` の MappingProxyType イミュータビリティ、構築後のソースdict変更の影響なし |
+| `test_gemini_integration.py` | 68 | noop・offline-sample・live-model モード、プリフライトスキャン、スキーマ検証、replacement_code 検証（モック使用） |
+| `test_api_budget.py` | 51 | トークン推定・月次/日次集計・月次/日次超過拒否・ledger 破損 fail-closed（上書き禁止）・不明モデル保守的コスト |
+| `test_gemini_paid_credit.py` | 48 | paid-credit ゲート拒否・予算超過拒否・シークレットスキャン・スキーマ検証・ledger 追記・ledger 書き込み失敗→hard error |
+| `test_audit_docs.py` | 36 | AUDIT_CHARTER.md 存在・PR テンプレート存在・BLOCK/REQUEST CHANGES/APPROVE 条件・symbolic indicator 整合性 |
+| `test_workflow.py` | 54 | persist-ledger ジョブ存在・権限・if条件に always() 必須・GEMINI_API_KEY 不在・promote の ledger 責務分離・concurrency・propose `set +e` 構造・finalize-propose-status の != success 厳格化・persist-ledger sequencing |
+| `test_ci_workflow.py` | 13 | CI ワークフロー構成（read-only 権限・Gemini 不呼び出し・promote 不実行・timeout 設定） |
+| `test_preflight_mode.py` | 39 | gemini-paid-credit-preflight モード（GEMINI_API_KEY 未登録時 fail-closed・live_model_enabled=false 確認・API未呼び出し） |
+| `test_preflight_workflow.py` | 14 | preflight ワークフロー統合（ジョブ構成・権限・シークレット分離・skip 条件） |
+| `test_api_activation_docs.py` | 19 | API Activation Runbook 存在・GEMINI_API_KEY 登録禁止・live_model_enabled 手順・cron 禁止・README リンク |
+| `test_phase1_baseline_docs.py` | 25 | Phase 1 baseline 文書の存在・Safety invariants 記載・Exit criteria・Phase 2 移行条件 |
+| `test_phase2_plan_docs.py` | 28 | Phase 2 計画文書存在・API未接続制約・AUDIT_CHARTER 旧表現不在・README 表現整合性 |
+| `test_pyproject.py` | 15 | pyproject.toml 設定・パッケージメタデータ・依存関係・dev/gemini オプション |
 
 ```bash
 python -m pytest -v
-# 367 passed
+# 535 passed
 ```
 
 テストはすべて `tmp_path` インジェクションまたはファイルシステム参照（読み取り専用）を使用し、`core/detector.py` や `data/genome.json` などの実リポジトリファイルを変更しません。
@@ -686,8 +703,9 @@ Phase 2 の計画・実施内容・禁止事項の詳細は **[`docs/PHASE_2_PLA
 | フェーズ | 内容 |
 |---|---|
 | **v0.1** | ローカルファーストの MVP スキャフォールド |
-| **v0.2（現在）** | Gemini API 実呼び出し実装（安全なフリーティア戦略、スキーマ拘束、プリフライトスキャン） |
-| **v0.3** | プロセス隔離強化（`resource.setrlimit`）、テストケース自動拡張、スコア履歴ダッシュボード |
+| **v0.2** | Gemini API 統合基盤（安全なフリーティア戦略・スキーマ拘束・プリフライトスキャン・API予算管理） |
+| **v0.2.x（現在 / Phase 2）** | API未接続運用強化（rollback設計・evolution_history監査・offline-sample dry-run分離・運用チェックリスト整備） |
+| **v0.3（Phase 3 以降）** | 実 Gemini API 接続（Human Owner の明示的決定が必要）・プロセス隔離強化（`resource.setrlimit`）・スコア履歴ダッシュボード |
 | **v0.4** | 複数検出器の並列評価、アンサンブル昇格 |
 | **将来** | 実WAFへの統合（別途セキュリティレビュー必須） |
 
