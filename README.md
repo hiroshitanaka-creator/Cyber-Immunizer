@@ -425,6 +425,100 @@ python scripts/propose_mutation.py --noop --json
 
 ---
 
+## Phase 1-C: gemini-paid-credit preflight
+
+### 概要
+
+`gemini-paid-credit-preflight` モードは、実際のGemini API呼び出しを行う前に、Google AI Pro / $10 GenAI & Cloud クレジット運用の準備状態を安全に検証するための事前確認モードです。
+
+**このモードではGemini APIを絶対に呼びません。**
+
+### 確認項目
+
+| 確認項目 | 内容 |
+|---|---|
+| `data/genome.json` 読み込み | ファイルが存在し読める |
+| `core/detector.py` 読み込み | ファイルが存在し読める |
+| `GEMINI_API_KEY` 存在確認 | 環境変数の存在のみ確認（値は絶対に表示しない） |
+| `genome.api_mode` | `"gemini_paid_credit"` であること |
+| `genome.model_provider` | `"gemini"` であること |
+| `genome.live_model_enabled` | **`false` であること**（まだ実API実行前なので `true` なら失敗） |
+| `genome.require_paid_tier` | `true` であること |
+| `genome.free_tier_only` | `false` であること |
+| `genome.monthly_api_budget_usd` | `> 0` であること |
+| `genome.daily_api_budget_usd` | `> 0` であること |
+| `genome.max_model_requests_per_run` | `<= 1` であること |
+| `allow_google_search_grounding` | `false` であること |
+| `allow_code_execution_tool` | `false` であること |
+| `allow_url_context` | `false` であること |
+| `send_repository_full_text` | `false` であること |
+| `send_raw_payloads` | `false` であること |
+| `send_secrets` | `false` であること |
+| `data/api_usage_ledger.json` | 存在し `load_ledger()` で読める |
+| プロンプト構築 | エラーなく構築できる |
+| プロンプト長 | `max_prompt_chars` 以内 |
+| シークレットスキャン | `_preflight_secret_scan` を通過する |
+| コスト推定 | `api_budget.estimate_cost_usd` で推定できる |
+| 予算確認 | `api_budget.assert_budget_available` が `true` を返す |
+
+### 実行方法
+
+**workflow_dispatch で実行（推奨）:**
+
+```
+GitHub Actions → Cyber-Immunizer Evolution Loop
+→ Run workflow → mode: gemini-paid-credit-preflight
+```
+
+**ローカルで実行（GEMINI_API_KEY必須）:**
+
+```bash
+export GEMINI_API_KEY=your_api_key_here  # 値はログに出ない
+python scripts/propose_mutation.py --gemini-paid-credit-preflight --json
+```
+
+### 期待される出力 (JSON)
+
+```json
+{
+  "success": true,
+  "mode": "gemini-paid-credit-preflight",
+  "api_call_performed": false,
+  "patch_path": null,
+  "ledger_written": false,
+  "live_model_enabled": false,
+  "gemini_api_key_present": true,
+  "monthly_api_budget_usd": 10.0,
+  "daily_api_budget_usd": 0.25,
+  "estimated_next_cost_usd": 0.000000,
+  "budget_available": true,
+  "warnings": []
+}
+```
+
+### workflow_dispatch での期待結果
+
+| ジョブ | 期待結果 |
+|---|---|
+| **Propose Mutation** | ✅ success |
+| **Persist API Usage Ledger** | ⏭ skipped（ledger未変更） |
+| **Finalize Propose Status** | ✅ success |
+| **Apply and Evaluate Candidate** | ⏭ skipped（patch未生成） |
+| **Promote Candidate** | ⏭ skipped（candidate未評価） |
+
+### preflight後の手順
+
+preflight が成功した場合、以下を人間オーナーが確認・実施してください：
+
+1. **Billing確認** — Cloud Billing リンク済みプロジェクトへのアクセスを確認
+2. **Secret確認** — GitHub Secrets に `GEMINI_API_KEY` が正しく登録されていることを確認
+3. **`live_model_enabled` 設定** — レビュー済みコミットで `data/genome.json` の `live_model_enabled` を `true` に変更
+4. **`mode=gemini-paid-credit` で実行** — workflow_dispatch で実際のAPI呼び出しを実施
+
+> ⚠️ preflight が成功しても、自動的にAPIを呼び出すことはありません。`live_model_enabled=true` への変更と `gemini-paid-credit` モードの手動実行は、人間オーナーの判断と操作が必要です。
+
+---
+
 ## GPT Audit Gate
 
 すべての PR はマージ前に **GPT Audit Gate** レビューを通過しなければなりません。詳細は `docs/AUDIT_CHARTER.md` を参照してください。

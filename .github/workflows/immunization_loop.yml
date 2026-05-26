@@ -13,6 +13,7 @@ on:
           - offline-sample
           - live-model
           - gemini-paid-credit
+          - gemini-paid-credit-preflight
   schedule:
     # Scheduled runs always use noop to avoid unintended API calls.
     # Trigger a manual workflow_dispatch with mode=offline-sample,
@@ -119,6 +120,12 @@ jobs:
             PROPOSE_EXIT=$?
           elif [ "$EFFECTIVE_MODE" = "gemini-paid-credit" ]; then
             python scripts/propose_mutation.py --gemini-paid-credit --allow-live-model --json
+            PROPOSE_EXIT=$?
+          elif [ "$EFFECTIVE_MODE" = "gemini-paid-credit-preflight" ]; then
+            # Preflight: verify readiness without calling the Gemini API.
+            # No API call is made; no patch is generated; ledger is not written.
+            # GEMINI_API_KEY is present in this job (for existence check only).
+            python scripts/propose_mutation.py --gemini-paid-credit-preflight --json
             PROPOSE_EXIT=$?
           else
             echo "Unknown mode: $EFFECTIVE_MODE" >&2

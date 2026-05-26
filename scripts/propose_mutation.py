@@ -4,6 +4,7 @@ Usage:
     python scripts/propose_mutation.py [--noop] [--offline-sample]
                                        [--live-model --allow-live-model]
                                        [--gemini-paid-credit --allow-live-model]
+                                       [--gemini-paid-credit-preflight]
                                        [--json]
 
 Modes:
@@ -26,6 +27,14 @@ Modes:
         require_paid_tier, free_tier_only==false, monthly_api_budget_usd > 0,
         daily_api_budget_usd > 0, and hard budget caps via api_budget.py.
         Appends a usage record to data/api_usage_ledger.json after each call.
+
+    --gemini-paid-credit-preflight
+        Verify the preparation state for gemini-paid-credit without making
+        any Gemini API call.  No patch is generated and the ledger is not
+        written.  Checks: genome settings, GEMINI_API_KEY existence (value
+        never logged), ledger readability, prompt length, secret scan, and
+        budget availability.  live_model_enabled=false is the expected state
+        for this preflight — if it is true, the check fails.
 
 SAFETY CONSTRAINTS (all modes):
     - No secrets, env vars, full repo text, raw exploit strings, real user logs,
@@ -677,6 +686,291 @@ def _propose_via_gemini_paid_credit(
 
 
 # ---------------------------------------------------------------------------
+# Preflight: verify gemini-paid-credit readiness without calling the API
+# ---------------------------------------------------------------------------
+
+
+def run_gemini_paid_credit_preflight() -> tuple[dict, str]:
+    """Verify readiness for gemini-paid-credit without calling the Gemini API.
+
+    All configuration gates (genome settings, API key existence, ledger state,
+    prompt length, secret scan, budget availability) are verified in sequence.
+    No API call is performed, no patch is written, and the ledger is not modified.
+
+    GEMINI_API_KEY is checked only for existence — its value is never included
+    in the returned dict, printed to stdout, or written to any log.
+
+    Returns:
+        (result_dict, error)  where:
+          - On success: result_dict has success=True, error is "".
+          - On failure: result_dict has success=False and an "error" field;
+            error string contains the reason (no API key values).
+
+    Expected genome state for this preflight:
+        live_model_enabled == false   (real API calls are NOT yet enabled)
+        api_mode == "gemini_paid_credit"
+        model_provider == "gemini"
+        require_paid_tier == true
+        free_tier_only == false
+        monthly_api_budget_usd > 0
+        daily_api_budget_usd > 0
+        max_model_requests_per_run <= 1
+        allow_google_search_grounding == false
+        allow_code_execution_tool == false
+        allow_url_context == false
+        send_repository_full_text == false
+        send_raw_payloads == false
+        send_secrets == false
+    """
+    from scripts import api_budget as budget  # standard-library-only module
+
+    warnings: list[str] = []
+
+    # --- Step 1: Read genome ---
+    try:
+        genome = json.loads(_GENOME_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:
+        err = f"could not read genome.json: {exc}"
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "error": err}, err
+
+    # --- Step 2: Read detector ---
+    try:
+        detector_source = _DETECTOR_PATH.read_text(encoding="utf-8")
+    except Exception as exc:
+        err = f"could not read detector: {exc}"
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "error": err}, err
+
+    # --- Step 3: GEMINI_API_KEY existence (value NEVER logged) ---
+    api_key_present = bool(os.environ.get("GEMINI_API_KEY", ""))
+    if not api_key_present:
+        err = (
+            "GEMINI_API_KEY environment variable is not set. "
+            "Set GEMINI_API_KEY in GitHub Secrets (value is never logged by "
+            "this preflight)."
+        )
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": False,
+                "error": err}, err
+
+    # --- Step 4: api_mode check ---
+    api_mode = genome.get("api_mode", "")
+    if api_mode != "gemini_paid_credit":
+        err = (
+            f"genome.api_mode is {api_mode!r}; "
+            "expected 'gemini_paid_credit' for this preflight."
+        )
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "error": err}, err
+
+    # --- Step 5: model_provider check ---
+    model_provider = genome.get("model_provider", "")
+    if model_provider != "gemini":
+        err = (
+            f"genome.model_provider is {model_provider!r}; "
+            "expected 'gemini' for this preflight."
+        )
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "error": err}, err
+
+    # --- Step 6: live_model_enabled must be false ---
+    # This preflight checks readiness BEFORE enabling live API calls.
+    # If live_model_enabled is already true, the operator may have enabled it
+    # prematurely; this preflight gate rejects that state to enforce the
+    # review-before-enablement workflow.
+    live_model_enabled = bool(genome.get("live_model_enabled", False))
+    if live_model_enabled:
+        err = (
+            "genome.live_model_enabled is true. "
+            "This preflight verifies the pre-API-call state; "
+            "live_model_enabled must remain false until the human owner "
+            "confirms Billing and Secret configuration are complete. "
+            "After passing this preflight, set live_model_enabled=true "
+            "in a reviewed commit to enable actual API calls."
+        )
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "live_model_enabled": True, "error": err}, err
+
+    # --- Step 7: require_paid_tier ---
+    if not genome.get("require_paid_tier", False):
+        err = (
+            "genome.require_paid_tier is false. "
+            "Set require_paid_tier=true to confirm you are using paid API quota."
+        )
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "live_model_enabled": False, "error": err}, err
+
+    # --- Step 8: free_tier_only must be false ---
+    if genome.get("free_tier_only", True):
+        err = (
+            "genome.free_tier_only is true. "
+            "Set free_tier_only=false for paid-credit mode "
+            "(requires billing-linked project)."
+        )
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "live_model_enabled": False, "error": err}, err
+
+    # --- Step 9: monthly budget > 0 ---
+    monthly_budget = float(genome.get("monthly_api_budget_usd", 0.0))
+    if monthly_budget <= 0:
+        err = (
+            "genome.monthly_api_budget_usd is 0 or negative. "
+            "Set a positive monthly budget to allow paid API calls."
+        )
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "live_model_enabled": False, "error": err}, err
+
+    # --- Step 10: daily budget > 0 ---
+    daily_budget = float(genome.get("daily_api_budget_usd", 0.0))
+    if daily_budget <= 0:
+        err = (
+            "genome.daily_api_budget_usd is 0 or negative. "
+            "Set a positive daily budget to allow paid API calls."
+        )
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "live_model_enabled": False, "error": err}, err
+
+    # --- Step 11: max_model_requests_per_run <= 1 ---
+    max_requests = int(genome.get("max_model_requests_per_run", 1))
+    if max_requests > 1:
+        err = (
+            f"genome.max_model_requests_per_run is {max_requests}; "
+            "must be <= 1 for safety. Reduce it in data/genome.json."
+        )
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "live_model_enabled": False, "error": err}, err
+
+    # --- Step 12: safety flags ---
+    if genome.get("allow_google_search_grounding", False):
+        err = (
+            "genome.allow_google_search_grounding is true. "
+            "Grounding is disabled for safety; set it to false."
+        )
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "live_model_enabled": False, "error": err}, err
+
+    if genome.get("allow_code_execution_tool", False):
+        err = (
+            "genome.allow_code_execution_tool is true. "
+            "Code execution tool is disabled for safety; set it to false."
+        )
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "live_model_enabled": False, "error": err}, err
+
+    if genome.get("allow_url_context", False):
+        err = (
+            "genome.allow_url_context is true. "
+            "URL context is disabled for safety; set it to false."
+        )
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "live_model_enabled": False, "error": err}, err
+
+    if genome.get("send_repository_full_text", False):
+        err = (
+            "genome.send_repository_full_text is true. "
+            "Full repository text must never be sent to Gemini."
+        )
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "live_model_enabled": False, "error": err}, err
+
+    if genome.get("send_raw_payloads", False):
+        err = (
+            "genome.send_raw_payloads is true. "
+            "Raw payloads must never be sent to Gemini."
+        )
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "live_model_enabled": False, "error": err}, err
+
+    if genome.get("send_secrets", False):
+        err = (
+            "genome.send_secrets is true. "
+            "Secrets must never be sent to Gemini."
+        )
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "live_model_enabled": False, "error": err}, err
+
+    # --- Step 13: Load and validate ledger ---
+    try:
+        ledger = budget.load_ledger(_LEDGER_PATH)
+    except ValueError as exc:
+        err = f"API usage ledger is malformed; preflight fails (fail closed): {exc}"
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "live_model_enabled": False, "error": err}, err
+
+    # --- Step 14: Build prompt and check length ---
+    model_name: str = genome.get("model_name", "gemini-2.0-flash")
+    max_prompt_chars: int = int(genome.get("max_prompt_chars", 12000))
+    max_output_tokens: int = int(genome.get("max_output_tokens", 2048))
+
+    user_prompt = _build_user_prompt(genome, detector_source)
+    full_prompt = _LLM_SYSTEM_PROMPT + "\n" + user_prompt
+
+    if len(full_prompt) > max_prompt_chars:
+        err = (
+            f"Prompt too long: {len(full_prompt)} chars "
+            f"exceeds max_prompt_chars={max_prompt_chars}. "
+            "Preflight fails."
+        )
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "live_model_enabled": False, "error": err}, err
+
+    # --- Step 15: Preflight secret scan ---
+    scan_err = _preflight_secret_scan(full_prompt)
+    if scan_err:
+        return {"success": False, "mode": "gemini-paid-credit-preflight",
+                "api_call_performed": False, "gemini_api_key_present": True,
+                "live_model_enabled": False, "error": scan_err}, scan_err
+
+    # --- Step 16: Cost estimation ---
+    input_chars = len(full_prompt)
+    output_chars = max_output_tokens * 4  # conservative: assume full output
+    est_input_tokens = budget.estimate_tokens_from_chars(input_chars)
+    est_output_tokens = budget.estimate_tokens_from_chars(output_chars)
+    est_cost = budget.estimate_cost_usd(est_input_tokens, est_output_tokens, model_name)
+
+    # --- Step 17: Budget availability check ---
+    budget_ok, budget_err_msg = budget.assert_budget_available(genome, ledger, est_cost)
+
+    result: dict = {
+        "success": budget_ok,
+        "mode": "gemini-paid-credit-preflight",
+        "api_call_performed": False,
+        "patch_path": None,
+        "ledger_written": False,
+        "live_model_enabled": False,
+        "gemini_api_key_present": True,  # confirmed present — value never included
+        "monthly_api_budget_usd": monthly_budget,
+        "daily_api_budget_usd": daily_budget,
+        "estimated_next_cost_usd": est_cost,
+        "budget_available": budget_ok,
+        "warnings": warnings,
+    }
+
+    if not budget_ok:
+        result["error"] = budget_err_msg
+        return result, budget_err_msg
+
+    return result, ""
+
+
+# ---------------------------------------------------------------------------
 # Main proposal logic
 # ---------------------------------------------------------------------------
 
@@ -930,6 +1224,17 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--gemini-paid-credit-preflight",
+        action="store_true",
+        help=(
+            "Verify readiness for gemini-paid-credit without making any API call. "
+            "No patch is generated and the ledger is not written. "
+            "Checks genome settings, GEMINI_API_KEY existence (value never logged), "
+            "ledger readability, prompt length, secret scan, and budget availability. "
+            "live_model_enabled=false is the expected state for this preflight."
+        ),
+    )
+    parser.add_argument(
         "--allow-live-model",
         action="store_true",
         help=(
@@ -953,6 +1258,27 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print("Mode: noop — no patch produced.")
         return 0
+
+    # ---- Preflight mode: verify readiness, no API call, no patch ----
+    if args.gemini_paid_credit_preflight:
+        result, err = run_gemini_paid_credit_preflight()
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            if result.get("success"):
+                print("Preflight: gemini-paid-credit-preflight PASSED")
+                print(f"  GEMINI_API_KEY present: {result.get('gemini_api_key_present')}")
+                print(f"  live_model_enabled: {result.get('live_model_enabled')}")
+                print(f"  monthly_api_budget_usd: {result.get('monthly_api_budget_usd')}")
+                print(f"  daily_api_budget_usd: {result.get('daily_api_budget_usd')}")
+                print(f"  estimated_next_cost_usd: {result.get('estimated_next_cost_usd'):.6f}")
+                print(f"  budget_available: {result.get('budget_available')}")
+                if result.get("warnings"):
+                    for w in result["warnings"]:
+                        print(f"  WARNING: {w}")
+            else:
+                print(f"Preflight FAILED: {err}", file=sys.stderr)
+        return 0 if result.get("success") else 1
 
     patch, err = propose_mutation(
         offline_sample=args.offline_sample,
