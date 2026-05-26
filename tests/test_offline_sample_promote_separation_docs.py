@@ -129,17 +129,22 @@ class TestSeparationDesign(_DocFixture):
         )
 
     def test_dry_run_artifact_is_not_promote_artifact(self) -> None:
-        """Design doc must state that dry-run artifact is NOT promote artifact."""
+        """Design doc must explicitly state that dry-run artifact is NOT promote artifact.
+
+        Codex fix: the weak fallback '(dry-run artifact in content and
+        promote artifact in content)' is removed.  Both words being present
+        is not sufficient — the document must contain an explicit negation.
+        """
         content = self.content
         assert (
             "dry-run artifact は promote artifact ではない" in content
             or "dry-run artifactはpromote artifactではない" in content
             or "dry-run artifact is NOT promote artifact" in content
             or "dry-run artifact is not promote artifact" in content
-            or ("dry-run artifact" in content and "promote artifact" in content)
         ), (
-            "docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md must state that "
-            "dry-run artifact is not promote artifact"
+            "docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md must explicitly state that "
+            "dry-run artifact is NOT promote artifact — "
+            "having both words present without negation is insufficient"
         )
 
     def test_offline_sample_success_is_not_promote_approval(self) -> None:
@@ -207,16 +212,37 @@ class TestSafetyBoundaries(_DocFixture):
     _path = _SEPARATION_DOC
 
     def test_ci_is_read_only_no_contents_write(self) -> None:
-        """Design doc must state that CI smoke path is read-only (no contents: write)."""
+        """Design doc must positively assert CI read-only AND must not allow contents:write.
+
+        Codex fix:
+        - Positive assertion: require "read-only" or "contents: read" or the
+          explicit "contents: write なし" phrase.
+        - "contents: write" alone is NOT acceptable as evidence of read-only.
+        - Every line that contains "contents: write" must also contain a
+          negation marker (なし / not / no  / without / does not).
+        """
         content = self.content
-        assert (
-            "contents: write" in content
-            or "read-only" in content
+        # 1. Positive assertion — the doc must explicitly say CI is read-only
+        has_read_only_statement = (
+            "read-only" in content
+            or "contents: read" in content
+            or "contents: write なし" in content
             or "read-only（contents: write なし）" in content
-        ), (
-            "docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md must state that "
-            "CI smoke path is read-only (no contents: write)"
         )
+        assert has_read_only_statement, (
+            "docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md must positively state that "
+            "CI smoke path is read-only (e.g. 'read-only' or 'contents: write なし')"
+        )
+        # 2. Negation check — "contents: write" must only appear with negation context
+        negation_markers = ("なし", "not ", "no ", "without", "does not")
+        for line in content.splitlines():
+            if "contents: write" in line:
+                line_lower = line.lower()
+                has_negation = any(m in line_lower or m in line for m in negation_markers)
+                assert has_negation, (
+                    f"'contents: write' appears without negation context — "
+                    f"this would indicate CI has write permissions: {line!r}"
+                )
 
     def test_no_gemini_api_key_in_ci(self) -> None:
         """Design doc must state that GEMINI_API_KEY is not passed to CI."""
@@ -267,17 +293,30 @@ class TestSafetyBoundaries(_DocFixture):
         )
 
     def test_api_usage_ledger_not_changed(self) -> None:
-        """Design doc must state that data/api_usage_ledger.json is not changed."""
+        """Design doc must explicitly state that api_usage_ledger.json is NOT changed.
+
+        Codex fix: mere presence of the filename 'api_usage_ledger.json' is not
+        sufficient — the test previously had a redundant last OR arm
+        ('api_usage_ledger.json' in content) that always passed.  The test now
+        requires an explicit non-change / exclusion statement near the filename.
+        """
         content = self.content
-        assert "api_usage_ledger" in content and (
-            "変更しない" in content
-            or "api_usage_ledger.jsonを変更しない" in content
-            or "data/api_usage_ledger.json 変更なし" in content
-            or "data/api_usage_ledger.json はpromote対象に含めない" in content
-            or "api_usage_ledger.json" in content
-        ), (
-            "docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md must state that "
-            "data/api_usage_ledger.json is not changed"
+        assert "api_usage_ledger" in content, (
+            "docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md must mention api_usage_ledger"
+        )
+        # Require an explicit statement that the ledger is NOT changed / excluded
+        has_explicit_non_change = (
+            "api_usage_ledger.jsonを変更しない" in content
+            or "api_usage_ledger.json 変更なし" in content
+            or "api_usage_ledger.json の変更" in content  # Non-goals list item
+            or "api_usage_ledger.json はpromote対象に含めない" in content
+            or "api_usage_ledger.json is not changed" in content
+            or "api_usage_ledger.json is excluded" in content
+        )
+        assert has_explicit_non_change, (
+            "docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md must explicitly state that "
+            "data/api_usage_ledger.json is not changed — "
+            "merely mentioning the filename is insufficient"
         )
 
     def test_promote_candidate_not_changed_in_phase2d(self) -> None:
@@ -568,7 +607,7 @@ class TestPhase2PlanLinksAndStatus:
 class TestRegressionGuard(_DocFixture):
     _path = _SEPARATION_DOC
 
-    # English dangerous phrases
+    # English dangerous phrases (Codex fix: added Gemini API call phrases)
     _FORBIDDEN_EN = [
         "offline-sample success means promote approved",
         "offline-sample may be promoted automatically",
@@ -581,6 +620,12 @@ class TestRegressionGuard(_DocFixture):
         "live_model_enabled=true in Phase 2-D",
         "promote_candidate.py is changed in Phase 2-D",
         "workflow is changed in Phase 2-D",
+        # Codex指摘5: Phase 2-D Gemini API call permission phrases
+        "Gemini API is called in Phase 2-D",
+        "Phase 2-D calls Gemini API",
+        "Gemini API call is allowed in Phase 2-D",
+        "Phase 2-D enables Gemini API",
+        "GEMINI_API_KEY is used in Phase 2-D",
     ]
 
     # Japanese dangerous phrases
@@ -604,6 +649,104 @@ class TestRegressionGuard(_DocFixture):
     @pytest.mark.parametrize("phrase", _FORBIDDEN_JA)
     def test_no_dangerous_japanese_phrase(self, phrase: str) -> None:
         """docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md must NOT contain dangerous Japanese phrases."""
+        assert phrase not in self.content, (
+            f"docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md must NOT contain: {phrase!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Targeted regression guards — api_usage_ledger modification (Codex指摘1)
+# ---------------------------------------------------------------------------
+
+
+class TestApiUsageLedgerRegressionGuard(_DocFixture):
+    """Reject explicit dangerous phrases that would allow ledger modification.
+
+    Codex指摘1 fix: beyond requiring an explicit non-change statement, also
+    parametrically reject any phrase that grants permission to modify or
+    include the ledger in promote artifacts.
+    """
+
+    _path = _SEPARATION_DOC
+
+    _FORBIDDEN = [
+        "api_usage_ledger.json is updated",
+        "api_usage_ledger.json is modified",
+        "API usage ledger may be changed",
+        "API usage ledger can be changed",
+        "API usage ledger is part of promote artifact",
+        "API usage ledger is included in promote",
+        "api_usage_ledger.json を変更する",
+        "API usage ledger を変更してよい",
+        "api_usage_ledger.json をpromote対象に含める",
+    ]
+
+    @pytest.mark.parametrize("phrase", _FORBIDDEN)
+    def test_no_ledger_modification_phrase(self, phrase: str) -> None:
+        """Design doc must NOT contain phrases allowing ledger modification."""
+        assert phrase not in self.content, (
+            f"docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md must NOT contain: {phrase!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Targeted regression guards — CI write permissions (Codex指摘2 / 指摘4)
+# ---------------------------------------------------------------------------
+
+
+class TestCiReadOnlyRegressionGuard(_DocFixture):
+    """Reject phrases that would grant CI smoke path write permissions.
+
+    Codex指摘2 / 指摘4 fix: even if the positive read-only statement exists,
+    the document must not contain phrases that explicitly grant write access to
+    the CI smoke path.
+    """
+
+    _path = _SEPARATION_DOC
+
+    _FORBIDDEN = [
+        "CI smoke path uses contents: write",
+        "CI smoke job has write permissions",
+        "CI smoke test can push",
+        "CI smoke test can promote",
+        "CI smoke job は write 権限",
+        "CI smoke testでgit pushする",
+    ]
+
+    @pytest.mark.parametrize("phrase", _FORBIDDEN)
+    def test_no_ci_write_permission_phrase(self, phrase: str) -> None:
+        """Design doc must NOT contain phrases granting CI smoke path write access."""
+        assert phrase not in self.content, (
+            f"docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md must NOT contain: {phrase!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Targeted regression guards — dry-run / promote artifact confusion (Codex指摘3)
+# ---------------------------------------------------------------------------
+
+
+class TestDryRunArtifactRegressionGuard(_DocFixture):
+    """Reject phrases that would equate dry-run artifacts with promote artifacts.
+
+    Codex指摘3 fix: the separation test now requires explicit negation; these
+    guards add a parametric second layer against dangerous equivalence phrases.
+    """
+
+    _path = _SEPARATION_DOC
+
+    _FORBIDDEN = [
+        "dry-run artifact is promote artifact",
+        "dry-run artifact can be treated as promote artifact",
+        "dry-run artifact may be promoted by default",
+        "dry-run artifact is promote eligible by default",
+        # Japanese variants (subset not already in TestRegressionGuard._FORBIDDEN_JA)
+        "dry-run artifactはデフォルトでpromote可能",
+    ]
+
+    @pytest.mark.parametrize("phrase", _FORBIDDEN)
+    def test_no_dry_run_promote_confusion_phrase(self, phrase: str) -> None:
+        """Design doc must NOT contain phrases equating dry-run with promote artifacts."""
         assert phrase not in self.content, (
             f"docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md must NOT contain: {phrase!r}"
         )
