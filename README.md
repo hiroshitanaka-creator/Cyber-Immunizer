@@ -749,8 +749,9 @@ Phase 2 の計画・実施内容・禁止事項の詳細は **[`docs/PHASE_2_PLA
 | Last Updated | 2026-05-26T07:28:45.915764Z |
 | Total Test Cases | N/A |
 | TP / FP / TN / FN | N/A / N/A / N/A / N/A |
+| Fitness Report | Not available — run baseline fitness to populate TP/FP/TN/FN |
 | Adoption Gate | ✅ Passed (generation 2) |
 | Active Threat IDs | `THREAT-2024-001` `THREAT-2024-002` `THREAT-2024-003` `THREAT-2024-004` `THREAT-2024-005` |
-| Status Block Updated | 2026-05-26 12:17 UTC |
+| Status Block Updated | 2026-05-26 14:23 UTC |
 
 <!-- CYBER_IMMUNIZER_STATUS_END -->

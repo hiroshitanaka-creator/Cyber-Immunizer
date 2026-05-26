@@ -819,3 +819,227 @@ class TestStringBooleanInGenome:
             genome_overrides={"live_model_enabled": True},
         )
         assert "| live_model_enabled | true |" in block
+
+
+# ---------------------------------------------------------------------------
+# Tests: Fitness Report N/A explanation (Option A)
+# ---------------------------------------------------------------------------
+
+def _run_update_with_report(
+    tmp_path: Path,
+    report_data: dict | None,
+    genome_overrides: dict | None = None,
+) -> tuple[str, str]:
+    """Run update_readme with an optional fitness report file.
+
+    If report_data is None, no report file is created (missing state).
+    If report_data is a dict, it is written to tmp_path/fitness_report.json.
+    Returns (full_readme_content, status_block_content).
+    """
+    readme_path = _make_readme(tmp_path)
+    genome_path = _make_genome(tmp_path, genome_overrides)
+
+    import scripts.update_readme as mod
+    original_genome = mod._GENOME_PATH
+    original_history = mod._HISTORY_PATH
+    original_threats = mod._THREATS_PATH
+    original_report = mod._REPORT_PATH
+
+    mod._GENOME_PATH = genome_path
+    mod._HISTORY_PATH = tmp_path / "evolution_history.json"
+    (tmp_path / "evolution_history.json").write_text("[]")
+    mod._THREATS_PATH = tmp_path / "active_threats.json"
+    (tmp_path / "active_threats.json").write_text("[]")
+
+    if report_data is None:
+        mod._REPORT_PATH = tmp_path / "nonexistent_report.json"  # doesn't exist
+    else:
+        report_path = tmp_path / "fitness_report.json"
+        report_path.write_text(json.dumps(report_data, indent=2))
+        mod._REPORT_PATH = report_path
+
+    try:
+        success = update_readme(readme_path)
+        assert success
+        content = readme_path.read_text(encoding="utf-8")
+        block = _extract_block(content)
+        return content, block
+    finally:
+        mod._GENOME_PATH = original_genome
+        mod._HISTORY_PATH = original_history
+        mod._THREATS_PATH = original_threats
+        mod._REPORT_PATH = original_report
+
+
+_SAMPLE_FITNESS_REPORT = {
+    "fitness_report": {
+        "total_cases": 20,
+        "true_positive": 10,
+        "false_positive": 1,
+        "true_negative": 8,
+        "false_negative": 1,
+        "tp_rate": 0.909,
+        "fp_rate": 0.111,
+        "fn_rate": 0.091,
+        "score": 500.0,
+        "passed_adoption_gate": False,
+        "rejection_reasons": [],
+    }
+}
+
+
+class TestFitnessReportNaExplanation:
+    """When fitness_report.json is missing, an explanatory row must appear.
+
+    Rules (from GPT Audit Gate REQUEST CHANGES):
+    - Do not fake or hard-code fitness numbers.
+    - When no report: show 'Not available' explanation, keep N/A values.
+    - When report present: show actual values, no 'Not available' row.
+    """
+
+    # --- Missing report ---
+
+    def test_fitness_report_row_present_when_no_report(self, tmp_path: Path) -> None:
+        """Fitness Report row must appear when no fitness report file exists."""
+        _, block = _run_update_with_report(tmp_path, report_data=None)
+        assert "Fitness Report" in block, (
+            "When no fitness report exists, a 'Fitness Report' row must appear"
+        )
+
+    def test_fitness_report_not_available_text_when_no_report(
+        self, tmp_path: Path
+    ) -> None:
+        """Fitness Report row must contain 'Not available' when no report exists."""
+        _, block = _run_update_with_report(tmp_path, report_data=None)
+        assert "Not available" in block, (
+            "Fitness Report row must say 'Not available' when no report file exists"
+        )
+
+    def test_fitness_report_explains_how_to_populate(self, tmp_path: Path) -> None:
+        """Fitness Report row must mention how to populate TP/FP/TN/FN."""
+        _, block = _run_update_with_report(tmp_path, report_data=None)
+        assert (
+            "baseline fitness" in block
+            or "TP/FP/TN/FN" in block
+            or "fitness" in block.lower()
+        ), (
+            "Fitness Report row must explain how to populate the fitness fields"
+        )
+
+    def test_total_test_cases_is_na_when_no_report(self, tmp_path: Path) -> None:
+        """Total Test Cases must be N/A when no fitness report exists."""
+        _, block = _run_update_with_report(tmp_path, report_data=None)
+        assert "| Total Test Cases | N/A |" in block, (
+            "Total Test Cases must remain N/A when no report exists"
+        )
+
+    def test_tp_fp_tn_fn_is_na_when_no_report(self, tmp_path: Path) -> None:
+        """TP / FP / TN / FN must all be N/A when no fitness report exists."""
+        _, block = _run_update_with_report(tmp_path, report_data=None)
+        assert "| TP / FP / TN / FN | N/A / N/A / N/A / N/A |" in block, (
+            "TP/FP/TN/FN must all be N/A when no report exists"
+        )
+
+    def test_no_stale_hard_coded_values_when_no_report(
+        self, tmp_path: Path
+    ) -> None:
+        """Must not show hard-coded stale values (15, 8 / 0 / 7 / 0) when no report."""
+        _, block = _run_update_with_report(tmp_path, report_data=None)
+        # These are the old stale values that must not appear
+        assert "| Total Test Cases | 15 |" not in block, (
+            "Must not hard-code stale total_cases=15"
+        )
+        assert "8 / 0 / 7 / 0" not in block, (
+            "Must not hard-code stale TP/FP/TN/FN values"
+        )
+
+    # --- Present report ---
+
+    def test_total_test_cases_populated_when_report_present(
+        self, tmp_path: Path
+    ) -> None:
+        """Total Test Cases must show the value from the fitness report."""
+        _, block = _run_update_with_report(tmp_path, report_data=_SAMPLE_FITNESS_REPORT)
+        assert "| Total Test Cases | 20 |" in block, (
+            "Total Test Cases must show total_cases from the fitness report"
+        )
+
+    def test_tp_fp_tn_fn_populated_when_report_present(
+        self, tmp_path: Path
+    ) -> None:
+        """TP / FP / TN / FN must show values from the fitness report."""
+        _, block = _run_update_with_report(tmp_path, report_data=_SAMPLE_FITNESS_REPORT)
+        assert "| TP / FP / TN / FN | 10 / 1 / 8 / 1 |" in block, (
+            "TP/FP/TN/FN must be populated from the fitness report"
+        )
+
+    def test_fitness_report_not_available_row_absent_when_report_present(
+        self, tmp_path: Path
+    ) -> None:
+        """'Not available' row must NOT appear when a valid fitness report exists."""
+        _, block = _run_update_with_report(tmp_path, report_data=_SAMPLE_FITNESS_REPORT)
+        assert "Not available" not in block, (
+            "When a valid fitness report exists, 'Not available' must not be shown"
+        )
+
+    def test_fitness_report_row_absent_when_report_present(
+        self, tmp_path: Path
+    ) -> None:
+        """'Fitness Report | Not available' row must NOT appear when report exists."""
+        _, block = _run_update_with_report(tmp_path, report_data=_SAMPLE_FITNESS_REPORT)
+        assert "| Fitness Report |" not in block, (
+            "The 'Fitness Report' explanatory row must not appear when report is present"
+        )
+
+    def test_report_with_top_level_fitness_fields(self, tmp_path: Path) -> None:
+        """Fitness values at top-level (no 'fitness_report' key) must also work."""
+        top_level_report = {
+            "total_cases": 15,
+            "true_positive": 8,
+            "false_positive": 0,
+            "true_negative": 7,
+            "false_negative": 0,
+        }
+        _, block = _run_update_with_report(tmp_path, report_data=top_level_report)
+        assert "| Total Test Cases | 15 |" in block
+        assert "| TP / FP / TN / FN | 8 / 0 / 7 / 0 |" in block
+        assert "Not available" not in block
+
+
+# ---------------------------------------------------------------------------
+# Tests: Real README.md Fitness Report state (read-only integration)
+# ---------------------------------------------------------------------------
+
+class TestRealReadmeFitnessReportState:
+    """Read-only check of the real README.md fitness report display."""
+
+    @pytest.fixture(autouse=True)
+    def load_readme(self) -> None:
+        readme = _PROJECT_ROOT / "README.md"
+        assert readme.exists(), "README.md must exist"
+        self.content = readme.read_text(encoding="utf-8")
+        self.block = _extract_block(self.content)
+
+    def test_real_readme_no_stale_hard_coded_fitness_values(self) -> None:
+        """Real README must not show stale hard-coded fitness numbers."""
+        # If no fitness report exists, these stale values must not appear
+        fitness_report_path = _PROJECT_ROOT / ".cyber_immunizer" / "fitness_report.json"
+        if not fitness_report_path.exists():
+            assert "| Total Test Cases | 15 |" not in self.block, (
+                "Stale total_cases=15 must not appear when no fitness report exists"
+            )
+            assert "8 / 0 / 7 / 0" not in self.block, (
+                "Stale TP/FP/TN/FN must not appear when no fitness report exists"
+            )
+
+    def test_real_readme_fitness_report_row_or_na_with_explanation(self) -> None:
+        """Real README must either show fitness values or a 'Not available' explanation."""
+        fitness_report_path = _PROJECT_ROOT / ".cyber_immunizer" / "fitness_report.json"
+        if not fitness_report_path.exists():
+            # No report: must show explanation
+            assert (
+                "Not available" in self.block
+                or "| Total Test Cases | N/A |" in self.block
+            ), (
+                "When no fitness report exists, README must show N/A or 'Not available'"
+            )

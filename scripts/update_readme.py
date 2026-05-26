@@ -149,6 +149,11 @@ def _build_status_block() -> str:
         f"| Last Updated | {last_updated} |",
         f"| Total Test Cases | {total_cases} |",
         f"| TP / FP / TN / FN | {tp} / {fp} / {tn} / {fn} |",
+        *(
+            []
+            if fitness is not None
+            else ["| Fitness Report | Not available — run baseline fitness to populate TP/FP/TN/FN |"]
+        ),
         f"| Adoption Gate | {adoption_status} |",
         f"| Active Threat IDs | {threat_ids} |",
         f"| Status Block Updated | {now} |",
