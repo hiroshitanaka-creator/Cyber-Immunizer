@@ -1,0 +1,189 @@
+name: Cyber-Immunizer Evolution Loop
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Run once daily at 02:00 UTC
+    - cron: "0 2 * * *"
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Job 1: PROPOSE
+  # Runs the mutation proposer (LLM or offline sample).
+  # Has read-only permissions and may receive GEMINI_API_KEY.
+  # Does NOT execute candidate code.
+  # -----------------------------------------------------------------------
+  propose:
+    name: Propose Mutation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      patch_exists: ${{ steps.propose.outputs.patch_exists }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Create working directory
+        run: mkdir -p .cyber_immunizer
+
+      - name: Propose mutation patch
+        id: propose
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          # If GEMINI_API_KEY is absent, fall back to offline sample.
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "GEMINI_API_KEY not set; using offline sample."
+            python scripts/propose_mutation.py --offline-sample --json
+          else
+            python scripts/propose_mutation.py --json
+          fi
+
+          if [ -f ".cyber_immunizer/mutation_patch.json" ]; then
+            echo "patch_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "patch_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload mutation patch artifact
+        if: steps.propose.outputs.patch_exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-patch
+          path: .cyber_immunizer/mutation_patch.json
+          retention-days: 1
+
+  # -----------------------------------------------------------------------
+  # Job 2: EVALUATE
+  # Applies the patch and evaluates the candidate in a subprocess.
+  # Has read-only permissions and NO secrets.
+  # Generated candidate code is never executed with write permissions or API keys.
+  # -----------------------------------------------------------------------
+  evaluate:
+    name: Apply and Evaluate Candidate
+    needs: propose
+    if: needs.propose.outputs.patch_exists == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # NOTE: no secrets: block — this job intentionally has no API keys.
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Create working directory
+        run: mkdir -p .cyber_immunizer
+
+      - name: Download mutation patch
+        uses: actions/download-artifact@v4
+        with:
+          name: mutation-patch
+          path: .cyber_immunizer/
+
+      - name: Apply mutation patch to candidate file
+        run: |
+          python scripts/apply_mutation.py \
+            --patch .cyber_immunizer/mutation_patch.json \
+            --base core/detector.py \
+            --out .cyber_immunizer/candidate_detector.py \
+            --json
+
+      - name: Evaluate candidate (subprocess + timeout)
+        id: evaluate
+        run: |
+          python scripts/evaluate_candidate.py \
+            --candidate .cyber_immunizer/candidate_detector.py \
+            --timeout 10 \
+            --json
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Upload candidate detector artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-detector
+          path: .cyber_immunizer/candidate_detector.py
+          retention-days: 1
+
+      - name: Upload fitness report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fitness-report
+          path: .cyber_immunizer/fitness_report.json
+          retention-days: 1
+
+  # -----------------------------------------------------------------------
+  # Job 3: PROMOTE
+  # Promotes the candidate only if evaluation succeeded.
+  # Has write permissions, but NO model API secrets.
+  # Does not execute candidate code — only copies files and updates data.
+  # -----------------------------------------------------------------------
+  promote:
+    name: Promote Candidate
+    needs: evaluate
+    if: needs.evaluate.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # NOTE: no GEMINI_API_KEY here — write permissions and model secrets are
+    # intentionally kept in separate jobs.
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Use a PAT or the default GITHUB_TOKEN with write permissions
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Create working directory
+        run: mkdir -p .cyber_immunizer
+
+      - name: Download candidate detector
+        uses: actions/download-artifact@v4
+        with:
+          name: candidate-detector
+          path: .cyber_immunizer/
+
+      - name: Download fitness report
+        uses: actions/download-artifact@v4
+        with:
+          name: fitness-report
+          path: .cyber_immunizer/
+
+      - name: Promote candidate
+        run: |
+          python scripts/promote_candidate.py \
+            --candidate .cyber_immunizer/candidate_detector.py \
+            --report .cyber_immunizer/fitness_report.json \
+            --json
+
+      - name: Update README status block
+        run: python scripts/update_readme.py
+
+      - name: Commit promoted changes
+        run: |
+          git config user.name "Cyber-Immunizer Bot"
+          git config user.email "cyber-immunizer-bot@noreply.github.com"
+          git add core/detector.py data/genome.json data/evolution_history.json README.md
+          git diff --cached --quiet || git commit -m \
+            "chore(immunizer): promote generation $(python -c \"import json; print(json.load(open('data/genome.json'))['generation'])\")"
+          git push

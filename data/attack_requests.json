@@ -1,0 +1,77 @@
+[
+  {
+    "id": "attack-001",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "Path traversal indicator in path",
+    "tags": ["attack", "path-traversal"],
+    "request": {
+      "method": "GET",
+      "path": "/files/../../../etc/passwd",
+      "query": {},
+      "headers": {},
+      "body": "",
+      "source_ip": "192.168.1.100"
+    }
+  },
+  {
+    "id": "attack-002",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "Script injection indicator in query",
+    "tags": ["attack", "xss"],
+    "request": {
+      "method": "GET",
+      "path": "/search",
+      "query": {"q": "<script>alert(1)</script>"},
+      "headers": {},
+      "body": "",
+      "source_ip": "192.168.1.101"
+    }
+  },
+  {
+    "id": "attack-003",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "SQL-like suspicious token in body",
+    "tags": ["attack", "sqli"],
+    "request": {
+      "method": "POST",
+      "path": "/api/login",
+      "query": {},
+      "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "body": "username=admin&password=' or '1'='1",
+      "source_ip": "192.168.1.102"
+    }
+  },
+  {
+    "id": "attack-004",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "Command-like suspicious token in query",
+    "tags": ["attack", "cmdi"],
+    "request": {
+      "method": "GET",
+      "path": "/api/ping",
+      "query": {"host": "localhost; ls /etc"},
+      "headers": {},
+      "body": "",
+      "source_ip": "192.168.1.103"
+    }
+  },
+  {
+    "id": "attack-005",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "URL-encoded traversal token in query",
+    "tags": ["attack", "path-traversal", "encoded"],
+    "request": {
+      "method": "GET",
+      "path": "/files",
+      "query": {"name": "%2e%2e%2fetc%2fpasswd"},
+      "headers": {},
+      "body": "",
+      "source_ip": "192.168.1.104"
+    }
+  }
+]
