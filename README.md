@@ -703,6 +703,14 @@ Rollback / backtrack design is documented in **[`docs/ROLLBACK_BACKTRACK_DESIGN.
 - `data/api_usage_ledger.json` is explicitly excluded from rollback/backtrack scope
 - dry-run is the default; `--apply` requires Human Owner approval
 
+### Phase 2-C: Evolution History Audit (design and audit spec only)
+
+Evolution history audit design is documented in **[`docs/EVOLUTION_HISTORY_AUDIT.md`](docs/EVOLUTION_HISTORY_AUDIT.md)**.
+
+- Phase 2-C is design and specification only — no implementation changes, no workflow changes, no API connections
+- Defines required record fields, integrity rules, fail-closed policy, and relationship with rollback/backtrack
+- `data/api_usage_ledger.json` is explicitly excluded from rollback/backtrack scope (never rolled back)
+
 > ⚠️ **Phase 2 中は `live_model_enabled=true` への変更・`GEMINI_API_KEY` 登録・実 Gemini API call は行いません。**  
 > これらの変更を含む PR は GPT Audit Gate によって BLOCK または REQUEST CHANGES の対象になります。
 
