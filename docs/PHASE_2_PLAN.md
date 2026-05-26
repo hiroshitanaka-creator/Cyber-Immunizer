@@ -17,6 +17,7 @@
 | Phase 2-E: API activation checklist hardening | ✅ Completed |
 
 > ℹ️ **Phase 2 complete as a readiness milestone.**  
+> Phase 2 completion checkpoint: **[`docs/PHASE_2_COMPLETION_CHECKPOINT.md`](./PHASE_2_COMPLETION_CHECKPOINT.md)**  
 > Phase 2-E — API activation checklist hardening が完了しました（docs/tests only）。  
 > Phase 2 complete does not mean Phase 3 is underway. Phase 3 requires Human Owner explicit decision.  
 > Phase 3 activation must be a dedicated PR. API remains disconnected until Phase 3 activation PR is approved and merged.
@@ -137,6 +138,7 @@ AI エージェント（Claude Code）は Phase 3 移行を自律的に判断・
 
 ## 関連ドキュメント
 
+- [`docs/PHASE_2_COMPLETION_CHECKPOINT.md`](./PHASE_2_COMPLETION_CHECKPOINT.md) — Phase 2 completion checkpoint（Phase 2-A〜2-E 完了状態の固定記録・Phase 3開始前readiness summary）
 - [`docs/PHASE_1_BASELINE.md`](./PHASE_1_BASELINE.md) — Phase 1 完了状態の固定記録
 - [`docs/ROLLBACK_BACKTRACK_DESIGN.md`](./ROLLBACK_BACKTRACK_DESIGN.md) — rollback / backtrack 設計文書（Phase 2-B: design-only）
 - [`docs/EVOLUTION_HISTORY_AUDIT.md`](./EVOLUTION_HISTORY_AUDIT.md) — evolution history 監査仕様（Phase 2-C: design and audit spec only）

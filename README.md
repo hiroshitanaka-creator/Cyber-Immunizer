@@ -702,6 +702,9 @@ Phase 2 の計画・実施内容・禁止事項の詳細は **[`docs/PHASE_2_PLA
 
 ### Phase 2 Progress Checkpoint (as of PR #22 / #23 / #24 / #25 / #26 / Phase 2-E)
 
+**Phase 2 completion checkpoint**: **[`docs/PHASE_2_COMPLETION_CHECKPOINT.md`](docs/PHASE_2_COMPLETION_CHECKPOINT.md)**  
+Phase 2 is complete as a readiness milestone. Phase 3 is not started. API remains not connected. live_model_enabled remains false. Human Owner explicit decision required before Phase 3.
+
 Phase 2 API activation checklist: **[`docs/API_ACTIVATION_CHECKLIST.md`](docs/API_ACTIVATION_CHECKLIST.md)**
 
 | Phase item | Status |
