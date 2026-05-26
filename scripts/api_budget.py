@@ -252,9 +252,10 @@ def append_usage_record(
     """Append one usage record to the ledger file at *path*.
 
     Calculates estimated token counts and cost from char counts.
-    If the file does not exist, it is created.
-    If the file is unreadable or malformed, the record is still written
-    (the malformed file is overwritten with a fresh array).
+    If the file does not exist, a new ledger file is created.
+    If the file exists but is malformed, a ValueError is raised and the
+    corrupt file is NOT overwritten.  Callers must treat this as a hard
+    error and refuse to proceed (fail closed).
 
     Args:
         path:                   Path to the ledger JSON file.
