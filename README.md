@@ -725,14 +725,33 @@ Phase 2 の計画・実施内容・禁止事項の詳細は **[`docs/PHASE_2_PLA
 
 | Field | Value |
 |---|---|
+| Current Phase | Phase 2 — API-disconnected operations |
+| API Connection | Not connected |
+| live_model_enabled | false |
+| API Mode | gemini_paid_credit |
+| Model Provider | gemini |
+| Max Model Requests / Run | 1 |
+| Max Commits / Run | 1 |
+| Monthly API Budget | 10.0 USD |
+| Daily API Budget | 0.25 USD |
+| Send Full Repository Text | false |
+| Send Raw Payloads | false |
+| Send Secrets | false |
+| Schedule Mode | noop only |
+| CI Status | Manual check required / see Actions |
+| Noop Path | Verified |
+| Offline Sample Path | Verified |
+| Paid-Credit Preflight | Fail-closed when GEMINI_API_KEY missing |
+| Phase 3 Gate | Human Owner explicit decision required |
 | Generation | 2 |
 | Best Score | 729.34 |
 | Detector Hash | `69aebceeaebf6f80…` |
 | Last Updated | 2026-05-26T07:28:45.915764Z |
-| Total Test Cases | 15 |
-| TP / FP / TN / FN | 8 / 0 / 7 / 0 |
+| Total Test Cases | N/A |
+| TP / FP / TN / FN | N/A / N/A / N/A / N/A |
+| Fitness Report | Not available — run baseline fitness to populate TP/FP/TN/FN |
 | Adoption Gate | ✅ Passed (generation 2) |
 | Active Threat IDs | `THREAT-2024-001` `THREAT-2024-002` `THREAT-2024-003` `THREAT-2024-004` `THREAT-2024-005` |
-| Status Block Updated | 2026-05-26 07:28 UTC |
+| Status Block Updated | 2026-05-26 14:23 UTC |
 
 <!-- CYBER_IMMUNIZER_STATUS_END -->
