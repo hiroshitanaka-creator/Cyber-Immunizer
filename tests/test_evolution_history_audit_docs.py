@@ -519,13 +519,19 @@ class TestEvolutionHistoryJsonFormat:
             )
 
     def test_generation_field_is_integer_when_present(self, history):
-        """If 'generation' is present in a record, it must be an integer."""
+        """If 'generation' is present in a record, it must be a strict integer (not bool).
+
+        Python's isinstance(True, int) returns True, so booleans must be explicitly
+        excluded. A record like {"generation": true} must be treated as invalid.
+        """
         for idx, record in enumerate(history):
             if "generation" in record:
                 value = record["generation"]
-                assert isinstance(value, int), (
+                assert isinstance(value, int) and not isinstance(value, bool), (
                     f"data/evolution_history.json record[{idx}]['generation'] "
-                    f"must be an integer, got {type(value).__name__}: {value!r}."
+                    f"must be a strict integer (not bool), "
+                    f"got {type(value).__name__}: {value!r}. "
+                    "JSON booleans (true/false) are not valid generation values."
                 )
 
     def test_hash_fields_are_nonempty_when_present(self, history):
@@ -578,13 +584,20 @@ class TestEvolutionHistoryJsonFormat:
                         )
 
     def test_score_is_number_when_present(self, history):
-        """If 'score' is present in a record, it must be a number (int or float)."""
+        """If 'score' is present in a record, it must be a numeric value (int or float,
+        but NOT bool).
+
+        Python's isinstance(True, (int, float)) returns True, so booleans must be
+        explicitly excluded. A record like {"score": true} must be treated as invalid.
+        """
         for idx, record in enumerate(history):
             if "score" in record:
                 value = record["score"]
-                assert isinstance(value, (int, float)), (
+                assert isinstance(value, (int, float)) and not isinstance(value, bool), (
                     f"data/evolution_history.json record[{idx}]['score'] "
-                    f"must be a number, got {type(value).__name__}: {value!r}."
+                    f"must be a numeric value (int or float, not bool), "
+                    f"got {type(value).__name__}: {value!r}. "
+                    "JSON booleans (true/false) are not valid score values."
                 )
 
     def test_generation_monotonically_nondecreasing(self, history):
@@ -593,11 +606,14 @@ class TestEvolutionHistoryJsonFormat:
         (allows equal values only if rollback/backtrack context is considered).
         This is a soft check — future records may use rollback with lower generation numbers.
         For the current history (which has no rollback records), verify no decreases.
+        Bool values are excluded from this check (they fail the strict-int test above).
         """
         generations = [
             (idx, record["generation"])
             for idx, record in enumerate(history)
-            if "generation" in record and isinstance(record["generation"], int)
+            if "generation" in record
+            and isinstance(record["generation"], int)
+            and not isinstance(record["generation"], bool)
         ]
         # Check current history has non-decreasing generations
         # (rollback records would have explicit source_mode, which is not in current history)
@@ -615,3 +631,111 @@ class TestEvolutionHistoryJsonFormat:
                     "without a rollback/backtrack source_mode. "
                     "Generations must be non-decreasing (or have explicit rollback context)."
                 )
+
+
+# ──────────────────────────────────────────────────────────────
+# 11. Bool contamination regression tests
+#     Verifies that the type-checking helpers above correctly reject
+#     JSON boolean values (true/false) in generation and score fields.
+#     Python's isinstance(True, int) is True and isinstance(True, float) is True,
+#     so explicit bool exclusion is required.
+# ──────────────────────────────────────────────────────────────
+
+def _is_valid_generation(value: object) -> bool:
+    """Return True iff value is a strict integer (not bool) — the valid type for 'generation'."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_valid_score(value: object) -> bool:
+    """Return True iff value is a numeric value (int or float, not bool) — valid for 'score'."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+class TestBoolContaminationRegressionGuard:
+    """Regression tests confirming that bool values are correctly rejected for
+    'generation' and 'score' fields in history records.
+
+    These tests do NOT modify data/evolution_history.json.
+    They exercise the type-checking logic in isolation using synthetic values.
+    """
+
+    # ── generation: invalid cases ──────────────────────────────
+
+    def test_generation_true_is_invalid(self):
+        """generation=true (JSON boolean) must be rejected as an invalid type."""
+        assert not _is_valid_generation(True), (
+            "True must be rejected as a generation value. "
+            "isinstance(True, int) is True in Python, so explicit bool exclusion is required."
+        )
+
+    def test_generation_false_is_invalid(self):
+        """generation=false (JSON boolean) must be rejected as an invalid type."""
+        assert not _is_valid_generation(False), (
+            "False must be rejected as a generation value. "
+            "isinstance(False, int) is True in Python, so explicit bool exclusion is required."
+        )
+
+    # ── generation: valid cases ────────────────────────────────
+
+    def test_generation_zero_is_valid(self):
+        """generation=0 (integer) must be accepted as a valid generation value."""
+        assert _is_valid_generation(0), (
+            "0 must be accepted as a valid generation value."
+        )
+
+    def test_generation_positive_integer_is_valid(self):
+        """generation=1 (positive integer) must be accepted as a valid generation value."""
+        assert _is_valid_generation(1), (
+            "1 must be accepted as a valid generation value."
+        )
+
+    def test_generation_large_integer_is_valid(self):
+        """generation=999 (large integer) must be accepted as a valid generation value."""
+        assert _is_valid_generation(999), (
+            "999 must be accepted as a valid generation value."
+        )
+
+    # ── score: invalid cases ───────────────────────────────────
+
+    def test_score_true_is_invalid(self):
+        """score=true (JSON boolean) must be rejected as an invalid numeric type."""
+        assert not _is_valid_score(True), (
+            "True must be rejected as a score value. "
+            "isinstance(True, (int, float)) is True in Python, "
+            "so explicit bool exclusion is required."
+        )
+
+    def test_score_false_is_invalid(self):
+        """score=false (JSON boolean) must be rejected as an invalid numeric type."""
+        assert not _is_valid_score(False), (
+            "False must be rejected as a score value. "
+            "isinstance(False, (int, float)) is True in Python, "
+            "so explicit bool exclusion is required."
+        )
+
+    # ── score: valid cases ─────────────────────────────────────
+
+    def test_score_integer_is_valid(self):
+        """score=1 (integer) must be accepted as a valid score value."""
+        assert _is_valid_score(1), (
+            "1 must be accepted as a valid score value."
+        )
+
+    def test_score_float_is_valid(self):
+        """score=1.5 (float) must be accepted as a valid score value."""
+        assert _is_valid_score(1.5), (
+            "1.5 must be accepted as a valid score value."
+        )
+
+    def test_score_negative_float_is_valid(self):
+        """score=-1000000.0 (large negative float) must be accepted as a valid score value."""
+        assert _is_valid_score(-1000000.0), (
+            "-1000000.0 must be accepted as a valid score value "
+            "(used for the baseline generation-0 record)."
+        )
+
+    def test_score_zero_is_valid(self):
+        """score=0 (zero integer) must be accepted as a valid score value."""
+        assert _is_valid_score(0), (
+            "0 must be accepted as a valid score value."
+        )
