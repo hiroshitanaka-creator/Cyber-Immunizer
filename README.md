@@ -103,10 +103,11 @@ Cyber-Immunizer/
 │   ├── evolution_history.json  # 進化の全履歴
 │   └── api_usage_ledger.json   # Gemini API 使用量台帳（gemini-paid-credit モード）
 ├── docs/
-│   ├── AUDIT_CHARTER.md         # GPT Audit Gate 憲章（役割・カテゴリ・決定基準・Phase 2/3 transition rule）
-│   ├── PHASE_1_BASELINE.md      # Phase 1 完了状態の固定記録（Safety invariants・Exit criteria）
-│   ├── PHASE_2_PLAN.md          # Phase 2 計画文書（API未接続運用強化・やること/やらないこと・Phase 3条件）
-│   └── API_ACTIVATION_RUNBOOK.md # API有効化手順書（Phase 3 で実施・GEMINI_API_KEY 登録〜live_model_enabled=true）
+│   ├── AUDIT_CHARTER.md              # GPT Audit Gate 憲章（役割・カテゴリ・決定基準・Phase 2/3 transition rule）
+│   ├── PHASE_1_BASELINE.md           # Phase 1 完了状態の固定記録（Safety invariants・Exit criteria）
+│   ├── PHASE_2_PLAN.md               # Phase 2 計画文書（API未接続運用強化・やること/やらないこと・Phase 3条件）
+│   ├── ROLLBACK_BACKTRACK_DESIGN.md  # rollback/backtrack 設計文書（Phase 2-B: design-only）
+│   └── API_ACTIVATION_RUNBOOK.md     # API有効化手順書（Phase 3 で実施・GEMINI_API_KEY 登録〜live_model_enabled=true）
 ├── intelligence/
 │   └── threat_feeds.py     # 脅威インテリジェンスモジュール（スタブ）
 ├── scripts/
@@ -692,6 +693,15 @@ python -m pytest -v
 | **API接続予定** | Phase 3 以降（Human Owner の明示的決定が必要） |
 
 Phase 2 の計画・実施内容・禁止事項の詳細は **[`docs/PHASE_2_PLAN.md`](docs/PHASE_2_PLAN.md)** を参照してください。
+
+### Phase 2-B: Rollback / Backtrack Design (design-only)
+
+Rollback / backtrack design is documented in **[`docs/ROLLBACK_BACKTRACK_DESIGN.md`](docs/ROLLBACK_BACKTRACK_DESIGN.md)**.
+
+- Phase 2-B is design-only — no rollback automation is implemented yet
+- Defines trigger conditions, safety invariants, future CLI design, and audit log fields
+- `data/api_usage_ledger.json` is explicitly excluded from rollback/backtrack scope
+- dry-run is the default; `--apply` requires Human Owner approval
 
 > ⚠️ **Phase 2 中は `live_model_enabled=true` への変更・`GEMINI_API_KEY` 登録・実 Gemini API call は行いません。**  
 > これらの変更を含む PR は GPT Audit Gate によって BLOCK または REQUEST CHANGES の対象になります。
