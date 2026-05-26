@@ -260,7 +260,7 @@ jobs:
         env:
           PROPOSE_FAILED: ${{ needs.propose.outputs.propose_failed }}
           LEDGER_CHANGED: ${{ needs.propose.outputs.ledger_changed }}
-          PERSIST_RESULT: ${{ needs.persist-ledger.result }}
+          PERSIST_RESULT: ${{ needs['persist-ledger'].result }}
         run: |
           echo "propose_failed=${PROPOSE_FAILED}"
           echo "ledger_changed=${LEDGER_CHANGED}"
@@ -394,7 +394,7 @@ print('true' if fr.get('passed_adoption_gate') else 'false')
       always() &&
       needs.evaluate.outputs.passed_adoption_gate == 'true' &&
       needs.propose.outputs.propose_failed != 'true' &&
-      (needs.persist-ledger.result == 'success' || needs.persist-ledger.result == 'skipped')
+      (needs['persist-ledger'].result == 'success' || needs['persist-ledger'].result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: write
