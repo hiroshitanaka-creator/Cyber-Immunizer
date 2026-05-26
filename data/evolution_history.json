@@ -22,5 +22,18 @@
     "fn_rate": 0.0,
     "avg_latency_ms": 0.004744533354520779,
     "total_cases": 15
+  },
+  {
+    "generation": 2,
+    "detector_hash": "69aebceeaebf6f808e9aca61be6d1d7023fd3036b872881df04889bdc46644a2",
+    "score": 729.34,
+    "passed_adoption_gate": true,
+    "rejection_reasons": [],
+    "promoted_at": "2026-05-26T07:28:45.915954Z",
+    "tp_rate": 1.0,
+    "fp_rate": 0.0,
+    "fn_rate": 0.0,
+    "avg_latency_ms": 0.004800399993124908,
+    "total_cases": 15
   }
 ]

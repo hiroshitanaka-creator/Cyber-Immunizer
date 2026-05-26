@@ -540,14 +540,14 @@ python -m pytest -v
 
 | Field | Value |
 |---|---|
-| Generation | 1 |
-| Best Score | 383.67051093329087 |
-| Detector Hash | `cbd6bdee7f8f4c19…` |
-| Last Updated | 2026-05-26T01:09:22.856943Z |
+| Generation | 2 |
+| Best Score | 729.34 |
+| Detector Hash | `69aebceeaebf6f80…` |
+| Last Updated | 2026-05-26T07:28:45.915764Z |
 | Total Test Cases | 15 |
 | TP / FP / TN / FN | 8 / 0 / 7 / 0 |
-| Adoption Gate | ✅ Passed (generation 1) |
+| Adoption Gate | ✅ Passed (generation 2) |
 | Active Threat IDs | `THREAT-2024-001` `THREAT-2024-002` `THREAT-2024-003` `THREAT-2024-004` `THREAT-2024-005` |
-| Status Block Updated | 2026-05-26 01:19 UTC |
+| Status Block Updated | 2026-05-26 07:28 UTC |
 
 <!-- CYBER_IMMUNIZER_STATUS_END -->

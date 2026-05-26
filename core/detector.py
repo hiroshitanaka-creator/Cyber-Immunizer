@@ -47,11 +47,8 @@ def inspect_request(request: Request) -> DetectionResult:
     surface = " ".join(surface_parts)
 
     # Neutralized symbolic indicators — not real exploit strings.
-    # Test data in data/attack_requests.json and data/regression_cases.json
-    # uses the same indicators (uppercase in JSON; lowercased at match time).
-    # No double-underscore prefix/suffix — avoids conflict with the dunder
-    # prohibition in _validate_replacement_code while remaining clearly
-    # non-exploitable placeholder strings.
+    # These tokens appear in the JSON test corpus (uppercase) and are
+    # lowercased at match time. No double-underscore prefix/suffix.
     _SUSPICIOUS_TOKENS: tuple[str, ...] = (
         "path_traversal_indicator",
         "script_injection_indicator",
@@ -66,7 +63,10 @@ def inspect_request(request: Request) -> DetectionResult:
             matched.append(token)
 
     if matched:
-        confidence = min(1.0, 0.4 + 0.15 * len(matched))
+        # Multi-signal matches get progressively higher confidence.
+        base_confidence = 0.5
+        per_signal_boost = 0.12
+        confidence = min(1.0, base_confidence + per_signal_boost * len(matched))
         return DetectionResult(
             blocked=True,
             reason=f"suspicious indicator matched: {matched[0]!r}",
@@ -80,4 +80,4 @@ def inspect_request(request: Request) -> DetectionResult:
         confidence=0.0,
         matched_signals=(),
     )
-    # === MUTATION_END ===
+# === MUTATION_END ===
