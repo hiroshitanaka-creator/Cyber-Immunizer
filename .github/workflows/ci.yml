@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+# Prevent redundant runs when a push and a PR event fire for the same commit.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Safe, read-only CI: no API keys, no live models, no git writes.
+  # Runs pytest + offline smoke tests for validate_mutation, fitness,
+  # and propose_mutation, plus apply_mutation / evaluate_candidate with
+  # --soft-reject so a gate rejection is not treated as a CI failure.
+  # -------------------------------------------------------------------------
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read   # read-only — never writes to the repo
+
+    env:
+      # Hard-block any accidental API key leak at the env level.
+      # GEMINI_API_KEY is intentionally absent from this job.
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install base dependencies
+        run: pip install -e ".[dev]"
+
+      # -----------------------------------------------------------------------
+      # 1. Unit / integration test suite (pytest)
+      #    Excludes no files — all existing tests use monkeypatching and do not
+      #    require GEMINI_API_KEY or a live model.
+      # -----------------------------------------------------------------------
+      - name: Run pytest
+        run: python -m pytest
+
+      # -----------------------------------------------------------------------
+      # 2. validate_mutation smoke test against the baseline detector
+      #    Checks that core/detector.py passes all AST policy rules.
+      # -----------------------------------------------------------------------
+      - name: Validate baseline detector (AST policy)
+        run: |
+          python scripts/validate_mutation.py \
+            --candidate core/detector.py \
+            --json
+
+      # -----------------------------------------------------------------------
+      # 3. Fitness baseline evaluation
+      #    Runs the fitness evaluator in --baseline mode (skips the
+      #    score-improvement gate) so the score is always reported.
+      #    Uses --json for structured output; exit code is 0 when the
+      #    adoption gate passes in baseline mode.
+      # -----------------------------------------------------------------------
+      - name: Evaluate baseline detector fitness
+        run: |
+          python -m core.fitness \
+            --candidate core/detector.py \
+            --baseline \
+            --json
+
+      # -----------------------------------------------------------------------
+      # 4. propose_mutation --noop smoke test
+      #    Verifies the proposer runs without error in safe noop mode
+      #    (no API call, no patch file written).
+      # -----------------------------------------------------------------------
+      - name: Smoke test: propose_mutation --noop
+        run: |
+          python scripts/propose_mutation.py \
+            --noop \
+            --json
+
+      # -----------------------------------------------------------------------
+      # 5. propose_mutation --offline-sample smoke test
+      #    Generates the built-in sample patch without any API call.
+      #    Verifies schema validation and patch file output.
+      # -----------------------------------------------------------------------
+      - name: Smoke test: propose_mutation --offline-sample
+        run: |
+          mkdir -p .cyber_immunizer
+          python scripts/propose_mutation.py \
+            --offline-sample \
+            --json
+
+      # -----------------------------------------------------------------------
+      # 6. apply_mutation + evaluate_candidate smoke test (--soft-reject)
+      #    Applies the offline-sample patch produced in step 5, then evaluates
+      #    the resulting candidate.
+      #
+      #    --soft-reject on evaluate_candidate.py means:
+      #      exit 0  when the adoption gate evaluated cleanly (even if rejected)
+      #      exit 1  only on tool failures (AST violation, timeout, crash)
+      #    This ensures a legitimate score-improvement rejection does not fail CI.
+      # -----------------------------------------------------------------------
+      - name: Smoke test: apply_mutation (offline sample patch)
+        run: |
+          python scripts/apply_mutation.py \
+            --patch .cyber_immunizer/mutation_patch.json \
+            --base core/detector.py \
+            --out .cyber_immunizer/candidate_detector.py \
+            --json
+
+      - name: Smoke test: evaluate_candidate (soft-reject)
+        run: |
+          python scripts/evaluate_candidate.py \
+            --candidate .cyber_immunizer/candidate_detector.py \
+            --timeout 30 \
+            --json \
+            --soft-reject
