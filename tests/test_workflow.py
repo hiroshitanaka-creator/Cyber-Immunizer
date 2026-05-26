@@ -725,3 +725,123 @@ class TestBracketNotationForHyphenatedJobIds:
             + ", ".join(violations)
             + ".  Use bracket notation, e.g. needs['job-id'].result"
         )
+
+
+# ---------------------------------------------------------------------------
+# 13. YAML fix: passed_adoption_gate extraction is a single-line Python command
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def evaluate_section(workflow_content: str) -> str:
+    """Extract the evaluate job section from the workflow."""
+    match = re.search(
+        r"(  evaluate:.*?)(?=\n  [a-zA-Z][\w-]+:\n|\Z)",
+        workflow_content,
+        re.DOTALL,
+    )
+    assert match is not None, "Could not find 'evaluate:' job in workflow."
+    return match.group(1)
+
+
+class TestPassedAdoptionGateExtractionYamlFix:
+    """Verify that the multi-line python -c YAML syntax error has been fixed.
+
+    The original workflow had a multi-line python -c "\\nimport json, sys\\n..."
+    block whose continuation lines were not indented as YAML literal-block
+    content, causing 'Invalid workflow file / yaml syntax' errors in GitHub Actions.
+    All checks below confirm the fix is in place.
+    """
+
+    def test_no_multiline_python_c_gate_pattern(self, workflow_content: str) -> None:
+        """GATE=$(python -c "...) must NOT be followed by a newline + bare Python code.
+
+        The pattern GATE=$(python -c "\\n followed by import/continuation lines
+        outside the YAML run: | block indentation is invalid YAML and causes
+        'yaml syntax error on line N' in GitHub Actions.
+        """
+        lines = workflow_content.splitlines()
+        for i, line in enumerate(lines):
+            stripped = line.rstrip()
+            # Detect a line that opens a python -c string but does NOT close it
+            if 'GATE=$(python -c "' in stripped and not stripped.endswith('")'):
+                # The line ends with an open quote — the python -c spans multiple lines
+                pytest.fail(
+                    f"Found multi-line python -c pattern at line {i + 1}: {line!r}. "
+                    "Replace with a single-line python -c command to avoid YAML syntax errors."
+                )
+
+    def test_no_bare_import_json_sys_at_line_start(self, workflow_content: str) -> None:
+        """There must be no 'import json, sys' or 'import json,sys' at the start of a line.
+
+        In the broken workflow, 'import json, sys' appeared as a bare shell line
+        (after GATE=$(python -c "\\n)) which is invalid YAML inside a run: | block
+        when not properly indented.  After the fix, the import is embedded inside
+        a single-line python -c string — it never appears at the raw line level.
+        """
+        for i, line in enumerate(workflow_content.splitlines()):
+            stripped = line.lstrip()
+            if re.match(r"^import json,\s*sys", stripped):
+                pytest.fail(
+                    f"Found bare 'import json, sys' at line {i + 1}: {line!r}. "
+                    "This was left over from a multi-line python -c block that "
+                    "caused YAML syntax errors.  Embed the import inside a "
+                    "single-line python -c string instead."
+                )
+
+    def test_passed_adoption_gate_extraction_is_single_line_python(
+        self, evaluate_section: str
+    ) -> None:
+        """The passed_adoption_gate extraction command must be a single-line python -c.
+
+        A correct single-line command looks like:
+          GATE=$(python -c "import json; r=json.load(...); ...; print(...)")
+        All logic must be on one line so YAML does not misparse the continuation
+        lines as shell commands.
+        """
+        match = re.search(
+            r'GATE=\$\(python -c "(.*?)"\)',
+            evaluate_section,
+            re.DOTALL,
+        )
+        assert match is not None, (
+            "Could not find GATE=$(python -c \"...\") in the evaluate job. "
+            "The passed_adoption_gate extraction must use a python -c command."
+        )
+        python_expr = match.group(1)
+        # Must not contain a raw newline (which would indicate multi-line)
+        assert "\n" not in python_expr, (
+            "The python -c expression for passed_adoption_gate extraction spans "
+            "multiple lines.  All logic must be on one line to avoid YAML errors. "
+            f"Found expression: {python_expr!r}"
+        )
+        # Must contain the key logic
+        assert "passed_adoption_gate" in python_expr, (
+            "The single-line python -c expression must reference 'passed_adoption_gate'."
+        )
+
+    def test_bracket_notation_persist_ledger_result_maintained(
+        self, workflow_content: str
+    ) -> None:
+        """needs['persist-ledger'].result bracket notation must still be present.
+
+        The YAML fix must not inadvertently remove or break the bracket notation
+        required for hyphenated job ID references in GitHub Actions expressions.
+        """
+        assert "needs['persist-ledger'].result" in workflow_content, (
+            "needs['persist-ledger'].result (bracket notation) was removed or broken "
+            "by the YAML fix.  This reference is required for correct GitHub Actions "
+            "expression evaluation with hyphenated job IDs."
+        )
+
+    def test_no_dot_notation_persist_ledger_result(self, workflow_content: str) -> None:
+        """needs.persist-ledger.result (dot notation) must not exist in the workflow.
+
+        Dot notation for hyphenated job IDs is invalid in GitHub Actions ${{ }}
+        expressions.  Only bracket notation needs['persist-ledger'].result is valid.
+        """
+        assert "needs.persist-ledger.result" not in workflow_content, (
+            "Found 'needs.persist-ledger.result' (dot notation) in the workflow. "
+            "Dot notation is invalid for hyphenated job IDs in GitHub Actions. "
+            "Use needs['persist-ledger'].result instead."
+        )
