@@ -5,6 +5,29 @@
 
 ---
 
+## ⚠️ Phase 2 補足: API Activation は Phase 3 で実施
+
+> **現在は Phase 2（API未接続運用強化）フェーズです。**
+
+このドキュメントに記載された API Activation 手順（GEMINI_API_KEY 登録・`live_model_enabled=true` への変更・実 API 実行）は、**Phase 3 以降で実施します。**
+
+### Phase 2 中の制約
+
+| 制約 | 内容 |
+|---|---|
+| **GEMINI_API_KEY 登録** | Phase 2 中は登録しない |
+| **`live_model_enabled`** | `false` のまま維持する（変更しない） |
+| **実 Gemini API call** | Phase 2 中は実行しない |
+| **preflight の目的** | API 未登録時の fail-closed 確認までで十分 |
+
+`gemini-paid-credit-preflight` モードは、`GEMINI_API_KEY` が未登録の状態で fail-closed（失敗・終了）することを Phase 2 で確認します。これは正常な動作です。Phase 2 では preflight が **fail-closed で失敗することの確認**が目的であり、preflight を成功させることは目的としません。
+
+Phase 2 の計画・実施内容・禁止事項の詳細は **[`docs/PHASE_2_PLAN.md`](./PHASE_2_PLAN.md)** を参照してください。
+
+Phase 3 への移行は Human Owner の明示的な判断が必要です。以下の手順はその際に参照してください。
+
+---
+
 ## 現在の状態
 
 - 通常CI成功済み

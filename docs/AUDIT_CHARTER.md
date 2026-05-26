@@ -189,30 +189,89 @@ API キー登録・`live_model_enabled=true` への変更・実 API 実行を含
 
 ### Phase 1 → Phase 2 への移行条件
 
-**Phase 2（実 Gemini API 接続）への移行は、Human Owner の明示的な決定によってのみ開始されます。**
+**Phase 2（API未接続運用強化）への移行は、Human Owner の明示的な決定によってのみ開始されます。**
+
+> ⚠️ **Phase 2 は API 接続を含みません。**  
+> GEMINI_API_KEY 登録・`live_model_enabled=true` への変更・実 Gemini API call は **Phase 3 以降**で実施します。  
+> Phase 1 → Phase 2 の移行はコスト発生を伴わず、`live_model_enabled=false` を維持したまま進行します。
+
+#### Phase 2 移行の内容
+
+Phase 2（API未接続運用強化）への移行は、以下の運用強化を含みます。API 接続は含みません。
+
+- README dashboard 精度向上
+- rollback / backtrack 設計の文書化
+- evolution_history の監査強化
+- offline-sample の dry-run / promote 分離検討
+- API 接続前の運用チェックリスト整備
+
+Phase 2 中は以下を実施しません：
+
+- GEMINI_API_KEY 登録（Phase 3 以降）
+- `live_model_enabled=true` への変更（Phase 3 以降）
+- 実 Gemini API call（Phase 3 以降）
 
 #### GPT Audit Gate による確認事項
 
 Phase 2 移行を含む PR を審査する際、GPT Audit Gate は以下をすべて確認しなければならない：
 
 1. **CI success** — `python -m pytest` が全件 pass していること
-2. **preflight behavior** — `workflow_dispatch mode=gemini-paid-credit-preflight` が期待通りに動作すること（`GEMINI_API_KEY` 未登録時は fail-closed で失敗すること）
-3. **live_model_enabled=false before API registration** — API キー登録前の時点で `data/genome.json` の `live_model_enabled` が `false` であること
-4. **no committed API key** — `GEMINI_API_KEY` がリポジトリ内のいかなるファイルにも含まれていないこと
+2. **API 未接続の維持** — `data/genome.json` の `live_model_enabled` が `false` であること
+3. **GEMINI_API_KEY 未コミット** — `GEMINI_API_KEY` がリポジトリ内のいかなるファイルにも含まれていないこと
+4. **Phase 2 計画との整合** — `docs/PHASE_2_PLAN.md` の内容と矛盾していないこと
+5. **preflight fail-closed 確認** — `GEMINI_API_KEY` 未登録時に preflight が fail-closed で失敗すること
 
-#### BLOCK 条件（Phase transition に関する追加ルール）
+#### BLOCK 条件（Phase 1 → Phase 2 transition に関する追加ルール）
 
 以下のいずれかを検出した場合、即座に **BLOCK** を推薦する：
 
+- **Phase 2 移行に GEMINI_API_KEY 登録を含める変更** — Phase 1 → Phase 2 移行の範囲として GEMINI_API_KEY 登録を前提とする変更は即座に BLOCK する（GEMINI_API_KEY 登録は Phase 3 の範囲）
+- **Phase 2 移行に live_model_enabled=true を含める変更** — Phase 1 → Phase 2 移行の範囲として `live_model_enabled=true` を含む変更は即座に BLOCK する（`live_model_enabled=true` への変更は Phase 3 の範囲）
 - **Human Owner decision なしの live_model_enabled=true** — Human Owner の明示的な決定を経ずに `live_model_enabled` が `true` に変更されている PR は即座に BLOCK する
-- **API キー登録前の live_model_enabled=true** — `GEMINI_API_KEY` の GitHub Secrets 登録確認前に `live_model_enabled=true` を含む PR は BLOCK する
 - **Phase 1 baseline 破壊** — `docs/PHASE_1_BASELINE.md` に記載された Safety invariants が変更・削除されている PR は BLOCK する
 
-> ⚠️ **Phase 1 → Phase 2 移行は不可逆的なコスト発生を伴う可能性があります。**  
-> Human Owner が明示的に「Phase 2 へ移行する」と決定し、GEMINI_API_KEY を GitHub Secrets に登録した上で、  
-> レビュー済み PR を通じて `live_model_enabled=true` を変更してください。
+Phase 1 完了状態の詳細は `docs/PHASE_1_BASELINE.md` を参照してください。  
+Phase 3（実 Gemini API 接続）への移行条件は「セクション 8. Phase 2 transition rule」を参照してください。
 
-Phase 1 完了状態の詳細は `docs/PHASE_1_BASELINE.md` を参照してください。
+---
+
+## 8. Phase 2 transition rule（Phase 2 中の制約 / Phase 2 → Phase 3）
+
+> **現在は Phase 2（API未接続運用強化）フェーズです。**  
+> Phase 2 中は API を接続しません。API 接続は Phase 3 以降です。
+
+### Phase 2 中の BLOCK 条件
+
+以下のいずれかを含む PR を検出した場合、GPT Audit Gate は即座に **BLOCK** を推薦する：
+
+- **Phase 2 中の `live_model_enabled=true` への変更** — Phase 2 中に `data/genome.json` の `live_model_enabled` を `true` に変更する PR は即座に BLOCK する
+- **GEMINI_API_KEY 登録を前提とするコード変更** — API キーが存在する前提で動作するコード・ワークフロー変更（`live_model_enabled=true` を前提とする変更を含む）は BLOCK する
+- **Phase 2 中の cron API 実行設定** — スケジュール実行が `noop` 以外のモードで API を呼び出す設定変更は BLOCK する
+
+### Phase 2 中の REQUEST CHANGES 条件
+
+以下のいずれかを含む PR を検出した場合、GPT Audit Gate は **REQUEST CHANGES** を推薦する：
+
+- **GEMINI_API_KEY 登録を前提とするドキュメント変更** — Phase 2 中に API キー登録を必須ステップとして記述するドキュメント変更（Phase 3 以降として明示すれば許容）
+- **Phase 2 計画との不整合** — `docs/PHASE_2_PLAN.md` に記載された Phase 2 の実施内容・禁止事項と矛盾する変更
+
+### Phase 3 への移行条件
+
+**Phase 3（実 Gemini API 接続）の開始は、Human Owner（hiroshitanaka-creator）の明示的な判断が必要です。**
+
+以下をすべて満たした場合にのみ、Phase 3 への移行を検討します：
+
+1. **Phase 2 完了** — `docs/PHASE_2_PLAN.md` に記載された全実施項目が完了している
+2. **CI success** — `python -m pytest` が全件 pass していること
+3. **API 接続前チェックリスト完了** — Human Owner が `docs/API_ACTIVATION_RUNBOOK.md` のチェックリストを完了している
+4. **`live_model_enabled=false` の維持** — Phase 3 開始前の時点で `live_model_enabled` が `false` であること
+5. **Human Owner の明示的決定** — Human Owner が「Phase 3 へ移行する」と明示的に決定し、その記録がある
+
+> ⚠️ **Phase 3 移行は不可逆的なコスト発生を伴う可能性があります。**  
+> AI エージェント（Claude Code）は Phase 3 移行を自律的に判断・実施しません。  
+> Human Owner の明示的な判断と操作（GEMINI_API_KEY 登録・`live_model_enabled=true` への変更）が必要です。
+
+Phase 2 の計画・実施内容・禁止事項の詳細は `docs/PHASE_2_PLAN.md` を参照してください。
 
 ---
 
