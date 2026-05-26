@@ -1,18 +1,25 @@
 """scripts/propose_mutation.py — Propose a mutation patch via LLM or local sample.
 
 Usage:
-    python scripts/propose_mutation.py [--offline-sample] [--json]
+    python scripts/propose_mutation.py [--offline-sample] [--allow-live-model] [--json]
 
-Behavior:
-    - If --offline-sample is set, produce a safe local sample mutation_patch.json.
-    - If GEMINI_API_KEY is present, use the Gemini API (stub for MVP).
-    - The script NEVER executes model-generated code.
-    - Enforces max_model_requests_per_run from genome.json.
-    - All prompts request DEFENSIVE logic only.
+Modes:
+    noop            No patch is produced (used when workflow mode == 'noop').
+    --offline-sample  Produce a safe local sample patch without any API call.
+    --allow-live-model  Allow a live Gemini API call if GEMINI_API_KEY is present.
+                    Without this flag, any GEMINI_API_KEY that is set will be
+                    ignored and the script will error rather than silently
+                    falling back to a sample.
+
+Default (no flags):
+    If GEMINI_API_KEY is set but --allow-live-model is NOT given, the script
+    refuses to call the API.  Use --offline-sample for local development.
 
 SAFETY NOTE:
     The LLM is never asked to generate exploit payloads, attack code,
     or anything outside the internal logic of inspect_request().
+    Live model calls are disabled by default to prevent accidental API usage
+    without explicit opt-in.
 """
 from __future__ import annotations
 
@@ -33,24 +40,27 @@ _OUT_PATCH = _OUT_DIR / "mutation_patch.json"
 
 # ---------------------------------------------------------------------------
 # Offline sample mutation (no API call)
+# Uses neutralized symbolic indicators — not real exploit strings.
+# Test data in data/attack_requests.json uses the same indicators.
 # ---------------------------------------------------------------------------
 
 _SAMPLE_MUTATION: dict = {
     "mutation_rationale": (
-        "Extend the suspicious-token list with additional SQL injection indicators "
-        "and tighten confidence scoring for multi-signal matches."
+        "Tighten confidence scoring for multi-signal matches of the symbolic "
+        "indicator set and add detection for the encoded-traversal category."
     ),
-    "target_threats": ["THREAT-2024-002"],
+    "target_threats": ["THREAT-2024-001", "THREAT-2024-005"],
     "expected_improvement": (
-        "Improved true-positive rate for SQL injection patterns "
-        "without increasing false positives on benign traffic."
+        "Higher confidence scores when multiple symbolic indicators appear "
+        "in the same request, reducing both false negatives on combined attacks "
+        "and false positives on single-token benign edge cases."
     ),
     "risk": (
-        "Minor risk of increased false positives if legitimate queries "
-        "contain SQL-like keywords (e.g. product descriptions)."
+        "Minimal — only changes confidence scaling; detection logic is additive "
+        "and uses the same neutralized symbolic indicator set."
     ),
     "replacement_code": '''\
-    # --- mutated detector logic (sample) ---
+    # Normalise all textual fields into one lowercase inspection surface.
     surface_parts = [
         request.method.lower(),
         request.path.lower(),
@@ -60,18 +70,15 @@ _SAMPLE_MUTATION: dict = {
     ]
     surface = " ".join(surface_parts)
 
+    # Neutralized symbolic indicators — not real exploit strings.
+    # Test data in data/attack_requests.json and data/regression_cases.json
+    # uses the same indicators (lowercased at match time).
     _SUSPICIOUS_TOKENS: tuple[str, ...] = (
-        # path-traversal
-        "../", "..\\\\", "%2e%2e%2f", "%2e%2e/",
-        # script-injection
-        "<script", "javascript:", "onerror=", "onload=",
-        # SQL-like
-        "\\' or \\'1\\'=\\'1", "union select", "drop table", "\\'; --",
-        "insert into", "select * from", "delete from",
-        # command-like
-        "; ls ", "| cat ", "`id`", "$(id)",
-        # encoded
-        "%00", "%0d%0a",
+        "__path_traversal_indicator__",
+        "__script_injection_indicator__",
+        "__sqli_indicator__",
+        "__command_delimiter_indicator__",
+        "__encoded_traversal_indicator__",
     )
 
     matched: list[str] = []
@@ -80,17 +87,20 @@ _SAMPLE_MUTATION: dict = {
             matched.append(token)
 
     if matched:
-        confidence = min(1.0, 0.4 + 0.15 * len(matched))
+        # Multi-signal matches get progressively higher confidence.
+        base_confidence = 0.5
+        per_signal_boost = 0.12
+        confidence = min(1.0, base_confidence + per_signal_boost * len(matched))
         return DetectionResult(
             blocked=True,
-            reason=f"suspicious pattern(s) matched: {matched[0]!r}",
+            reason=f"suspicious indicator matched: {matched[0]!r}",
             confidence=confidence,
             matched_signals=tuple(matched),
         )
 
     return DetectionResult(
         blocked=False,
-        reason="no suspicious pattern matched",
+        reason="no suspicious indicator matched",
         confidence=0.0,
         matched_signals=(),
     )
@@ -114,6 +124,8 @@ STRICT RULES — YOU MUST FOLLOW ALL OF THEM:
 8. Prefer low false positives over high true positives.
 9. The replacement_code field must contain ONLY Python code for the function body
    (no def statement, no function wrapper).
+10. Detection tokens must use neutralized symbolic indicators (e.g.
+    __PATH_TRAVERSAL_INDICATOR__) — never raw exploit-like strings.
 
 Return a JSON object with these exact fields:
 {
@@ -132,7 +144,8 @@ _LLM_USER_PROMPT_TEMPLATE = """Current detector body (between mutation markers):
 Active threat IDs to address: {threat_ids}
 
 Propose a mutation that improves defensive coverage while maintaining low false positives.
-Return JSON only.
+Use only neutralized symbolic indicators (e.g. __PATH_TRAVERSAL_INDICATOR__) — not raw
+exploit strings.  Return JSON only.
 """
 
 
@@ -148,12 +161,7 @@ def _extract_mutation_region(source: str) -> str:
 
 
 def _propose_via_gemini(genome: dict, detector_source: str) -> tuple[dict | None, str]:
-    """Stub Gemini API call for MVP.  Returns (patch, error)."""
-    try:
-        import urllib.request  # noqa: F401 — checking availability only
-    except ImportError:
-        return None, "urllib not available"
-
+    """Stub Gemini API call.  Returns (patch, error)."""
     max_requests = int(genome.get("max_model_requests_per_run", 1))
     if max_requests < 1:
         return None, "max_model_requests_per_run is 0; no API calls allowed"
@@ -170,7 +178,7 @@ def _propose_via_gemini(genome: dict, detector_source: str) -> tuple[dict | None
         threat_ids = []
 
     mutation_region = _extract_mutation_region(detector_source)
-    user_prompt = _LLM_USER_PROMPT_TEMPLATE.format(
+    _user_prompt = _LLM_USER_PROMPT_TEMPLATE.format(
         mutation_region=mutation_region,
         threat_ids=json.dumps(threat_ids),
     )
@@ -178,9 +186,9 @@ def _propose_via_gemini(genome: dict, detector_source: str) -> tuple[dict | None
     # MVP stub — real Gemini API integration left for future sprint.
     # Implementing a live call here would require:
     #   1. Secret management review
-    #   2. Rate limiting
-    #   3. Response sanitisation
-    #   4. Content policy enforcement
+    #   2. Rate limiting and retry logic
+    #   3. Response sanitisation and content policy enforcement
+    #   4. Validation that the returned replacement_code uses only symbolic indicators
     # For now, return an error directing the user to use --offline-sample.
     return None, (
         "Live Gemini API integration is not yet implemented in this MVP. "
@@ -193,8 +201,19 @@ def _propose_via_gemini(genome: dict, detector_source: str) -> tuple[dict | None
 # Main logic
 # ---------------------------------------------------------------------------
 
-def propose_mutation(*, offline_sample: bool = False) -> tuple[dict | None, str]:
-    """Propose a mutation patch. Returns (patch, error)."""
+def propose_mutation(
+    *,
+    offline_sample: bool = False,
+    allow_live_model: bool = False,
+) -> tuple[dict | None, str]:
+    """Propose a mutation patch. Returns (patch, error).
+
+    Args:
+        offline_sample: If True, return the built-in sample patch immediately.
+        allow_live_model: If True, allow a live API call if GEMINI_API_KEY is set.
+                         If False (default), refuse the live call even if the key
+                         is present — the caller must explicitly opt in.
+    """
     # Load genome for rate-limit checks
     try:
         genome = json.loads(_GENOME_PATH.read_text(encoding="utf-8"))
@@ -211,9 +230,25 @@ def propose_mutation(*, offline_sample: bool = False) -> tuple[dict | None, str]
         return _SAMPLE_MUTATION, ""
 
     api_key = os.environ.get("GEMINI_API_KEY", "")
+
+    if not allow_live_model:
+        if api_key:
+            return None, (
+                "GEMINI_API_KEY is set, but --allow-live-model was not specified. "
+                "Live model calls are disabled by default to prevent accidental API usage. "
+                "Pass --allow-live-model to enable, or use --offline-sample for local development."
+            )
+        else:
+            return None, (
+                "No mutation mode selected. "
+                "Use --offline-sample for a local patch, or "
+                "--allow-live-model with GEMINI_API_KEY set for a live API call."
+            )
+
+    # --allow-live-model is set
     if not api_key:
         return None, (
-            "GEMINI_API_KEY is not set and --offline-sample was not specified. "
+            "GEMINI_API_KEY is not set. "
             "Set GEMINI_API_KEY or use --offline-sample to generate a local patch."
         )
 
@@ -227,10 +262,21 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Generate a local sample patch without calling any API",
     )
+    parser.add_argument(
+        "--allow-live-model",
+        action="store_true",
+        help=(
+            "Allow a live Gemini API call if GEMINI_API_KEY is set. "
+            "Without this flag, the API is never called even if the key is present."
+        ),
+    )
     parser.add_argument("--json", action="store_true", help="Output JSON summary")
     args = parser.parse_args(argv)
 
-    patch, err = propose_mutation(offline_sample=args.offline_sample)
+    patch, err = propose_mutation(
+        offline_sample=args.offline_sample,
+        allow_live_model=args.allow_live_model,
+    )
 
     if err:
         output = {"success": False, "error": err, "patch_path": None}

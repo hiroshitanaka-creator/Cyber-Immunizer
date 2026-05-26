@@ -1,9 +1,14 @@
-"""tests/test_promote_candidate.py — Verify promotion gate enforcement."""
+"""tests/test_promote_candidate.py — Verify promotion gate enforcement.
+
+All tests use tmp_path and the promote_candidate path-override arguments so
+that real repository files (core/detector.py, data/genome.json, etc.) are
+never mutated during the test suite.
+"""
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -11,18 +16,70 @@ import pytest
 from scripts.promote_candidate import promote_candidate
 
 _PROJECT_ROOT = Path(__file__).parent.parent
-_BASE_DETECTOR = _PROJECT_ROOT / "core" / "detector.py"
+_REAL_DETECTOR = _PROJECT_ROOT / "core" / "detector.py"
+_REAL_GENOME = _PROJECT_ROOT / "data" / "genome.json"
 
 
-def _make_passing_report(score: float = 999.0) -> dict:
-    return {
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _real_detector_hash() -> str:
+    source = _REAL_DETECTOR.read_text(encoding="utf-8")
+    return hashlib.sha256(source.encode()).hexdigest()
+
+
+def _make_isolated_genome(tmp_path: Path, *, best_score: float = -1e9) -> Path:
+    """Write an isolated genome.json into tmp_path."""
+    real = json.loads(_REAL_GENOME.read_text(encoding="utf-8"))
+    real["best_score"] = best_score
+    real["generation"] = 0
+    p = tmp_path / "genome.json"
+    p.write_text(json.dumps(real, indent=2))
+    return p
+
+
+def _make_isolated_history(tmp_path: Path) -> Path:
+    p = tmp_path / "evolution_history.json"
+    p.write_text("[]")
+    return p
+
+
+def _make_isolated_readme(tmp_path: Path) -> Path:
+    p = tmp_path / "README.md"
+    p.write_text("# Test README\n<!-- CYBER_IMMUNIZER_STATUS_START -->\n<!-- CYBER_IMMUNIZER_STATUS_END -->\n")
+    return p
+
+
+def _make_isolated_detector_out(tmp_path: Path) -> Path:
+    """Return a path where promote will write the promoted detector."""
+    return tmp_path / "promoted_detector.py"
+
+
+def _copy_real_candidate(tmp_path: Path) -> Path:
+    """Copy the real detector into tmp_path as a candidate."""
+    dest = tmp_path / "candidate_detector.py"
+    shutil.copy2(str(_REAL_DETECTOR), str(dest))
+    return dest
+
+
+def _make_passing_report(
+    tmp_path: Path,
+    candidate_path: Path,
+    *,
+    score: float = 999.0,
+) -> Path:
+    """Write a passing fitness report whose hash matches candidate_path."""
+    source = candidate_path.read_text(encoding="utf-8")
+    h = hashlib.sha256(source.encode()).hexdigest()
+    report = {
         "success": True,
         "passed_adoption_gate": True,
         "timed_out": False,
         "return_code": 0,
         "violations": [],
         "error": "",
-        "candidate_hash": None,  # will be filled by caller
+        "candidate_hash": h,
         "fitness_report": {
             "syntax_ok": True,
             "ast_policy_ok": True,
@@ -43,20 +100,30 @@ def _make_passing_report(score: float = 999.0) -> dict:
             "score": score,
             "passed_adoption_gate": True,
             "rejection_reasons": [],
-            "candidate_hash": None,
+            "candidate_hash": h,
         },
     }
+    p = tmp_path / "fitness_report.json"
+    p.write_text(json.dumps(report, indent=2))
+    return p
 
 
-def _make_failing_report(reason: str = "fp_rate too high") -> dict:
-    return {
+def _make_failing_report(
+    tmp_path: Path,
+    candidate_path: Path,
+    *,
+    reason: str = "fp_rate too high",
+) -> Path:
+    source = candidate_path.read_text(encoding="utf-8")
+    h = hashlib.sha256(source.encode()).hexdigest()
+    report = {
         "success": False,
         "passed_adoption_gate": False,
         "timed_out": False,
         "return_code": 1,
         "violations": [],
         "error": "adoption gate not passed",
-        "candidate_hash": None,
+        "candidate_hash": h,
         "fitness_report": {
             "syntax_ok": True,
             "ast_policy_ok": True,
@@ -77,133 +144,325 @@ def _make_failing_report(reason: str = "fp_rate too high") -> dict:
             "score": -1000.0,
             "passed_adoption_gate": False,
             "rejection_reasons": [reason],
-            "candidate_hash": None,
+            "candidate_hash": h,
         },
     }
+    p = tmp_path / "fitness_report_fail.json"
+    p.write_text(json.dumps(report, indent=2))
+    return p
 
 
-def _write_report(data: dict) -> Path:
-    tmp = tempfile.NamedTemporaryFile(
-        suffix=".json", delete=False, mode="w", encoding="utf-8"
+def _promote(
+    tmp_path: Path,
+    candidate_path: Path,
+    report_path: Path,
+    *,
+    best_score: float = -1e9,
+) -> tuple[int, Path, Path, Path]:
+    """Run promote_candidate with isolated paths; return (exit_code, genome, history, detector_out)."""
+    genome_path = _make_isolated_genome(tmp_path, best_score=best_score)
+    history_path = _make_isolated_history(tmp_path)
+    readme_path = _make_isolated_readme(tmp_path)
+    detector_out = _make_isolated_detector_out(tmp_path)
+
+    exit_code = promote_candidate(
+        candidate_path,
+        report_path,
+        as_json=True,
+        detector_path=detector_out,
+        genome_path=genome_path,
+        history_path=history_path,
+        readme_path=readme_path,
     )
-    json.dump(data, tmp)
-    tmp.flush()
-    return Path(tmp.name)
+    return exit_code, genome_path, history_path, detector_out
 
 
-def _copy_detector() -> Path:
-    """Make a temp copy of the baseline detector for promotion testing."""
-    tmp = tempfile.NamedTemporaryFile(
-        suffix=".py", delete=False, mode="w", encoding="utf-8"
-    )
-    tmp.write(_BASE_DETECTOR.read_text(encoding="utf-8"))
-    tmp.flush()
-    return Path(tmp.name)
-
+# ---------------------------------------------------------------------------
+# Refusal tests
+# ---------------------------------------------------------------------------
 
 class TestPromoteRefusal:
-    def test_refuses_missing_report(self):
-        candidate_path = _copy_detector()
+    def test_refuses_missing_report(self, tmp_path):
+        candidate = _copy_real_candidate(tmp_path)
+        genome = _make_isolated_genome(tmp_path)
+        history = _make_isolated_history(tmp_path)
+        readme = _make_isolated_readme(tmp_path)
+        detector_out = _make_isolated_detector_out(tmp_path)
+
         exit_code = promote_candidate(
-            candidate_path,
-            Path("/nonexistent/fitness_report.json"),
+            candidate,
+            tmp_path / "nonexistent_report.json",
             as_json=True,
+            detector_path=detector_out,
+            genome_path=genome,
+            history_path=history,
+            readme_path=readme,
         )
         assert exit_code != 0, "Should refuse when report is missing"
 
-    def test_refuses_failed_adoption_gate(self):
-        report = _make_failing_report()
-        report_path = _write_report(report)
-        candidate_path = _copy_detector()
+    def test_refuses_failed_adoption_gate(self, tmp_path):
+        candidate = _copy_real_candidate(tmp_path)
+        report = _make_failing_report(tmp_path, candidate)
 
-        exit_code = promote_candidate(candidate_path, report_path, as_json=True)
+        exit_code, _, _, _ = _promote(tmp_path, candidate, report)
         assert exit_code != 0, "Should refuse when adoption gate failed"
 
-    def test_refuses_without_score_improvement(self):
-        """Promotion must be refused if candidate score <= current best."""
-        # First, temporarily lower the best score expectation
-        genome_path = _PROJECT_ROOT / "data" / "genome.json"
-        genome = json.loads(genome_path.read_text(encoding="utf-8"))
-        original_best = genome["best_score"]
+    def test_refuses_without_score_improvement(self, tmp_path):
+        """Score must strictly improve on the current best."""
+        candidate = _copy_real_candidate(tmp_path)
+        # Report claims score=100; genome best is 5000
+        report = _make_passing_report(tmp_path, candidate, score=100.0)
 
-        try:
-            # Set best_score very high so candidate can't beat it
-            genome["best_score"] = 1e9
-            genome_path.write_text(json.dumps(genome, indent=2))
+        exit_code, _, _, _ = _promote(tmp_path, candidate, report, best_score=5000.0)
+        assert exit_code != 0, "Should refuse when score doesn't improve"
 
-            report = _make_passing_report(score=999.0)  # lower than 1e9
-            report_path = _write_report(report)
-            candidate_path = _copy_detector()
+    def test_refuses_missing_candidate_file(self, tmp_path):
+        candidate = _copy_real_candidate(tmp_path)
+        report = _make_passing_report(tmp_path, candidate)
 
-            exit_code = promote_candidate(candidate_path, report_path, as_json=True)
-            assert exit_code != 0, "Should refuse when score doesn't improve"
+        # Delete the candidate after creating the report so hash matches but file is gone
+        candidate.unlink()
 
-        finally:
-            genome["best_score"] = original_best
-            genome_path.write_text(json.dumps(genome, indent=2))
+        exit_code, _, _, _ = _promote(tmp_path, candidate, report)
+        assert exit_code != 0, "Should refuse missing candidate file"
 
+    def test_refuses_missing_hash_in_report(self, tmp_path):
+        """candidate_hash is mandatory — missing it must refuse."""
+        candidate = _copy_real_candidate(tmp_path)
+        report = _make_passing_report(tmp_path, candidate)
+
+        # Remove candidate_hash from the report
+        data = json.loads(report.read_text())
+        del data["candidate_hash"]
+        if "candidate_hash" in data.get("fitness_report", {}):
+            del data["fitness_report"]["candidate_hash"]
+        report.write_text(json.dumps(data))
+
+        exit_code, _, _, _ = _promote(tmp_path, candidate, report)
+        assert exit_code != 0, "Should refuse when candidate_hash is missing"
+
+    def test_refuses_hash_mismatch(self, tmp_path):
+        """Candidate file tampered after evaluation — hash mismatch must refuse."""
+        candidate = _copy_real_candidate(tmp_path)
+        report = _make_passing_report(tmp_path, candidate)
+
+        # Tamper with the candidate after the report was written
+        candidate.write_text(
+            candidate.read_text(encoding="utf-8") + "\n# tampered\n",
+            encoding="utf-8",
+        )
+
+        exit_code, _, _, _ = _promote(tmp_path, candidate, report)
+        assert exit_code != 0, "Should refuse when hash doesn't match"
+
+    def test_refuses_malformed_report(self, tmp_path):
+        """Malformed JSON in report must refuse."""
+        candidate = _copy_real_candidate(tmp_path)
+        bad_report = tmp_path / "bad_report.json"
+        bad_report.write_text("{not valid json", encoding="utf-8")
+
+        genome = _make_isolated_genome(tmp_path)
+        history = _make_isolated_history(tmp_path)
+        readme = _make_isolated_readme(tmp_path)
+        detector_out = _make_isolated_detector_out(tmp_path)
+
+        exit_code = promote_candidate(
+            candidate,
+            bad_report,
+            as_json=True,
+            detector_path=detector_out,
+            genome_path=genome,
+            history_path=history,
+            readme_path=readme,
+        )
+        assert exit_code != 0, "Should refuse malformed JSON report"
+
+    def test_refuses_report_with_ast_policy_false(self, tmp_path):
+        """Report with ast_policy_ok=False must refuse even if gate says passed."""
+        candidate = _copy_real_candidate(tmp_path)
+        source = candidate.read_text(encoding="utf-8")
+        h = hashlib.sha256(source.encode()).hexdigest()
+
+        report_data = {
+            "candidate_hash": h,
+            "fitness_report": {
+                "syntax_ok": True,
+                "ast_policy_ok": False,  # <-- unsafe
+                "contract_ok": True,
+                "passed_adoption_gate": True,  # report claims passed — must still refuse
+                "score": 999.0,
+                "tp_rate": 1.0,
+                "fp_rate": 0.0,
+                "fn_rate": 0.0,
+                "exception_count": 0,
+                "rejection_reasons": [],
+            },
+        }
+        report = tmp_path / "unsafe_report.json"
+        report.write_text(json.dumps(report_data))
+
+        exit_code, _, _, _ = _promote(tmp_path, candidate, report)
+        assert exit_code != 0, "Should refuse when ast_policy_ok=False"
+
+    def test_refuses_report_with_fp_rate_above_max(self, tmp_path):
+        """fp_rate exceeding genome max_fp_rate must refuse."""
+        candidate = _copy_real_candidate(tmp_path)
+        source = candidate.read_text(encoding="utf-8")
+        h = hashlib.sha256(source.encode()).hexdigest()
+
+        report_data = {
+            "candidate_hash": h,
+            "fitness_report": {
+                "syntax_ok": True,
+                "ast_policy_ok": True,
+                "contract_ok": True,
+                "passed_adoption_gate": True,
+                "score": 999.0,
+                "tp_rate": 1.0,
+                "fp_rate": 0.99,   # far above max_fp_rate (0.05)
+                "fn_rate": 0.0,
+                "exception_count": 0,
+                "rejection_reasons": [],
+            },
+        }
+        report = tmp_path / "highfp_report.json"
+        report.write_text(json.dumps(report_data))
+
+        exit_code, _, _, _ = _promote(tmp_path, candidate, report)
+        assert exit_code != 0, "Should refuse fp_rate above max_fp_rate"
+
+    def test_refuses_report_with_missing_fitness_field(self, tmp_path):
+        """Missing required fitness field 'score' must refuse."""
+        candidate = _copy_real_candidate(tmp_path)
+        source = candidate.read_text(encoding="utf-8")
+        h = hashlib.sha256(source.encode()).hexdigest()
+
+        report_data = {
+            "candidate_hash": h,
+            "fitness_report": {
+                "syntax_ok": True,
+                "ast_policy_ok": True,
+                "contract_ok": True,
+                "passed_adoption_gate": True,
+                # "score" is missing
+                "tp_rate": 1.0,
+                "fp_rate": 0.0,
+                "fn_rate": 0.0,
+                "exception_count": 0,
+                "rejection_reasons": [],
+            },
+        }
+        report = tmp_path / "missing_field_report.json"
+        report.write_text(json.dumps(report_data))
+
+        exit_code, _, _, _ = _promote(tmp_path, candidate, report)
+        assert exit_code != 0, "Should refuse when required fitness field is missing"
+
+
+# ---------------------------------------------------------------------------
+# Success tests
+# ---------------------------------------------------------------------------
 
 class TestPromoteSuccess:
-    def test_updates_genome_and_history_on_passing_report(self, tmp_path):
-        """Promotion must update genome.json and evolution_history.json."""
-        # Create isolated genome and history in tmp_path
-        genome_src = json.loads(
-            (_PROJECT_ROOT / "data" / "genome.json").read_text()
+    def test_updates_genome_on_successful_promotion(self, tmp_path):
+        """After promotion, genome generation increments and best_score updates."""
+        candidate = _copy_real_candidate(tmp_path)
+        report = _make_passing_report(tmp_path, candidate, score=999.0)
+
+        exit_code, genome_path, _, _ = _promote(
+            tmp_path, candidate, report, best_score=-1e9
         )
-        genome_src["best_score"] = -1e9
-        genome_src["generation"] = 0
-        genome_path = tmp_path / "genome.json"
-        genome_path.write_text(json.dumps(genome_src, indent=2))
+        assert exit_code == 0, "Promotion should succeed with valid inputs"
 
-        history_path = tmp_path / "evolution_history.json"
-        history_path.write_text("[]")
+        genome = json.loads(genome_path.read_text())
+        assert genome["generation"] == 1, "Generation should increment to 1"
+        assert genome["best_score"] == 999.0, "best_score should be updated"
 
-        # We can't easily monkey-patch the internal paths in promote_candidate
-        # without refactoring, so this test verifies the logic at integration level.
-        # We'll skip modifying core/detector.py to avoid corrupting test env.
-        pytest.skip(
-            "Integration promotion test skipped to avoid modifying core/detector.py "
-            "during test suite — covered by manual validation commands."
+    def test_updates_history_on_successful_promotion(self, tmp_path):
+        """After promotion, evolution_history.json gets a new entry."""
+        candidate = _copy_real_candidate(tmp_path)
+        report = _make_passing_report(tmp_path, candidate, score=999.0)
+
+        exit_code, _, history_path, _ = _promote(
+            tmp_path, candidate, report, best_score=-1e9
+        )
+        assert exit_code == 0, "Promotion should succeed"
+
+        history = json.loads(history_path.read_text())
+        assert len(history) == 1, "History should have exactly one entry"
+        entry = history[0]
+        assert entry["generation"] == 1
+        assert entry["passed_adoption_gate"] is True
+        assert "promoted_at" in entry
+
+    def test_writes_detector_to_output_path(self, tmp_path):
+        """After promotion, the detector_path contains the candidate content."""
+        candidate = _copy_real_candidate(tmp_path)
+        report = _make_passing_report(tmp_path, candidate, score=999.0)
+
+        exit_code, _, _, detector_out = _promote(
+            tmp_path, candidate, report, best_score=-1e9
+        )
+        assert exit_code == 0, "Promotion should succeed"
+        assert detector_out.exists(), "Detector output file should exist"
+
+        promoted_source = detector_out.read_text(encoding="utf-8")
+        candidate_source = candidate.read_text(encoding="utf-8")
+        assert promoted_source == candidate_source, (
+            "Promoted detector content must match the candidate"
         )
 
-    def test_promote_does_not_promote_worse_score(self):
-        """Repeated promotion: if score is worse, refuse."""
-        genome_path = _PROJECT_ROOT / "data" / "genome.json"
-        genome = json.loads(genome_path.read_text(encoding="utf-8"))
-        original_best = genome["best_score"]
+    def test_real_detector_not_mutated(self, tmp_path):
+        """The real core/detector.py must be unchanged after a test promotion."""
+        original_hash = _real_detector_hash()
 
-        try:
-            genome["best_score"] = 5000.0
-            genome_path.write_text(json.dumps(genome, indent=2))
+        candidate = _copy_real_candidate(tmp_path)
+        report = _make_passing_report(tmp_path, candidate, score=999.0)
+        _promote(tmp_path, candidate, report, best_score=-1e9)
 
-            report = _make_passing_report(score=100.0)  # worse than 5000
-            report_path = _write_report(report)
-            candidate_path = _copy_detector()
+        new_hash = _real_detector_hash()
+        assert original_hash == new_hash, (
+            "core/detector.py must not be modified during test promotion"
+        )
 
-            exit_code = promote_candidate(candidate_path, report_path, as_json=True)
-            assert exit_code != 0, "Must refuse worse score"
-        finally:
-            genome["best_score"] = original_best
-            genome_path.write_text(json.dumps(genome, indent=2))
+    def test_second_promotion_requires_score_improvement(self, tmp_path):
+        """A second promotion with a lower score must be refused."""
+        candidate = _copy_real_candidate(tmp_path)
+        report1 = _make_passing_report(tmp_path, candidate, score=500.0)
 
+        exit_code1, genome_path, history_path, detector_out = _promote(
+            tmp_path, candidate, report1, best_score=-1e9
+        )
+        assert exit_code1 == 0, "First promotion should succeed"
 
-class TestPromoteMissingCandidate:
-    def test_refuses_missing_candidate_file(self):
-        report = _make_passing_report(score=999.0)
-        genome_path = _PROJECT_ROOT / "data" / "genome.json"
-        genome = json.loads(genome_path.read_text(encoding="utf-8"))
-        original_best = genome["best_score"]
-        try:
-            genome["best_score"] = -1e9
-            genome_path.write_text(json.dumps(genome, indent=2))
+        # Second attempt with worse score against the now-updated genome
+        report2 = tmp_path / "fitness_report2.json"
+        source = candidate.read_text(encoding="utf-8")
+        h = hashlib.sha256(source.encode()).hexdigest()
+        report2_data = {
+            "candidate_hash": h,
+            "fitness_report": {
+                "syntax_ok": True,
+                "ast_policy_ok": True,
+                "contract_ok": True,
+                "passed_adoption_gate": True,
+                "score": 100.0,   # worse than 500.0
+                "tp_rate": 1.0,
+                "fp_rate": 0.0,
+                "fn_rate": 0.0,
+                "exception_count": 0,
+                "rejection_reasons": [],
+            },
+        }
+        report2.write_text(json.dumps(report2_data))
 
-            report_path = _write_report(report)
-            exit_code = promote_candidate(
-                Path("/nonexistent/candidate.py"),
-                report_path,
-                as_json=True,
-            )
-            assert exit_code != 0, "Should refuse missing candidate"
-        finally:
-            genome["best_score"] = original_best
-            genome_path.write_text(json.dumps(genome, indent=2))
+        exit_code2 = promote_candidate(
+            candidate,
+            report2,
+            as_json=True,
+            detector_path=detector_out,
+            genome_path=genome_path,
+            history_path=history_path,
+            readme_path=tmp_path / "README.md",
+        )
+        assert exit_code2 != 0, "Second promotion with worse score should be refused"

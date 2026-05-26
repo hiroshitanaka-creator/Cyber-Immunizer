@@ -206,6 +206,87 @@ return DetectionResult(False, '', 0.0, ())
         _assert_rejected(p, "subprocess")
 
 
+class TestForbiddenReflectionBuiltins:
+    """type, dir, super, breakpoint, callable must be rejected as forbidden builtins."""
+
+    def test_rejects_type_call(self):
+        p = _make_candidate("""\
+t = type(request)
+return DetectionResult(False, '', 0.0, ())
+""")
+        _assert_rejected(p, "type")
+
+    def test_rejects_dir_call(self):
+        p = _make_candidate("""\
+attrs = dir(request)
+return DetectionResult(False, '', 0.0, ())
+""")
+        _assert_rejected(p, "dir")
+
+    def test_rejects_super_call(self):
+        p = _make_candidate("""\
+s = super()
+return DetectionResult(False, '', 0.0, ())
+""")
+        _assert_rejected(p, "super")
+
+    def test_rejects_breakpoint_call(self):
+        p = _make_candidate("""\
+breakpoint()
+return DetectionResult(False, '', 0.0, ())
+""")
+        _assert_rejected(p, "breakpoint")
+
+    def test_rejects_callable_call(self):
+        p = _make_candidate("""\
+if callable(request):
+    pass
+return DetectionResult(False, '', 0.0, ())
+""")
+        _assert_rejected(p, "callable")
+
+
+class TestForbiddenArbitraryDunders:
+    """ANY dunder attribute (__ prefix and suffix) must be rejected."""
+
+    def test_rejects_dunder_len(self):
+        p = _make_candidate("""\
+n = request.__len__()
+return DetectionResult(False, '', 0.0, ())
+""")
+        _assert_rejected(p, "__len__")
+
+    def test_rejects_dunder_str(self):
+        p = _make_candidate("""\
+s = request.__str__()
+return DetectionResult(False, '', 0.0, ())
+""")
+        _assert_rejected(p, "__str__")
+
+    def test_rejects_dunder_init(self):
+        p = _make_candidate("""\
+request.__init__()
+return DetectionResult(False, '', 0.0, ())
+""")
+        _assert_rejected(p, "__init__")
+
+    def test_rejects_dunder_reduce(self):
+        """__reduce__ is a pickle-deserialization vector — must be rejected."""
+        p = _make_candidate("""\
+x = request.__reduce__()
+return DetectionResult(False, '', 0.0, ())
+""")
+        _assert_rejected(p, "__reduce__")
+
+    def test_rejects_dunder_class_still(self):
+        """__class__ was in the old finite list and must still be rejected."""
+        p = _make_candidate("""\
+x = request.__class__
+return DetectionResult(False, '', 0.0, ())
+""")
+        _assert_rejected(p, "__class__")
+
+
 # ---------------------------------------------------------------------------
 # Tests: accepted patterns
 # ---------------------------------------------------------------------------

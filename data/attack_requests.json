@@ -3,11 +3,11 @@
     "id": "attack-001",
     "kind": "attack",
     "expected_blocked": true,
-    "description": "Path traversal indicator in path",
+    "description": "Path traversal category — symbolic indicator only",
     "tags": ["attack", "path-traversal"],
     "request": {
       "method": "GET",
-      "path": "/files/../../../etc/passwd",
+      "path": "/files/__PATH_TRAVERSAL_INDICATOR__",
       "query": {},
       "headers": {},
       "body": "",
@@ -18,12 +18,12 @@
     "id": "attack-002",
     "kind": "attack",
     "expected_blocked": true,
-    "description": "Script injection indicator in query",
+    "description": "Script injection category — symbolic indicator only",
     "tags": ["attack", "xss"],
     "request": {
       "method": "GET",
       "path": "/search",
-      "query": {"q": "<script>alert(1)</script>"},
+      "query": {"q": "__SCRIPT_INJECTION_INDICATOR__"},
       "headers": {},
       "body": "",
       "source_ip": "192.168.1.101"
@@ -33,14 +33,14 @@
     "id": "attack-003",
     "kind": "attack",
     "expected_blocked": true,
-    "description": "SQL-like suspicious token in body",
+    "description": "SQL-like suspicious token category — symbolic indicator only",
     "tags": ["attack", "sqli"],
     "request": {
       "method": "POST",
       "path": "/api/login",
       "query": {},
       "headers": {"Content-Type": "application/x-www-form-urlencoded"},
-      "body": "username=admin&password=' or '1'='1",
+      "body": "username=admin&password=__SQLI_INDICATOR__",
       "source_ip": "192.168.1.102"
     }
   },
@@ -48,12 +48,12 @@
     "id": "attack-004",
     "kind": "attack",
     "expected_blocked": true,
-    "description": "Command-like suspicious token in query",
+    "description": "Command delimiter category — symbolic indicator only",
     "tags": ["attack", "cmdi"],
     "request": {
       "method": "GET",
       "path": "/api/ping",
-      "query": {"host": "localhost; ls /etc"},
+      "query": {"host": "localhost__COMMAND_DELIMITER_INDICATOR__"},
       "headers": {},
       "body": "",
       "source_ip": "192.168.1.103"
@@ -63,12 +63,12 @@
     "id": "attack-005",
     "kind": "attack",
     "expected_blocked": true,
-    "description": "URL-encoded traversal token in query",
+    "description": "URL-encoded traversal category — symbolic indicator only",
     "tags": ["attack", "path-traversal", "encoded"],
     "request": {
       "method": "GET",
       "path": "/files",
-      "query": {"name": "%2e%2e%2fetc%2fpasswd"},
+      "query": {"name": "__ENCODED_TRAVERSAL_INDICATOR__"},
       "headers": {},
       "body": "",
       "source_ip": "192.168.1.104"

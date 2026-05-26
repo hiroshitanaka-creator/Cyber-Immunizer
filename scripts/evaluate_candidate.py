@@ -4,11 +4,20 @@ Usage:
     python scripts/evaluate_candidate.py \\
         --candidate .cyber_immunizer/candidate_detector.py \\
         --timeout 5 \\
-        [--json]
+        [--json] \\
+        [--soft-reject]
 
-Exit codes:
+Exit codes (default mode):
     0  Candidate passed adoption gate
-    1  Validation failed, timeout, or adoption gate failed
+    1  Tool failure, AST violation, timeout, or adoption gate failed
+
+Exit codes with --soft-reject:
+    0  Adoption gate evaluation completed (regardless of gate outcome)
+    1  Tool failure only (AST violation, timeout, subprocess crash, parse error)
+
+The --soft-reject flag lets the CI workflow distinguish "tool broken" (exit 1)
+from "candidate evaluated but rejected by gate" (exit 0 + passed_adoption_gate=false).
+This prevents a legitimate soft-rejection from being treated as a workflow error.
 
 SAFETY NOTE:
     Candidate code is never executed with secrets or write permissions.
@@ -52,10 +61,23 @@ def evaluate_candidate(
     timeout_seconds: int = 5,
     report_path: Path | None = None,
     baseline_mode: bool = False,
+    soft_reject: bool = False,
 ) -> dict:
     """Validate then evaluate candidate in a sandboxed subprocess.
 
-    Returns a result dict.
+    Returns a result dict with keys:
+        success: bool               — True only if adoption gate passed
+        passed_adoption_gate: bool  — True if gate passed
+        timed_out: bool
+        return_code: int | None
+        violations: list[str]
+        fitness_report: dict | None
+        error: str
+        is_tool_failure: bool       — True if something broke (not a soft rejection)
+        candidate_hash: str | None
+
+    When soft_reject=True, the caller can use is_tool_failure to determine
+    whether to exit 1 (tool broken) or exit 0 (gate evaluated, candidate rejected).
     """
     report_path = report_path or _REPORT_PATH
 
@@ -70,6 +92,7 @@ def evaluate_candidate(
             "violations": val_result["violations"],
             "fitness_report": None,
             "error": "AST validation failed",
+            "is_tool_failure": True,  # AST violation is always a hard failure
         }
         return result
 
@@ -109,8 +132,9 @@ def evaluate_candidate(
             "violations": [],
             "fitness_report": None,
             "error": f"evaluation subprocess timed out after {timeout_seconds}s",
+            "is_tool_failure": True,  # timeout is a tool failure
+            "candidate_hash": candidate_hash,
         }
-        # Write a failure report
         _write_report(result, candidate_hash, report_path)
         return result
 
@@ -131,6 +155,8 @@ def evaluate_candidate(
             "violations": [],
             "fitness_report": None,
             "error": parse_error or f"empty fitness output (stderr={stderr!r})",
+            "is_tool_failure": True,  # parse failure is a tool failure
+            "candidate_hash": candidate_hash,
         }
         _write_report(result, candidate_hash, report_path)
         return result
@@ -146,6 +172,7 @@ def evaluate_candidate(
         "violations": [],
         "fitness_report": fitness_report,
         "error": "" if passed else "adoption gate not passed",
+        "is_tool_failure": False,  # gate evaluated cleanly — not a tool failure
         "candidate_hash": candidate_hash,
     }
     _write_report(result, candidate_hash, report_path)
@@ -168,12 +195,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout", type=int, default=5, help="Subprocess timeout in seconds")
     parser.add_argument("--json", action="store_true", help="Output JSON")
     parser.add_argument("--baseline", action="store_true", help="Baseline evaluation mode")
+    parser.add_argument(
+        "--soft-reject",
+        action="store_true",
+        help=(
+            "Exit 0 when the adoption gate evaluated cleanly (even if candidate was rejected). "
+            "Exit 1 only on tool failures (AST violation, timeout, subprocess crash). "
+            "Useful in CI to distinguish 'workflow broken' from 'candidate didn't pass gate'."
+        ),
+    )
     args = parser.parse_args(argv)
 
     result = evaluate_candidate(
         Path(args.candidate),
         timeout_seconds=args.timeout,
         baseline_mode=args.baseline,
+        soft_reject=args.soft_reject,
     )
 
     if args.json:
@@ -188,9 +225,17 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  violation: {v}")
             if result.get("fitness_report"):
                 fr = result["fitness_report"]
-                print(f"  score={fr.get('score'):.2f}  tp={fr.get('tp_rate'):.3f}  fp={fr.get('fp_rate'):.3f}")
+                score = fr.get("score", 0)
+                tp = fr.get("tp_rate", 0)
+                fp = fr.get("fp_rate", 0)
+                print(f"  score={score:.2f}  tp={tp:.3f}  fp={fp:.3f}")
 
-    return 0 if result["success"] else 1
+    # Determine exit code
+    if args.soft_reject:
+        # Exit 1 only for tool failures; exit 0 for clean gate evaluations
+        return 1 if result.get("is_tool_failure", True) else 0
+    else:
+        return 0 if result["success"] else 1
 
 
 if __name__ == "__main__":
