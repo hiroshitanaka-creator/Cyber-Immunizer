@@ -155,11 +155,16 @@ class TestRollbackBacktrackDesignContent:
         This guards against accidental future document degradation.
         """
         prohibited_phrases = [
+            # Permissive / positive assertion phrases
             "generated code may run with write permissions",
             "generated code can run with write permissions",
+            "generated code is allowed in write-permission jobs",
+            "generated code is allowed to run with write permissions",
+            # Japanese equivalents permitting execution with write access
             "generated codeをwrite権限jobで実行する",
             "write権限でgenerated codeを実行する",
             "write権限でgenerated codeを実行してよい",
+            "generated codeをwrite権限で実行してよい",
         ]
         for phrase in prohibited_phrases:
             assert phrase not in self.content, (
@@ -291,22 +296,29 @@ class TestRollbackBacktrackDesignContent:
 
     def test_ledger_not_in_apply_path_regression_guard(self) -> None:
         """ROLLBACK_BACKTRACK_DESIGN.md must NOT contain any text that includes the ledger
-        in the rollback/backtrack scope.
+        in the rollback/backtrack scope, or permits modification of the ledger.
 
         This guards against accidental future document degradation.
         """
         prohibited_phrases = [
+            # Inclusion in rollback scope
             "API usage ledger is included in rollback",
             "api_usage_ledger.json をrollback対象に含める",
             "api_usage_ledger.json もrollbackする",
             "api_usage_ledger.json を巻き戻す",
             "ledgerをrollbackする",
             "ledger も rollback 対象",
+            # Permission to modify
+            "API usage ledger may be modified",
+            "API usage ledger can be modified",
+            "API usage ledger is modified",
+            "api_usage_ledger.json を変更してよい",
         ]
         for phrase in prohibited_phrases:
             assert phrase not in self.content, (
                 f"ROLLBACK_BACKTRACK_DESIGN.md must NOT contain '{phrase}'. "
-                "The API usage ledger must never be included in rollback/backtrack scope."
+                "The API usage ledger must never be included in rollback/backtrack scope "
+                "and must never be modified during rollback/backtrack operations."
             )
 
 
