@@ -11,11 +11,12 @@
 | 役割 | 担当 | 責任範囲 |
 |---|---|---|
 | **Human Owner** | hiroshitanaka-creator | 最終マージ判断・安全方針の決定・BLOCK/APPROVE の覆し権限 |
-| **GPT Audit Gate** | GPT-4o（または同等モデル） | 6カテゴリの構造的レビュー・APPROVE/REQUEST CHANGES/BLOCK の推薦 |
-| **Claude Code** | claude-sonnet-4-6 | 実装・テスト作成・コミット・PR準備・Audit Gateへの情報提供 |
+| **GPT Audit Gate** | GPT 系監査モデル（モデルバージョンに依存しない） | 6カテゴリの構造的レビュー・APPROVE/REQUEST CHANGES/BLOCK の推薦 |
+| **Claude Code** | Claude Code 実装環境（モデルバージョンに依存しない） | 実装・テスト作成・コミット・PR準備・Audit Gateへの情報提供 |
 
 > ⚠️ **Claude Code は自ら APPROVE/BLOCK を宣言しない。** それは GPT Audit Gate および Human Owner の権限である。  
-> Claude Code は実装の事実と根拠を正確に提供し、レビューを支援する。
+> Claude Code は実装の事実と根拠を正確に提供し、レビューを支援する。  
+> 特定モデルバージョン名（例: GPT-4o, claude-sonnet-x-y）はコミット・PR・コメントに記載しない。
 
 ---
 

@@ -19,13 +19,20 @@ on:
     # mode=live-model, or mode=gemini-paid-credit to run an evolution cycle.
     - cron: "0 2 * * *"
 
+# Prevent concurrent runs on the same branch from racing to write the
+# API usage ledger or the promoted detector.  cancel-in-progress: false
+# ensures a running evolution cycle is never cancelled mid-way.
+concurrency:
+  group: cyber-immunizer-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # -----------------------------------------------------------------------
   # Job 1: PROPOSE
   # Runs the mutation proposer (noop / offline sample / live model / paid).
   # Has read-only permissions and may receive GEMINI_API_KEY.
   # Does NOT execute candidate code.
-  # GEMINI_API_KEY is scoped to this job only; absent from evaluate/promote.
+  # GEMINI_API_KEY is scoped to this job only; absent from ALL other jobs.
   # -----------------------------------------------------------------------
   propose:
     name: Propose Mutation
@@ -80,7 +87,7 @@ jobs:
         id: propose
         env:
           # GEMINI_API_KEY is only present in the propose job.
-          # It is intentionally absent from evaluate and promote jobs.
+          # It is intentionally absent from ALL other jobs.
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EFFECTIVE_MODE: ${{ steps.mode.outputs.effective_mode }}
         run: |
@@ -133,7 +140,62 @@ jobs:
           retention-days: 1
 
   # -----------------------------------------------------------------------
-  # Job 2: EVALUATE
+  # Job 2: PERSIST-LEDGER
+  # Commits the updated API usage ledger to the repository immediately
+  # after the propose job, regardless of whether the candidate is later
+  # adopted by the evaluate/promote pipeline.  This ensures every API call
+  # is recorded even when the candidate fails the adoption gate — preventing
+  # the budget cap from becoming fail-open.
+  #
+  # SECURITY CONSTRAINTS:
+  #   - Has write permissions, but NO model API secrets.
+  #   - Does NOT download candidate or patch artifacts.
+  #   - Does NOT execute any generated code.
+  #   - GEMINI_API_KEY is intentionally absent from this job.
+  # -----------------------------------------------------------------------
+  persist-ledger:
+    name: Persist API Usage Ledger
+    needs: propose
+    if: needs.propose.outputs.ledger_changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # NOTE: no secrets: block — this job intentionally has no GEMINI_API_KEY
+    # or other model credentials.  Write permission is scoped to committing
+    # the API usage ledger only.
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # GITHUB_TOKEN provides write permission for this job.
+          # It has no access to GEMINI_API_KEY or other model credentials.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create data directory
+        run: mkdir -p data
+
+      - name: Download API usage ledger
+        uses: actions/download-artifact@v4
+        with:
+          name: api-usage-ledger
+          path: data/
+        # NOTE: intentionally no continue-on-error.  If ledger_changed is
+        # true but the artifact is unavailable, that is a critical error —
+        # failing here prevents the monthly/daily budget cap from becoming
+        # fail-open on future runs.
+
+      - name: Commit API usage ledger
+        run: |
+          git config user.name "Cyber-Immunizer Bot"
+          git config user.email "cyber-immunizer-bot@noreply.github.com"
+          git add data/api_usage_ledger.json
+          git diff --cached --quiet || git commit -m \
+            "chore(ledger): record API usage $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push
+
+  # -----------------------------------------------------------------------
+  # Job 3: EVALUATE
   # Applies the patch and evaluates the candidate in a subprocess.
   # Has read-only permissions and NO secrets.
   # Generated candidate code is never executed with write permissions or API keys.
@@ -221,13 +283,15 @@ print('true' if fr.get('passed_adoption_gate') else 'false')
           retention-days: 1
 
   # -----------------------------------------------------------------------
-  # Job 3: PROMOTE
+  # Job 4: PROMOTE
   # Promotes the candidate ONLY if the adoption gate passed.
   # Has write permissions, but NO model API secrets.
   # Does not execute candidate code — only copies files and updates data.
   # GEMINI_API_KEY is intentionally absent from this job.
-  # If a ledger artifact exists (from gemini-paid-credit), it is committed
-  # along with the promoted detector.
+  #
+  # Ledger persistence is the responsibility of the persist-ledger job
+  # (Job 2), which runs immediately after propose regardless of candidate
+  # outcome.  This job commits ONLY the promoted detector and related files.
   # -----------------------------------------------------------------------
   promote:
     name: Promote Candidate
@@ -238,6 +302,7 @@ print('true' if fr.get('passed_adoption_gate') else 'false')
       contents: write
     # NOTE: no GEMINI_API_KEY here — write permissions and model secrets are
     # intentionally kept in separate jobs.
+    # NOTE: ledger is committed by persist-ledger, not this job.
 
     steps:
       - name: Checkout repository
@@ -270,14 +335,6 @@ print('true' if fr.get('passed_adoption_gate') else 'false')
           name: fitness-report
           path: .cyber_immunizer/
 
-      - name: Download API usage ledger (if exists from gemini-paid-credit)
-        if: needs.propose.outputs.ledger_changed == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: api-usage-ledger
-          path: data/
-        continue-on-error: true
-
       - name: Promote candidate
         run: |
           python scripts/promote_candidate.py \
@@ -293,10 +350,6 @@ print('true' if fr.get('passed_adoption_gate') else 'false')
           git config user.name "Cyber-Immunizer Bot"
           git config user.email "cyber-immunizer-bot@noreply.github.com"
           git add core/detector.py data/genome.json data/evolution_history.json README.md
-          # Include ledger if it was updated during gemini-paid-credit
-          if [ -f "data/api_usage_ledger.json" ]; then
-            git add data/api_usage_ledger.json
-          fi
           git diff --cached --quiet || git commit -m \
             "chore(immunizer): promote generation $(python -c \"import json; print(json.load(open('data/genome.json'))['generation'])\")"
           git push

@@ -641,19 +641,34 @@ def _propose_via_gemini_paid_credit(
         api_key, model_name, user_prompt, max_output_tokens, temperature
     )
 
-    # Append usage record regardless of success/failure
-    budget.append_usage_record(
-        ledger_path,
-        provider="gemini",
-        api_mode=api_mode,
-        model=model_name,
-        estimated_input_chars=input_chars,
-        estimated_output_chars=output_chars,
-        actual_input_tokens=actual_input_tokens,
-        actual_output_tokens=actual_output_tokens,
-        success=(api_err == ""),
-        error=api_err,
-    )
+    # Append usage record — HARD ERROR if ledger write fails.
+    # An API call whose cost cannot be recorded into the ledger must NOT be
+    # treated as a success: it would leave the budget cap in a fail-open
+    # state for future calls.  We try to record success or failure; if
+    # either record write fails, we return an error regardless of whether
+    # the API call itself succeeded.
+    try:
+        budget.append_usage_record(
+            ledger_path,
+            provider="gemini",
+            api_mode=api_mode,
+            model=model_name,
+            estimated_input_chars=input_chars,
+            estimated_output_chars=output_chars,
+            actual_input_tokens=actual_input_tokens,
+            actual_output_tokens=actual_output_tokens,
+            success=(api_err == ""),
+            error=api_err,
+        )
+    except (ValueError, OSError) as ledger_exc:
+        ledger_err = (
+            f"API usage ledger write failed: {ledger_exc}. "
+            "Cannot confirm budget was recorded; refusing to return patch."
+        )
+        if api_err:
+            # Both API call and ledger write failed: report both
+            return None, f"{api_err} — additionally, {ledger_err}"
+        return None, ledger_err
 
     if api_err:
         return None, api_err

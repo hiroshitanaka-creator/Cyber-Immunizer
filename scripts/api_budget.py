@@ -270,6 +270,11 @@ def append_usage_record(
         success:                True if the call succeeded.
         error:                  Error message string (empty if success).
         now:                    UTC datetime for the record (defaults to now).
+
+    Raises:
+        ValueError: if the existing ledger file is present but malformed.
+                    The corrupt file is NOT overwritten; callers must treat
+                    this as a hard error and refuse to proceed.
     """
     if now is None:
         now = datetime.now(timezone.utc)
@@ -297,11 +302,16 @@ def append_usage_record(
         "error": error,
     }
 
-    # Load existing records; if malformed, start fresh (don't lose this record)
+    # Load existing records — FAIL CLOSED on corrupt ledger.
+    # If the ledger is malformed, raise ValueError rather than silently
+    # overwriting it.  A corrupt ledger means past budget data is unknown;
+    # proceeding would make the budget cap fail-open.
     try:
         records = load_ledger(path)
-    except (ValueError, OSError):
-        records = []
+    except ValueError:
+        raise  # propagate: caller must treat this as a hard error
+    except OSError as exc:
+        raise ValueError(f"Could not read ledger file: {exc}") from exc
 
     records.append(record)
     save_ledger(path, records)

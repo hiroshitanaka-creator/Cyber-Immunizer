@@ -432,20 +432,59 @@ class TestAppendUsageRecord:
         assert record["actual_input_tokens"] == 30
         assert record["actual_output_tokens"] == 15
 
-    def test_recovers_from_malformed_existing_ledger(self, tmp_path: Path) -> None:
-        """If existing ledger is malformed, start fresh and write the record."""
+    def test_raises_on_malformed_existing_ledger(self, tmp_path: Path) -> None:
+        """If existing ledger is malformed, append_usage_record raises ValueError.
+
+        The corrupt file must NOT be silently overwritten.  A malformed ledger
+        means past budget data is unknown; proceeding would make the budget cap
+        fail-open.  The caller must treat this as a hard error.
+        """
         p = tmp_path / "ledger.json"
         p.write_text("INVALID JSON", encoding="utf-8")
-        # Should not raise; should write a fresh ledger with 1 record
+        with pytest.raises(ValueError):
+            budget.append_usage_record(
+                p,
+                model="gemini-2.0-flash",
+                estimated_input_chars=100,
+                estimated_output_chars=50,
+                success=True,
+            )
+        # Verify the corrupt file was NOT overwritten
+        assert p.read_text(encoding="utf-8") == "INVALID JSON", (
+            "append_usage_record must not overwrite a corrupt ledger file"
+        )
+
+    def test_raises_on_non_array_ledger(self, tmp_path: Path) -> None:
+        """If existing ledger is a JSON object (not array), raises ValueError."""
+        p = tmp_path / "ledger.json"
+        p.write_text('{"key": "value"}', encoding="utf-8")
+        with pytest.raises(ValueError):
+            budget.append_usage_record(
+                p,
+                model="gemini-2.0-flash",
+                estimated_input_chars=100,
+                estimated_output_chars=50,
+                success=True,
+            )
+        # Corrupt file must remain unchanged
+        assert p.read_text(encoding="utf-8") == '{"key": "value"}'
+
+    def test_appends_only_to_valid_ledger(self, tmp_path: Path) -> None:
+        """append_usage_record appends to a valid ledger without error."""
+        p = tmp_path / "ledger.json"
+        existing = [_make_record("2026-05", "2026-05-01", cost=0.01)]
+        p.write_text(json.dumps(existing), encoding="utf-8")
+
+        # Should not raise
         budget.append_usage_record(
             p,
             model="gemini-2.0-flash",
-            estimated_input_chars=100,
-            estimated_output_chars=50,
+            estimated_input_chars=500,
+            estimated_output_chars=200,
             success=True,
         )
         data = json.loads(p.read_text())
-        assert len(data) == 1
+        assert len(data) == 2, "Valid ledger should have 2 records after append"
 
     def test_estimated_cost_is_positive(self, tmp_path: Path) -> None:
         p = tmp_path / "ledger.json"

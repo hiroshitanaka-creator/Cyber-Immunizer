@@ -809,3 +809,225 @@ class TestNoDependencyRequired:
         assert hasattr(budget, "load_ledger")
         assert hasattr(budget, "assert_budget_available")
         assert hasattr(budget, "append_usage_record")
+
+
+# ---------------------------------------------------------------------------
+# 17. Ledger write failures are hard errors in gemini-paid-credit mode
+# ---------------------------------------------------------------------------
+
+
+class TestPaidCreditLedgerFailures:
+    """Verify that ledger recording failures prevent patch success.
+
+    After a Gemini API call, the budget ledger MUST be updated.  If
+    append_usage_record raises (e.g., corrupt ledger), the function must
+    return an error regardless of whether the API call succeeded.  This
+    prevents the budget cap from becoming fail-open.
+    """
+
+    @pytest.fixture()
+    def all_paths(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+    ) -> dict:
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(live_paid_genome), encoding="utf-8")
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+        return {
+            "genome_path": genome_path,
+            "detector_file": detector_file,
+            "threats_file": threats_file,
+            "ledger_path": ledger_path,
+            "tmp_path": tmp_path,
+        }
+
+    def test_api_success_but_ledger_failure_returns_error(
+        self,
+        all_paths: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When API succeeds but ledger write fails, no patch is returned.
+
+        An API call whose cost cannot be recorded makes the budget cap
+        fail-open for future calls — it must be treated as an error.
+        """
+        paths = all_paths
+        _patch_paths(
+            monkeypatch,
+            paths["genome_path"],
+            paths["detector_file"],
+            paths["threats_file"],
+            paths["ledger_path"],
+            paths["tmp_path"],
+        )
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        # Mock API to succeed with valid JSON
+        valid_response_text = json.dumps({
+            "mutation_rationale": "ok",
+            "target_threats": ["T1"],
+            "expected_improvement": "better",
+            "risk": "low",
+            "replacement_code": (
+                "    surface = request.path.lower()\n"
+                "    return DetectionResult(\n"
+                "        blocked=False,\n"
+                "        reason='no match',\n"
+                "        confidence=0.0,\n"
+                "        matched_signals=(),\n"
+                "    )\n"
+            ),
+        })
+        monkeypatch.setattr(
+            pm, "_call_gemini_api",
+            lambda *a, **kw: (valid_response_text, 100, 50, ""),
+        )
+
+        # Make the ledger file corrupt AFTER budget check but before append
+        # by corrupting the ledger after the genome/budget reads succeed.
+        # We mock append_usage_record directly to raise ValueError.
+        from scripts import api_budget as ab
+
+        def corrupt_append(*args: Any, **kwargs: Any) -> None:
+            raise ValueError("Simulated corrupt ledger during write")
+
+        monkeypatch.setattr(ab, "append_usage_record", corrupt_append)
+
+        result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert result is None, "No patch should be returned when ledger write fails"
+        assert err != "", "An error must be returned when ledger write fails"
+        assert "ledger" in err.lower() or "budget" in err.lower() or "append" in err.lower() or "record" in err.lower(), (
+            f"Error must mention ledger/budget, got: {err!r}"
+        )
+
+    def test_api_failure_records_failure_in_ledger(
+        self,
+        all_paths: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When API fails, a failure record is written to the ledger and error returned."""
+        paths = all_paths
+        ledger_path = paths["ledger_path"]
+        _patch_paths(
+            monkeypatch,
+            paths["genome_path"],
+            paths["detector_file"],
+            paths["threats_file"],
+            ledger_path,
+            paths["tmp_path"],
+        )
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        # Simulate API failure
+        monkeypatch.setattr(
+            pm, "_call_gemini_api",
+            lambda *a, **kw: (None, None, None, "Gemini API call failed: timeout"),
+        )
+
+        result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert result is None
+        assert "failed" in err.lower() or "timeout" in err.lower()
+
+        # Failure record must still be written
+        ledger = json.loads(ledger_path.read_text())
+        assert len(ledger) == 1, "Failure record must be appended to ledger"
+        assert ledger[0]["success"] is False
+
+    def test_api_failure_and_ledger_failure_returns_compound_error(
+        self,
+        all_paths: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When both API fails and ledger write fails, compound error is returned."""
+        paths = all_paths
+        _patch_paths(
+            monkeypatch,
+            paths["genome_path"],
+            paths["detector_file"],
+            paths["threats_file"],
+            paths["ledger_path"],
+            paths["tmp_path"],
+        )
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        # Simulate API failure
+        monkeypatch.setattr(
+            pm, "_call_gemini_api",
+            lambda *a, **kw: (None, None, None, "Gemini API call failed: timeout"),
+        )
+
+        # Simulate ledger write failure
+        from scripts import api_budget as ab
+
+        def corrupt_append(*args: Any, **kwargs: Any) -> None:
+            raise ValueError("Corrupt ledger on write")
+
+        monkeypatch.setattr(ab, "append_usage_record", corrupt_append)
+
+        result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert result is None
+        assert err != ""
+        # Should mention both the API error and the ledger error
+        assert "failed" in err.lower() or "timeout" in err.lower(), (
+            f"Expected API error in message, got: {err!r}"
+        )
+        assert "ledger" in err.lower() or "record" in err.lower() or "additionally" in err.lower(), (
+            f"Expected ledger error in message, got: {err!r}"
+        )
+
+    def test_success_with_valid_ledger_returns_patch(
+        self,
+        all_paths: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Sanity check: API success + valid ledger → patch returned."""
+        paths = all_paths
+        ledger_path = paths["ledger_path"]
+        _patch_paths(
+            monkeypatch,
+            paths["genome_path"],
+            paths["detector_file"],
+            paths["threats_file"],
+            ledger_path,
+            paths["tmp_path"],
+        )
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        valid_response_text = json.dumps({
+            "mutation_rationale": "ok",
+            "target_threats": ["T1"],
+            "expected_improvement": "better",
+            "risk": "low",
+            "replacement_code": (
+                "    surface = request.path.lower()\n"
+                "    return DetectionResult(\n"
+                "        blocked=False,\n"
+                "        reason='no match',\n"
+                "        confidence=0.0,\n"
+                "        matched_signals=(),\n"
+                "    )\n"
+            ),
+        })
+        monkeypatch.setattr(
+            pm, "_call_gemini_api",
+            lambda *a, **kw: (valid_response_text, 100, 50, ""),
+        )
+
+        result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert err == "", f"Expected success, got: {err}"
+        assert result is not None
+        ledger = json.loads(ledger_path.read_text())
+        assert len(ledger) == 1
+        assert ledger[0]["success"] is True
