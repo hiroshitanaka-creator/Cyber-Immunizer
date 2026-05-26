@@ -345,12 +345,7 @@ jobs:
 
           # Extract passed_adoption_gate from the fitness report
           if [ -f ".cyber_immunizer/fitness_report.json" ]; then
-            GATE=$(python -c "
-import json, sys
-r = json.load(open('.cyber_immunizer/fitness_report.json'))
-fr = r.get('fitness_report') or r
-print('true' if fr.get('passed_adoption_gate') else 'false')
-")
+            GATE=$(python -c "import json; r=json.load(open('.cyber_immunizer/fitness_report.json')); fr=r.get('fitness_report') or r; print('true' if fr.get('passed_adoption_gate') else 'false')")
             echo "passed_adoption_gate=$GATE" >> "$GITHUB_OUTPUT"
           else
             echo "passed_adoption_gate=false" >> "$GITHUB_OUTPUT"
