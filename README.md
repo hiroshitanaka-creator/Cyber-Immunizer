@@ -440,16 +440,21 @@ PR テンプレート（`.github/PULL_REQUEST_TEMPLATE.md`）に GPT Audit Gate 
 
 ---
 
-`.github/workflows/immunization_loop.yml` は **propose / persist-ledger / evaluate / promote** の4ジョブを意図的に分離しています。
+`.github/workflows/immunization_loop.yml` は **propose / persist-ledger / finalize-propose-status / evaluate / promote** の5ジョブを意図的に分離しています。
 
 | ジョブ | 権限 | シークレット | 生成コードを実行するか | 責務 |
 |---|---|---|---|---|
-| `propose` | `contents: read` | GEMINI_API_KEY（任意） | ❌ | 変異提案・ledger artifact生成 |
+| `propose` | `contents: read` | GEMINI_API_KEY（任意） | ❌ | 変異提案・ledger artifact生成・exit code出力（`propose_failed`） |
 | `persist-ledger` | `contents: write` | GITHUB_TOKEN のみ | ❌ | **ledgerのみ**をcommit（candidate採用/不採用に関係なく） |
+| `finalize-propose-status` | `contents: none` | なし | ❌ | ledger永続化後にpropose失敗をworkflow失敗として表現 |
 | `evaluate` | `contents: read` | なし | ✅ する（サブプロセス隔離） | 候補評価 |
-| `promote` | `contents: write` | GITHUB_TOKEN のみ | ❌ | 検出器・genome・READMEのcommit |
+| `promote` | `contents: write` | GITHUB_TOKEN のみ | ❌ | 検出器・genome・READMEのcommit（`persist-ledger`完了後のみ） |
 
-**`persist-ledger` ジョブは `propose` 直後に実行されます。** candidate が `evaluate` で不採用になっても、API使用記録は必ずリポジトリに永続化されます。これにより月次・日次 budget cap が fail-open になりません。
+**`persist-ledger` ジョブは `propose` 直後に実行されます。** `propose_mutation.py` がAPI呼び出し後に失敗しても、`set +e` によりledger artifact uploadには必ず到達します。candidate が `evaluate` で不採用になっても、API使用記録は必ずリポジトリに永続化されます。これにより月次・日次 budget cap が fail-open になりません。
+
+**`propose` 失敗はledger永続化後に `finalize-propose-status` ジョブがworkflow失敗として表現します。** ledger永続化とpropose失敗の表現を分離することで、API使用記録が確実に保存されます。
+
+**`promote` は `persist-ledger` の完了を待ってから実行されます。** これにより `persist-ledger` と `promote` が同一branchへ並列write commitする競合を防ぎます。
 
 **生成コードが実行されるジョブには書き込み権限もモデルAPIシークレットも付与しません。**  
 **`persist-ledger` と `promote` は GITHUB_TOKEN（リポジトリへの書き込み用）のみを保持し、GEMINI_API_KEY は持ちません。**  
@@ -498,11 +503,11 @@ PR テンプレート（`.github/PULL_REQUEST_TEMPLATE.md`）に GPT Audit Gate 
 | `test_api_budget.py` | トークン推定・月次/日次集計・月次/日次超過拒否・ledger 破損 fail-closed（上書き禁止）・不明モデル保守的コスト（51件） |
 | `test_gemini_paid_credit.py` | paid-credit ゲート拒否・予算超過拒否・シークレットスキャン・スキーマ検証・ledger 追記・ledger 書き込み失敗→hard error（48件） |
 | `test_audit_docs.py` | AUDIT_CHARTER.md 存在・PR テンプレート存在・BLOCK/REQUEST CHANGES/APPROVE 条件・symbolic indicator 整合性 |
-| `test_workflow.py` | persist-ledger ジョブ存在・権限・GEMINI_API_KEY 不在・candidate artifact 不在・promote の ledger 責務分離・concurrency |
+| `test_workflow.py` | persist-ledger ジョブ存在・権限・GEMINI_API_KEY 不在・candidate artifact 不在・promote の ledger 責務分離・concurrency・propose `set +e` 構造・finalize-propose-status ジョブ・promote の persist-ledger sequencing（36件） |
 
 ```bash
 python -m pytest -v
-# 322 passed
+# 364 passed
 ```
 
 テストはすべて `tmp_path` インジェクションまたはファイルシステム参照（読み取り専用）を使用し、`core/detector.py` や `data/genome.json` などの実リポジトリファイルを変更しません。
