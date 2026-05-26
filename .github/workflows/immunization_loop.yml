@@ -442,7 +442,7 @@ jobs:
         run: |
           git config user.name "Cyber-Immunizer Bot"
           git config user.email "cyber-immunizer-bot@noreply.github.com"
+          GENERATION=$(python -c 'import json; print(json.load(open("data/genome.json"))["generation"])')
           git add core/detector.py data/genome.json data/evolution_history.json README.md
-          git diff --cached --quiet || git commit -m \
-            "chore(immunizer): promote generation $(python -c \"import json; print(json.load(open('data/genome.json'))['generation'])\")"
+          git diff --cached --quiet || git commit -m "chore(immunizer): promote generation ${GENERATION}"
           git push

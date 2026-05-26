@@ -845,3 +845,111 @@ class TestPassedAdoptionGateExtractionYamlFix:
             "Dot notation is invalid for hyphenated job IDs in GitHub Actions. "
             "Use needs['persist-ledger'].result instead."
         )
+
+
+# ---------------------------------------------------------------------------
+# 14. Commit promoted changes step — shell quoting correctness
+# ---------------------------------------------------------------------------
+
+
+class TestCommitPromotedChangesShellQuoting:
+    """Verify that the 'Commit promoted changes' step does not use escaped
+    nested python -c inside a git commit message (which causes shell syntax
+    errors) and instead uses a pre-assigned GENERATION variable.
+    """
+
+    def test_no_escaped_nested_python_c_in_commit_message(
+        self, workflow_content: str
+    ) -> None:
+        r"""Workflow must NOT contain an escaped nested python -c in a commit message.
+
+        The pattern:
+          git commit -m "... $(python -c \"import json; print(json.load ..."
+        uses nested escaped quotes that break the shell with:
+          syntax error near unexpected token `json.load'
+        This test ensures that anti-pattern is absent from the workflow.
+        """
+        # Detect the specific broken pattern: python -c with escaped nested quotes
+        # inside a git commit -m substitution
+        assert 'python -c \\"import json; print(json.load' not in workflow_content, (
+            r"Found escaped nested python -c pattern "
+            r"(python -c \"import json; print(json.load) "
+            "in the workflow.  This causes a shell syntax error "
+            "('syntax error near unexpected token `json.load\\'). "
+            "Use a GENERATION variable instead: "
+            "GENERATION=$(python -c 'import json; ...') and reference ${GENERATION}."
+        )
+
+    def test_commit_promoted_changes_uses_generation_variable(
+        self, promote_section: str
+    ) -> None:
+        """'Commit promoted changes' step must assign GENERATION before using it.
+
+        The GENERATION variable is set via:
+          GENERATION=$(python -c 'import json; print(json.load(open("data/genome.json"))["generation"])')
+        This avoids nested escaped quotes inside the git commit message.
+        """
+        assert 'GENERATION=$(python -c' in promote_section, (
+            "The 'Commit promoted changes' step must assign the GENERATION variable "
+            "via GENERATION=$(python -c '...') before using it in the commit message. "
+            "Found no such assignment in the promote job section."
+        )
+
+    def test_commit_message_uses_generation_variable_reference(
+        self, promote_section: str
+    ) -> None:
+        """git commit message in promote must reference ${GENERATION}, not inline python -c.
+
+        The commit message must use the pre-assigned variable:
+          git commit -m "chore(immunizer): promote generation ${GENERATION}"
+        rather than a command substitution with python -c inside the message string.
+        """
+        assert '${GENERATION}' in promote_section, (
+            "The git commit message in 'Commit promoted changes' must use "
+            "'${GENERATION}' to reference the pre-assigned variable. "
+            "Inline python -c command substitution inside the message causes "
+            "shell syntax errors."
+        )
+
+    def test_promote_does_not_git_add_api_usage_ledger(
+        self, promote_section: str
+    ) -> None:
+        """promote job must NOT git add data/api_usage_ledger.json.
+
+        Ledger persistence is exclusively the responsibility of the
+        persist-ledger job (Job 2).  If promote also adds the ledger file,
+        API usage from rejected candidates (where promote does not run) is
+        never persisted, making the budget cap fail-open.
+        """
+        assert "api_usage_ledger.json" not in promote_section, (
+            "promote job must NOT 'git add data/api_usage_ledger.json'. "
+            "The ledger is committed only by the persist-ledger job."
+        )
+
+    def test_bracket_notation_persist_ledger_result_still_present(
+        self, workflow_content: str
+    ) -> None:
+        """needs['persist-ledger'].result (bracket notation) must still be present.
+
+        The shell-quoting fix in 'Commit promoted changes' must not remove or
+        break the bracket notation required for hyphenated job ID references
+        in GitHub Actions expressions.
+        """
+        assert "needs['persist-ledger'].result" in workflow_content, (
+            "needs['persist-ledger'].result was removed or broken. "
+            "This bracket notation is required for correct GitHub Actions "
+            "expression evaluation with the hyphenated 'persist-ledger' job ID."
+        )
+
+    def test_no_dot_notation_persist_ledger_result_after_fix(
+        self, workflow_content: str
+    ) -> None:
+        """needs.persist-ledger.result (dot notation) must not appear after the fix.
+
+        Dot notation for hyphenated job IDs is invalid inside ${{ }} expressions
+        in GitHub Actions.  Only bracket notation is accepted.
+        """
+        assert "needs.persist-ledger.result" not in workflow_content, (
+            "Found 'needs.persist-ledger.result' (dot notation) in the workflow. "
+            "Use needs['persist-ledger'].result (bracket notation) instead."
+        )
