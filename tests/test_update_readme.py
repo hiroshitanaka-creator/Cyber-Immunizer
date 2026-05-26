@@ -21,7 +21,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from scripts.update_readme import update_readme, _build_status_block, _GENOME_PATH
+from scripts.update_readme import update_readme, _build_status_block, _GENOME_PATH, _parse_bool
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"
 _STATUS_END = "<!-- CYBER_IMMUNIZER_STATUS_END -->"
@@ -605,3 +605,217 @@ class TestRealReadmeStatusBlock:
         assert "| Send Full Repository Text | false |" in self.block
         assert "| Send Raw Payloads | false |" in self.block
         assert "| Send Secrets | false |" in self.block
+
+
+# ---------------------------------------------------------------------------
+# Tests: _parse_bool unit tests (regression guard for bool("false") == True)
+# ---------------------------------------------------------------------------
+
+class TestParseBoolUnit:
+    """Unit tests for _parse_bool to guard against bool("false") == True."""
+
+    # --- JSON boolean values (must pass through unchanged) ---
+
+    def test_bool_false_returns_false(self) -> None:
+        """JSON boolean false must return False."""
+        assert _parse_bool(False) is False
+
+    def test_bool_true_returns_true(self) -> None:
+        """JSON boolean true must return True."""
+        assert _parse_bool(True) is True
+
+    # --- String "false" / "true" ---
+
+    def test_string_false_returns_false(self) -> None:
+        """String 'false' must return False (not True as bool() would)."""
+        assert _parse_bool("false") is False
+
+    def test_string_true_returns_true(self) -> None:
+        """String 'true' must return True."""
+        assert _parse_bool("true") is True
+
+    def test_string_false_uppercase_returns_false(self) -> None:
+        """String 'FALSE' (uppercase) must return False."""
+        assert _parse_bool("FALSE") is False
+
+    def test_string_true_uppercase_returns_true(self) -> None:
+        """String 'TRUE' (uppercase) must return True."""
+        assert _parse_bool("TRUE") is True
+
+    def test_string_false_mixed_case_returns_false(self) -> None:
+        """String 'False' (mixed case) must return False."""
+        assert _parse_bool("False") is False
+
+    def test_string_true_mixed_case_returns_true(self) -> None:
+        """String 'True' (mixed case) must return True."""
+        assert _parse_bool("True") is True
+
+    def test_string_false_with_whitespace_returns_false(self) -> None:
+        """String '  false  ' (with whitespace) must return False."""
+        assert _parse_bool("  false  ") is False
+
+    def test_string_true_with_whitespace_returns_true(self) -> None:
+        """String '  true  ' (with whitespace) must return True."""
+        assert _parse_bool("  true  ") is True
+
+    # --- Invalid / unknown strings fall back to default ---
+
+    def test_string_nope_returns_default_false(self) -> None:
+        """Invalid string 'nope' must fall back to default (False)."""
+        assert _parse_bool("nope") is False
+
+    def test_string_nope_returns_default_true_when_set(self) -> None:
+        """Invalid string 'nope' must fall back to explicit default=True."""
+        assert _parse_bool("nope", default=True) is True
+
+    def test_string_zero_returns_default_false(self) -> None:
+        """String '0' is not recognized as bool; must return default False."""
+        assert _parse_bool("0") is False
+
+    def test_string_one_returns_default_false(self) -> None:
+        """String '1' is not recognized as bool; must return default False."""
+        assert _parse_bool("1") is False
+
+    def test_empty_string_returns_default_false(self) -> None:
+        """Empty string must fall back to default False."""
+        assert _parse_bool("") is False
+
+    # --- None falls back to default ---
+
+    def test_none_returns_default_false(self) -> None:
+        """None must return default False."""
+        assert _parse_bool(None) is False
+
+    def test_none_returns_default_true_when_set(self) -> None:
+        """None must return explicit default=True."""
+        assert _parse_bool(None, default=True) is True
+
+    # --- Non-string / non-bool types fall back to default ---
+
+    def test_integer_0_returns_default_false(self) -> None:
+        """Integer 0 is not bool; must return default False."""
+        assert _parse_bool(0) is False
+
+    def test_integer_1_returns_default_false(self) -> None:
+        """Integer 1 is not bool (not isinstance bool); must return default False."""
+        assert _parse_bool(1) is False
+
+    def test_list_returns_default_false(self) -> None:
+        """List value must fall back to default False."""
+        assert _parse_bool([]) is False
+        assert _parse_bool([True]) is False
+
+
+# ---------------------------------------------------------------------------
+# Tests: string booleans in genome.json produce correct dashboard output
+# ---------------------------------------------------------------------------
+
+class TestStringBooleanInGenome:
+    """Regression tests: genome.json with string booleans must show correct dashboard.
+
+    Scenario: genome.json accidentally contains string "false" instead of
+    JSON boolean false. The old bool("false") == True bug would show 'true'
+    in the dashboard; _parse_bool must correct this.
+    """
+
+    def test_live_model_enabled_string_false_shows_false(self, tmp_path: Path) -> None:
+        """live_model_enabled='false' (string) must display as false in dashboard."""
+        _, block = _run_update(tmp_path, genome_overrides={"live_model_enabled": "false"})
+        assert "| live_model_enabled | false |" in block, (
+            "String 'false' for live_model_enabled must show 'false', not 'true'"
+        )
+
+    def test_live_model_enabled_string_false_api_connection_not_connected(
+        self, tmp_path: Path
+    ) -> None:
+        """live_model_enabled='false' (string) must yield 'Not connected' API Connection."""
+        _, block = _run_update(tmp_path, genome_overrides={"live_model_enabled": "false"})
+        assert "Not connected" in block, (
+            "String 'false' for live_model_enabled must yield 'Not connected'"
+        )
+        assert "BLOCKED" not in block, (
+            "String 'false' for live_model_enabled must NOT yield BLOCKED"
+        )
+
+    def test_live_model_enabled_string_true_shows_true(self, tmp_path: Path) -> None:
+        """live_model_enabled='true' (string) must display as true and trigger BLOCKED."""
+        _, block = _run_update(tmp_path, genome_overrides={"live_model_enabled": "true"})
+        assert "| live_model_enabled | true |" in block, (
+            "String 'true' for live_model_enabled must show 'true'"
+        )
+        assert "BLOCKED" in block, (
+            "String 'true' for live_model_enabled must trigger BLOCKED in API Connection"
+        )
+
+    def test_send_repository_full_text_string_false_shows_false(
+        self, tmp_path: Path
+    ) -> None:
+        """send_repository_full_text='false' (string) must display as false."""
+        _, block = _run_update(
+            tmp_path,
+            genome_overrides={"send_repository_full_text": "false"},
+        )
+        assert "| Send Full Repository Text | false |" in block, (
+            "String 'false' for send_repository_full_text must show 'false', not 'true'"
+        )
+
+    def test_send_raw_payloads_string_false_shows_false(self, tmp_path: Path) -> None:
+        """send_raw_payloads='false' (string) must display as false."""
+        _, block = _run_update(
+            tmp_path,
+            genome_overrides={"send_raw_payloads": "false"},
+        )
+        assert "| Send Raw Payloads | false |" in block, (
+            "String 'false' for send_raw_payloads must show 'false', not 'true'"
+        )
+
+    def test_send_secrets_string_false_shows_false(self, tmp_path: Path) -> None:
+        """send_secrets='false' (string) must display as false."""
+        _, block = _run_update(
+            tmp_path,
+            genome_overrides={"send_secrets": "false"},
+        )
+        assert "| Send Secrets | false |" in block, (
+            "String 'false' for send_secrets must show 'false', not 'true'"
+        )
+
+    def test_invalid_string_live_model_enabled_defaults_to_false(
+        self, tmp_path: Path
+    ) -> None:
+        """Invalid string 'nope' for live_model_enabled must default to false."""
+        _, block = _run_update(
+            tmp_path,
+            genome_overrides={"live_model_enabled": "nope"},
+        )
+        assert "| live_model_enabled | false |" in block, (
+            "Invalid string 'nope' must default to false, not true"
+        )
+        assert "Not connected" in block, (
+            "Invalid string 'nope' for live_model_enabled must yield 'Not connected'"
+        )
+
+    def test_invalid_string_send_repo_text_defaults_to_false(
+        self, tmp_path: Path
+    ) -> None:
+        """Invalid string 'nope' for send_repository_full_text must default to false."""
+        _, block = _run_update(
+            tmp_path,
+            genome_overrides={"send_repository_full_text": "nope"},
+        )
+        assert "| Send Full Repository Text | false |" in block
+
+    def test_json_boolean_false_still_shows_false(self, tmp_path: Path) -> None:
+        """JSON boolean false (Python False) must still display as false."""
+        _, block = _run_update(
+            tmp_path,
+            genome_overrides={"live_model_enabled": False},
+        )
+        assert "| live_model_enabled | false |" in block
+
+    def test_json_boolean_true_still_shows_true(self, tmp_path: Path) -> None:
+        """JSON boolean true (Python True) must still display as true."""
+        _, block = _run_update(
+            tmp_path,
+            genome_overrides={"live_model_enabled": True},
+        )
+        assert "| live_model_enabled | true |" in block

@@ -30,6 +30,28 @@ def _load_json(path: Path) -> dict | list | None:
         return None
 
 
+def _parse_bool(value: object, default: bool = False) -> bool:
+    """Strict boolean parser that avoids bool("false") == True.
+
+    JSON booleans (Python bool) are returned as-is.
+    String "true" / "false" (case-insensitive, stripped) are converted.
+    None and any other type fall back to *default*.
+    This prevents genome.json string values like "false" from being
+    misread as truthy by Python's built-in bool().
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized == "true":
+            return True
+        if normalized == "false":
+            return False
+    return default
+
+
 def _bool_str(value: object) -> str:
     """Return 'true' or 'false' string from a bool-like value."""
     return "true" if value else "false"
@@ -76,16 +98,18 @@ def _build_status_block() -> str:
     now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 
     # --- Phase 2 fields (read from genome.json) ---
-    live_model_enabled: bool = bool(genome.get("live_model_enabled", False))
+    # Use _parse_bool instead of bool() to correctly handle string "false"
+    # (Python's bool("false") == True, which would produce a wrong dashboard)
+    live_model_enabled: bool = _parse_bool(genome.get("live_model_enabled"), default=False)
     api_mode: str = genome.get("api_mode", "N/A")
     model_provider: str = genome.get("model_provider", "N/A")
     max_model_requests: object = genome.get("max_model_requests_per_run", "N/A")
     max_commits: object = genome.get("max_commits_per_run", "N/A")
     monthly_budget: object = genome.get("monthly_api_budget_usd", "N/A")
     daily_budget: object = genome.get("daily_api_budget_usd", "N/A")
-    send_repo_text: bool = bool(genome.get("send_repository_full_text", False))
-    send_raw_payloads: bool = bool(genome.get("send_raw_payloads", False))
-    send_secrets: bool = bool(genome.get("send_secrets", False))
+    send_repo_text: bool = _parse_bool(genome.get("send_repository_full_text"), default=False)
+    send_raw_payloads: bool = _parse_bool(genome.get("send_raw_payloads"), default=False)
+    send_secrets: bool = _parse_bool(genome.get("send_secrets"), default=False)
 
     # Derive Phase 2 display values
     current_phase = "Phase 2 — API-disconnected operations"
