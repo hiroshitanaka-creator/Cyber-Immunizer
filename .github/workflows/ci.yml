@@ -1,8 +1,9 @@
 name: CI
 
-"on":
+on:
   push:
   pull_request:
+  workflow_dispatch:  # allow manual trigger from the Actions tab for testing
 
 # Prevent redundant runs when a push and a PR event fire for the same commit.
 concurrency:
