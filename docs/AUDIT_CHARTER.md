@@ -185,5 +185,36 @@ API キー登録・`live_model_enabled=true` への変更・実 API 実行を含
 
 ---
 
+## 7. Phase transition rule（Phase 1 → Phase 2）
+
+### Phase 1 → Phase 2 への移行条件
+
+**Phase 2（実 Gemini API 接続）への移行は、Human Owner の明示的な決定によってのみ開始されます。**
+
+#### GPT Audit Gate による確認事項
+
+Phase 2 移行を含む PR を審査する際、GPT Audit Gate は以下をすべて確認しなければならない：
+
+1. **CI success** — `python -m pytest` が全件 pass していること
+2. **preflight behavior** — `workflow_dispatch mode=gemini-paid-credit-preflight` が期待通りに動作すること（`GEMINI_API_KEY` 未登録時は fail-closed で失敗すること）
+3. **live_model_enabled=false before API registration** — API キー登録前の時点で `data/genome.json` の `live_model_enabled` が `false` であること
+4. **no committed API key** — `GEMINI_API_KEY` がリポジトリ内のいかなるファイルにも含まれていないこと
+
+#### BLOCK 条件（Phase transition に関する追加ルール）
+
+以下のいずれかを検出した場合、即座に **BLOCK** を推薦する：
+
+- **Human Owner decision なしの live_model_enabled=true** — Human Owner の明示的な決定を経ずに `live_model_enabled` が `true` に変更されている PR は即座に BLOCK する
+- **API キー登録前の live_model_enabled=true** — `GEMINI_API_KEY` の GitHub Secrets 登録確認前に `live_model_enabled=true` を含む PR は BLOCK する
+- **Phase 1 baseline 破壊** — `docs/PHASE_1_BASELINE.md` に記載された Safety invariants が変更・削除されている PR は BLOCK する
+
+> ⚠️ **Phase 1 → Phase 2 移行は不可逆的なコスト発生を伴う可能性があります。**  
+> Human Owner が明示的に「Phase 2 へ移行する」と決定し、GEMINI_API_KEY を GitHub Secrets に登録した上で、  
+> レビュー済み PR を通じて `live_model_enabled=true` を変更してください。
+
+Phase 1 完了状態の詳細は `docs/PHASE_1_BASELINE.md` を参照してください。
+
+---
+
 *このドキュメントは Project Cyber-Immunizer のセキュリティガバナンス文書です。*  
 *最終更新: 2026-05-26*

@@ -103,7 +103,8 @@ Cyber-Immunizer/
 │   ├── evolution_history.json  # 進化の全履歴
 │   └── api_usage_ledger.json   # Gemini API 使用量台帳（gemini-paid-credit モード）
 ├── docs/
-│   └── AUDIT_CHARTER.md    # GPT Audit Gate 憲章（役割・カテゴリ・決定基準・出力フォーマット）
+│   ├── AUDIT_CHARTER.md    # GPT Audit Gate 憲章（役割・カテゴリ・決定基準・出力フォーマット）
+│   └── PHASE_1_BASELINE.md # Phase 1 完了状態の固定記録（Safety invariants・Exit criteria）
 ├── intelligence/
 │   └── threat_feeds.py     # 脅威インテリジェンスモジュール（スタブ）
 ├── scripts/
@@ -642,6 +643,23 @@ python -m pytest -v
 ```
 
 テストはすべて `tmp_path` インジェクションまたはファイルシステム参照（読み取り専用）を使用し、`core/detector.py` や `data/genome.json` などの実リポジトリファイルを変更しません。
+
+---
+
+## Phase 1 Baseline（完了・固定）
+
+**Phase 1 の安全基盤完了状態は [`docs/PHASE_1_BASELINE.md`](docs/PHASE_1_BASELINE.md) に永続的に記録されています。**
+
+| 状態 | 内容 |
+|---|---|
+| Phase 1 baseline is frozen | `docs/PHASE_1_BASELINE.md` にすべての完了範囲・Safety invariants・Exit criteria が記録されている |
+| API is intentionally not connected yet | `GEMINI_API_KEY` は未登録・`live_model_enabled=false` のまま |
+| Next phase starts only after human owner decides | Human Owner が明示的に `GEMINI_API_KEY` を GitHub Secrets に登録することを決定した後のみ Phase 2 が開始される |
+
+> ⚠️ **CI テスト・noop・offline-sample・preflight は Phase 1 の範囲で動作確認済みです。**  
+> 実際の Gemini API 呼び出しは Phase 2 以降であり、Human Owner の決定なく開始してはなりません。
+
+詳細は [`docs/PHASE_1_BASELINE.md`](docs/PHASE_1_BASELINE.md) および [`docs/AUDIT_CHARTER.md`](docs/AUDIT_CHARTER.md) の Phase transition rule を参照してください。
 
 ---
 
