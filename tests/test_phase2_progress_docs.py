@@ -1,12 +1,16 @@
-"""tests/test_phase2_progress_docs.py — Phase 2-A/B/C completion progress tests.
+"""tests/test_phase2_progress_docs.py — Phase 2-A/B/C/D completion and Phase 2-E next tests.
 
 Verifies that:
-- README.md explicitly records Phase 2-A, 2-B, 2-C as completed
-- README.md records Phase 2-D as Next
+- README.md explicitly records Phase 2-A, 2-B, 2-C, 2-D as completed
+- README.md records Phase 2-E as Next
 - docs/PHASE_2_PLAN.md contains the same progress information
-- docs/PHASE_2_PLAN.md records Phase 2-E as Pending
 - Neither README nor PHASE_2_PLAN contains false completion claims
   (Phase 3 started, API connected, live_model_enabled=true)
+
+PR #26 Codex comment fixes:
+1. Phase 2-E validation requires explicit "Phase 2-E" label (no skip if absent).
+2. Phase 2-D must be verified as Completed (all variants), not as Next/Pending.
+   Phase status is validated via Markdown table row extraction, not window search.
 """
 from __future__ import annotations
 
@@ -40,11 +44,6 @@ class _DocFixture:
         self.content = self._path.read_text(encoding="utf-8")
 
 
-# ---------------------------------------------------------------------------
-# README.md — Phase 2-A/B/C completed, Phase 2-D next
-# ---------------------------------------------------------------------------
-
-
 def _any_occurrence_has_marker(content: str, tag: str, markers: list[str], window: int = 200) -> bool:
     """Return True if ANY occurrence of `tag` in `content` has one of `markers` within `window` chars."""
     idx = 0
@@ -57,6 +56,31 @@ def _any_occurrence_has_marker(content: str, tag: str, markers: list[str], windo
             return True
         idx = pos + 1
     return False
+
+
+def _extract_phase_row(content: str, phase_label: str) -> str:
+    """Extract the Markdown table row where the FIRST column contains the given phase label.
+
+    Scans every line of *content* for a table row (starting with '|') where
+    the first column (the text immediately after the leading '|') contains
+    *phase_label*.  This avoids false positives from rows where the label
+    appears only in description columns (e.g. the test-coverage table).
+    Returns the first matching line, or an empty string if none is found.
+    """
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|"):
+            continue
+        # Split into columns: ['', col1, col2, ..., '']
+        parts = stripped.split("|")
+        if len(parts) >= 3 and phase_label in parts[1]:
+            return line
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# README.md — Phase 2-A/B/C/D completed, Phase 2-E next
+# ---------------------------------------------------------------------------
 
 
 class TestReadmePhase2ACompleted(_DocFixture):
@@ -104,23 +128,86 @@ class TestReadmePhase2CCompleted(_DocFixture):
         )
 
 
-class TestReadmePhase2DNext(_DocFixture):
+class TestReadmePhase2DCompleted(_DocFixture):
+    """Phase 2-D must be marked as Completed in README.md.
+
+    PR #26 Codex fix: replaced the old 'Phase 2-D is Next' guard with an
+    explicit 'Phase 2-D is Completed' assertion validated via table row
+    extraction.  All Completed variants (Completed / completed / ✅ / 完了)
+    are accepted.  If the row still shows Next / Pending / ⏭ / ⏳ / 未着手 the
+    test fails.
+    """
+
     _path = _README
 
-    def test_readme_phase2d_is_next(self) -> None:
-        """README.md must indicate that Phase 2-D is the Next item."""
+    def test_readme_phase2d_completed(self) -> None:
+        """README.md Phase 2-D table row must show Completed / ✅ / 完了."""
         content = self.content
         assert "Phase 2-D" in content, "README.md must mention Phase 2-D"
-        assert _any_occurrence_has_marker(
-            content, "Phase 2-D", ["Next", "next", "⏭"], window=250
-        ), (
-            "README.md must indicate that Phase 2-D is the Next item "
-            "(e.g. 'Next' or '⏭' near 'Phase 2-D')"
+        row = _extract_phase_row(content, "Phase 2-D")
+        assert row, "README.md must contain a Markdown table row for Phase 2-D"
+        has_completed = (
+            "Completed" in row
+            or "completed" in row
+            or "✅" in row
+            or "完了" in row
+        )
+        assert has_completed, (
+            f"README.md Phase 2-D row must show Completed/✅/完了, got: {row!r}"
+        )
+
+    def test_readme_phase2d_not_next_or_pending(self) -> None:
+        """README.md Phase 2-D row must NOT show Next / Pending / ⏭ / ⏳ / 未着手.
+
+        PR #26 Codex fix: rejects all in-progress variants, not just '✅ Completed'.
+        """
+        content = self.content
+        row = _extract_phase_row(content, "Phase 2-D")
+        assert row, "README.md must contain a Markdown table row for Phase 2-D"
+        forbidden_tokens = [
+            "⏭ Next", "⏭Next", "Next", "next",
+            "⏳ Pending", "⏳Pending", "⏳", "Pending", "pending",
+            "未着手",
+        ]
+        for token in forbidden_tokens:
+            assert token not in row, (
+                f"README.md Phase 2-D row must NOT contain {token!r}, got: {row!r}"
+            )
+
+
+class TestReadmePhase2ENext(_DocFixture):
+    """Phase 2-E must be marked as Next in README.md.
+
+    PR #26 Codex fix: Phase 2-E validation now requires the explicit
+    'Phase 2-E' label.  Generic 'API activation checklist' text alone is
+    insufficient, and state validation is never skipped.
+    """
+
+    _path = _README
+
+    def test_readme_phase2e_explicitly_present(self) -> None:
+        """README.md must explicitly mention Phase 2-E (not just generic checklist text)."""
+        assert "Phase 2-E" in self.content, (
+            "README.md must explicitly mention Phase 2-E — "
+            "generic 'API activation checklist' text alone is insufficient"
+        )
+
+    def test_readme_phase2e_is_next(self) -> None:
+        """README.md Phase 2-E table row must show Next / ⏭."""
+        row = _extract_phase_row(self.content, "Phase 2-E")
+        assert row, "README.md must contain a Markdown table row for Phase 2-E"
+        has_next = (
+            "Next" in row
+            or "next" in row
+            or "⏭" in row
+        )
+        assert has_next, (
+            f"README.md Phase 2-E row must indicate Next/⏭, got: {row!r}"
         )
 
 
 # ---------------------------------------------------------------------------
-# docs/PHASE_2_PLAN.md — Phase 2-A/B/C completed, Phase 2-D next, Phase 2-E pending
+# docs/PHASE_2_PLAN.md — Phase 2-A/B/C/D completed, Phase 2-E next
 # ---------------------------------------------------------------------------
 
 
@@ -133,15 +220,22 @@ class TestPhase2PlanPhase2ACompleted(_DocFixture):
         assert "Phase 2-A" in content, (
             "docs/PHASE_2_PLAN.md must mention Phase 2-A"
         )
-        phase2a_pos = content.find("Phase 2-A")
-        surrounding = content[phase2a_pos : phase2a_pos + 200]
-        assert (
-            "Completed" in surrounding
-            or "completed" in surrounding
-            or "✅" in surrounding
-        ), (
-            "docs/PHASE_2_PLAN.md must indicate Phase 2-A is completed"
-        )
+        row = _extract_phase_row(content, "Phase 2-A")
+        if row:
+            assert (
+                "Completed" in row
+                or "completed" in row
+                or "✅" in row
+            ), f"docs/PHASE_2_PLAN.md Phase 2-A row must indicate Completed, got: {row!r}"
+        else:
+            # Fallback: window check
+            phase2a_pos = content.find("Phase 2-A")
+            surrounding = content[phase2a_pos : phase2a_pos + 200]
+            assert (
+                "Completed" in surrounding
+                or "completed" in surrounding
+                or "✅" in surrounding
+            ), "docs/PHASE_2_PLAN.md must indicate Phase 2-A is completed"
 
 
 class TestPhase2PlanPhase2BCompleted(_DocFixture):
@@ -153,15 +247,21 @@ class TestPhase2PlanPhase2BCompleted(_DocFixture):
         assert "Phase 2-B" in content, (
             "docs/PHASE_2_PLAN.md must mention Phase 2-B"
         )
-        phase2b_pos = content.find("Phase 2-B")
-        surrounding = content[phase2b_pos : phase2b_pos + 200]
-        assert (
-            "Completed" in surrounding
-            or "completed" in surrounding
-            or "✅" in surrounding
-        ), (
-            "docs/PHASE_2_PLAN.md must indicate Phase 2-B is completed"
-        )
+        row = _extract_phase_row(content, "Phase 2-B")
+        if row:
+            assert (
+                "Completed" in row
+                or "completed" in row
+                or "✅" in row
+            ), f"docs/PHASE_2_PLAN.md Phase 2-B row must indicate Completed, got: {row!r}"
+        else:
+            phase2b_pos = content.find("Phase 2-B")
+            surrounding = content[phase2b_pos : phase2b_pos + 200]
+            assert (
+                "Completed" in surrounding
+                or "completed" in surrounding
+                or "✅" in surrounding
+            ), "docs/PHASE_2_PLAN.md must indicate Phase 2-B is completed"
 
 
 class TestPhase2PlanPhase2CCompleted(_DocFixture):
@@ -173,66 +273,118 @@ class TestPhase2PlanPhase2CCompleted(_DocFixture):
         assert "Phase 2-C" in content, (
             "docs/PHASE_2_PLAN.md must mention Phase 2-C"
         )
-        phase2c_pos = content.find("Phase 2-C")
-        surrounding = content[phase2c_pos : phase2c_pos + 200]
-        assert (
-            "Completed" in surrounding
-            or "completed" in surrounding
-            or "✅" in surrounding
-        ), (
-            "docs/PHASE_2_PLAN.md must indicate Phase 2-C is completed"
-        )
+        row = _extract_phase_row(content, "Phase 2-C")
+        if row:
+            assert (
+                "Completed" in row
+                or "completed" in row
+                or "✅" in row
+            ), f"docs/PHASE_2_PLAN.md Phase 2-C row must indicate Completed, got: {row!r}"
+        else:
+            phase2c_pos = content.find("Phase 2-C")
+            surrounding = content[phase2c_pos : phase2c_pos + 200]
+            assert (
+                "Completed" in surrounding
+                or "completed" in surrounding
+                or "✅" in surrounding
+            ), "docs/PHASE_2_PLAN.md must indicate Phase 2-C is completed"
 
 
-class TestPhase2PlanPhase2DNext(_DocFixture):
+class TestPhase2PlanPhase2DCompleted(_DocFixture):
+    """Phase 2-D must be marked as Completed in PHASE_2_PLAN.md.
+
+    PR #26 Codex fix: replaced the old 'Phase 2-D is Next' guard with an
+    explicit 'Phase 2-D is Completed' assertion.  Table row extraction is
+    used for precise validation.  All Completed variants and all in-progress
+    variants (Next / Pending / ⏭ / ⏳ / 未着手) are handled.
+    """
+
     _path = _PHASE2_PLAN
 
-    def test_phase2_plan_phase2d_is_next(self) -> None:
-        """PHASE_2_PLAN.md must indicate that Phase 2-D is Next."""
+    def test_phase2_plan_phase2d_completed(self) -> None:
+        """PHASE_2_PLAN.md Phase 2-D table row must show Completed / ✅ / 完了."""
         content = self.content
         assert "Phase 2-D" in content, (
             "docs/PHASE_2_PLAN.md must mention Phase 2-D"
         )
-        phase2d_pos = content.find("Phase 2-D")
-        surrounding = content[phase2d_pos : phase2d_pos + 250]
-        assert (
-            "Next" in surrounding
-            or "next" in surrounding
-            or "次" in surrounding
-            or "⏭" in surrounding
-        ), (
-            "docs/PHASE_2_PLAN.md must indicate that Phase 2-D is the Next item"
+        row = _extract_phase_row(content, "Phase 2-D")
+        assert row, "docs/PHASE_2_PLAN.md must contain a Markdown table row for Phase 2-D"
+        has_completed = (
+            "Completed" in row
+            or "completed" in row
+            or "✅" in row
+            or "完了" in row
+        )
+        assert has_completed, (
+            f"docs/PHASE_2_PLAN.md Phase 2-D row must show Completed/✅/完了, got: {row!r}"
         )
 
+    def test_phase2_plan_phase2d_not_next_or_pending(self) -> None:
+        """PHASE_2_PLAN.md Phase 2-D row must NOT show Next / Pending / ⏭ / ⏳ / 未着手.
 
-class TestPhase2PlanPhase2EPending(_DocFixture):
+        PR #26 Codex fix: rejects all in-progress variants, not just '✅ Completed'.
+        """
+        content = self.content
+        row = _extract_phase_row(content, "Phase 2-D")
+        assert row, "docs/PHASE_2_PLAN.md must contain a Markdown table row for Phase 2-D"
+        forbidden_tokens = [
+            "⏭ Next", "⏭Next", "Next", "next",
+            "⏳ Pending", "⏳Pending", "⏳", "Pending", "pending",
+            "未着手",
+        ]
+        for token in forbidden_tokens:
+            assert token not in row, (
+                f"docs/PHASE_2_PLAN.md Phase 2-D row must NOT contain {token!r}, got: {row!r}"
+            )
+
+
+class TestPhase2PlanPhase2ENext(_DocFixture):
+    """Phase 2-E must be marked as Next in PHASE_2_PLAN.md.
+
+    PR #26 Codex fix: Phase 2-E validation now requires the explicit
+    'Phase 2-E' label and validates state unconditionally (no 'if has_phase2e'
+    skip).  State is validated via table row extraction.
+    """
+
     _path = _PHASE2_PLAN
 
-    def test_phase2_plan_phase2e_pending(self) -> None:
-        """PHASE_2_PLAN.md must mention Phase 2-E (API activation checklist) as Pending."""
-        content = self.content
-        # Either Phase 2-E explicitly or the API activation checklist item as pending
-        has_phase2e = "Phase 2-E" in content
-        has_api_checklist = (
-            "API activation checklist" in content
-            or "API接続前の運用チェックリスト" in content
-            or "運用チェックリスト整備" in content
+    def test_phase2_plan_phase2e_explicitly_present(self) -> None:
+        """PHASE_2_PLAN.md must explicitly mention Phase 2-E.
+
+        Generic 'API activation checklist' / 'API接続前の運用チェックリスト' text
+        alone is insufficient — Phase 2-E must be identified by its label.
+        """
+        assert "Phase 2-E" in self.content, (
+            "docs/PHASE_2_PLAN.md must explicitly mention Phase 2-E — "
+            "generic checklist text ('API activation checklist' / '運用チェックリスト整備') "
+            "alone is insufficient"
         )
-        assert has_phase2e or has_api_checklist, (
-            "docs/PHASE_2_PLAN.md must mention Phase 2-E "
-            "or the API activation checklist item"
+
+    def test_phase2_plan_phase2e_is_next(self) -> None:
+        """PHASE_2_PLAN.md Phase 2-E table row must show Next / ⏭ / 次."""
+        # State validation is never skipped — Phase 2-E must exist and be Next
+        row = _extract_phase_row(self.content, "Phase 2-E")
+        assert row, (
+            "docs/PHASE_2_PLAN.md must contain a Markdown table row for Phase 2-E"
         )
-        # Must indicate pending / not started
-        if has_phase2e:
-            phase2e_pos = content.find("Phase 2-E")
-            surrounding = content[phase2e_pos : phase2e_pos + 250]
-            assert (
-                "Pending" in surrounding
-                or "pending" in surrounding
-                or "未着手" in surrounding
-                or "⏳" in surrounding
-            ), (
-                "docs/PHASE_2_PLAN.md must indicate Phase 2-E is Pending"
+        has_next = (
+            "Next" in row
+            or "next" in row
+            or "次" in row
+            or "⏭" in row
+        )
+        assert has_next, (
+            f"docs/PHASE_2_PLAN.md Phase 2-E row must indicate Next/⏭/次, got: {row!r}"
+        )
+
+    def test_phase2_plan_phase2e_not_pending(self) -> None:
+        """PHASE_2_PLAN.md Phase 2-E row must NOT show ⏳ Pending / 未着手."""
+        row = _extract_phase_row(self.content, "Phase 2-E")
+        assert row, "docs/PHASE_2_PLAN.md must contain a Markdown table row for Phase 2-E"
+        forbidden_tokens = ["⏳ Pending", "⏳Pending", "⏳"]
+        for token in forbidden_tokens:
+            assert token not in row, (
+                f"docs/PHASE_2_PLAN.md Phase 2-E row must NOT contain {token!r}, got: {row!r}"
             )
 
 
@@ -267,8 +419,6 @@ class TestNoFalseCompletionClaims:
 
     def test_readme_does_not_claim_api_connected(self) -> None:
         """README.md must not claim that the API is connected."""
-        # The status block says 'Not connected' which is correct
-        # We check that no claim of API connection is present
         forbidden_phrases = [
             "API connected",
             "API connection: active",
@@ -286,8 +436,6 @@ class TestNoFalseCompletionClaims:
         References to the concept (e.g., in gate descriptions) are allowed,
         but the current status must be false.
         """
-        # The status block line is: | live_model_enabled | false |
-        # Check that the status block does not show true
         status_start = self.readme.find("CYBER_IMMUNIZER_STATUS_START")
         status_end = self.readme.find("CYBER_IMMUNIZER_STATUS_END")
         if status_start != -1 and status_end != -1:
@@ -324,10 +472,8 @@ class TestNoFalseCompletionClaims:
         self,
     ) -> None:
         """PHASE_2_PLAN.md progress table must not contain live_model_enabled=true."""
-        # Find the progress checklist section
         checklist_start = self.plan.find("Phase 2 進捗チェックリスト")
         if checklist_start != -1:
-            # Extract up to the next section
             next_section = self.plan.find("\n## ", checklist_start + 1)
             if next_section != -1:
                 checklist_section = self.plan[checklist_start:next_section]
@@ -336,23 +482,3 @@ class TestNoFalseCompletionClaims:
             assert "live_model_enabled=true" not in checklist_section, (
                 "PHASE_2_PLAN.md progress checklist must NOT contain live_model_enabled=true"
             )
-
-    def test_readme_phase2d_is_not_marked_completed(self) -> None:
-        """README.md must NOT mark Phase 2-D as completed — it is Next, not done."""
-        content = self.readme
-        # Find all occurrences of Phase 2-D
-        idx = 0
-        while True:
-            pos = content.find("Phase 2-D", idx)
-            if pos == -1:
-                break
-            surrounding = content[pos : pos + 200]
-            # The surrounding must NOT say "Completed" right after Phase 2-D in the table row
-            # Check that no table row says Phase 2-D ... Completed
-            lines_around = surrounding.split("\n")
-            for line in lines_around[:3]:
-                if "Phase 2-D" in line:
-                    assert "✅ Completed" not in line, (
-                        f"README.md must NOT mark Phase 2-D as Completed: {line!r}"
-                    )
-            idx = pos + 1

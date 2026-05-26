@@ -103,11 +103,13 @@ Cyber-Immunizer/
 │   ├── evolution_history.json  # 進化の全履歴
 │   └── api_usage_ledger.json   # Gemini API 使用量台帳（gemini-paid-credit モード）
 ├── docs/
-│   ├── AUDIT_CHARTER.md              # GPT Audit Gate 憲章（役割・カテゴリ・決定基準・Phase 2/3 transition rule）
-│   ├── PHASE_1_BASELINE.md           # Phase 1 完了状態の固定記録（Safety invariants・Exit criteria）
-│   ├── PHASE_2_PLAN.md               # Phase 2 計画文書（API未接続運用強化・やること/やらないこと・Phase 3条件）
-│   ├── ROLLBACK_BACKTRACK_DESIGN.md  # rollback/backtrack 設計文書（Phase 2-B: design-only）
-│   └── API_ACTIVATION_RUNBOOK.md     # API有効化手順書（Phase 3 で実施・GEMINI_API_KEY 登録〜live_model_enabled=true）
+│   ├── AUDIT_CHARTER.md                        # GPT Audit Gate 憲章（役割・カテゴリ・決定基準・Phase 2/3 transition rule）
+│   ├── PHASE_1_BASELINE.md                     # Phase 1 完了状態の固定記録（Safety invariants・Exit criteria）
+│   ├── PHASE_2_PLAN.md                         # Phase 2 計画文書（API未接続運用強化・やること/やらないこと・Phase 3条件）
+│   ├── ROLLBACK_BACKTRACK_DESIGN.md            # rollback/backtrack 設計文書（Phase 2-B: design-only）
+│   ├── EVOLUTION_HISTORY_AUDIT.md              # evolution history 監査仕様（Phase 2-C: design and audit spec only）
+│   ├── OFFLINE_SAMPLE_PROMOTE_SEPARATION.md    # offline-sample dry-run / promote 分離設計（Phase 2-D: design-only）
+│   └── API_ACTIVATION_RUNBOOK.md               # API有効化手順書（Phase 3 で実施・GEMINI_API_KEY 登録〜live_model_enabled=true）
 ├── intelligence/
 │   └── threat_feeds.py     # 脅威インテリジェンスモジュール（スタブ）
 ├── scripts/
@@ -136,7 +138,8 @@ Cyber-Immunizer/
 │   ├── test_api_activation_docs.py   # API Activation Runbook 存在・内容テスト（19件）
 │   ├── test_phase1_baseline_docs.py  # Phase 1 baseline 文書存在・Safety invariants テスト（25件）
 │   ├── test_phase2_plan_docs.py      # Phase 2 計画文書・定義整合性テスト（28件）
-│   ├── test_phase2_progress_docs.py  # Phase 2-A/B/C 完了・Phase 2-D next 進捗記載テスト（16件）
+│   ├── test_phase2_progress_docs.py  # Phase 2-A/B/C/D 完了・Phase 2-E next 進捗記載テスト
+│   ├── test_offline_sample_promote_separation_docs.py  # offline-sample dry-run / promote 分離設計文書の検証（Phase 2-D）
 │   └── test_pyproject.py             # pyproject.toml 設定・依存関係テスト（15件）
 ├── .github/
 │   ├── PULL_REQUEST_TEMPLATE.md  # PR 監査チェックリスト（GPT Audit Gate 用）
@@ -654,12 +657,12 @@ PR テンプレート（`.github/PULL_REQUEST_TEMPLATE.md`）に GPT Audit Gate 
 | `test_api_activation_docs.py` | 19 | API Activation Runbook 存在・GEMINI_API_KEY 登録禁止・live_model_enabled 手順・cron 禁止・README リンク |
 | `test_phase1_baseline_docs.py` | 25 | Phase 1 baseline 文書の存在・Safety invariants 記載・Exit criteria・Phase 2 移行条件 |
 | `test_phase2_plan_docs.py` | 28 | Phase 2 計画文書存在・API未接続制約・AUDIT_CHARTER 旧表現不在・README 表現整合性 |
-| `test_phase2_progress_docs.py` | 16 | Phase 2-A/B/C 完了・Phase 2-D next・Phase 2-E pending の記載検証・Phase 3 未着手／API 未接続の誤表現不在確認 |
+| `test_phase2_progress_docs.py` | — | Phase 2-A/B/C/D 完了・Phase 2-E next の記載検証・Phase 3 未着手／API 未接続の誤表現不在確認 |
+| `test_offline_sample_promote_separation_docs.py` | — | offline-sample dry-run / promote 分離設計文書の存在・内容・安全境界・fail-closed 検証（Phase 2-D） |
 | `test_pyproject.py` | 15 | pyproject.toml 設定・パッケージメタデータ・依存関係・dev/gemini オプション |
 
 ```bash
 python -m pytest -v
-# 731 passed
 ```
 
 テストはすべて `tmp_path` インジェクションまたはファイルシステム参照（読み取り専用）を使用し、`core/detector.py` や `data/genome.json` などの実リポジトリファイルを変更しません。
@@ -696,18 +699,18 @@ python -m pytest -v
 
 Phase 2 の計画・実施内容・禁止事項の詳細は **[`docs/PHASE_2_PLAN.md`](docs/PHASE_2_PLAN.md)** を参照してください。
 
-### Phase 2 Progress Checkpoint (as of PR #22 / #23 / #24)
+### Phase 2 Progress Checkpoint (as of PR #22 / #23 / #24 / #25 / #26)
 
 | Phase item | Status |
 |---|---|
 | Phase 2-A: README dashboard accuracy improvement | ✅ Completed |
 | Phase 2-B: rollback / backtrack design documentation | ✅ Completed |
 | Phase 2-C: evolution_history audit specification | ✅ Completed |
-| Phase 2-D: offline-sample dry-run / promote separation design | ⏭ Next |
-| Phase 2-E: API activation checklist hardening | ⏳ Pending |
+| Phase 2-D: offline-sample dry-run / promote separation design | ✅ Completed |
+| Phase 2-E: API activation checklist hardening | ⏭ Next |
 
-> ℹ️ Phase 2-D (offline-sample dry-run / promote separation design) is the next item.
-> Phase 2-E (API activation checklist hardening) follows after Phase 2-D.
+> ℹ️ Phase 2-D (offline-sample dry-run / promote separation design) is completed (design-only).
+> Phase 2-E (API activation checklist hardening) is the next item.
 > Phase 3 (real Gemini API connection) starts only after Human Owner explicit decision.
 
 ### Phase 2-A: README Dashboard Accuracy Improvement (completed)
@@ -734,6 +737,19 @@ Evolution history audit design is documented in **[`docs/EVOLUTION_HISTORY_AUDIT
 - Phase 2-C is design and specification only — no implementation changes, no workflow changes, no API connections
 - Defines required record fields, integrity rules, fail-closed policy, and relationship with rollback/backtrack
 - `data/api_usage_ledger.json` is explicitly excluded from rollback/backtrack scope (never rolled back)
+
+### Phase 2-D: Offline-Sample Dry-run / Promote Separation Design (design-only, completed)
+
+Offline-sample dry-run / promote separation design is documented in **[`docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md`](docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md)**.
+
+- Phase 2-D is design-only — no workflow changes, no promote implementation, no API connections
+- Defines CI smoke path, dry-run evaluation path, and promote path as three clearly separated flows
+- offline-sample success is NOT promote approval
+- dry-run artifact is NOT promote artifact; dry-run is non-promotable by default
+- promote requires explicit Human Owner approval and GPT Audit Gate APPROVE
+- CI smoke path is read-only (contents: write なし), no GEMINI_API_KEY, no live_model_enabled=true
+- fail-closed: unknown / missing / corrupt artifacts are rejected at promote gate
+- `data/api_usage_ledger.json` is not changed in Phase 2-D
 
 > ⚠️ **Phase 2 中は `live_model_enabled=true` への変更・`GEMINI_API_KEY` 登録・実 Gemini API call は行いません。**  
 > これらの変更を含む PR は GPT Audit Gate によって BLOCK または REQUEST CHANGES の対象になります。
