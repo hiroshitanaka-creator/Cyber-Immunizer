@@ -7,7 +7,7 @@
     "tags": ["attack", "path-traversal"],
     "request": {
       "method": "GET",
-      "path": "/files/__PATH_TRAVERSAL_INDICATOR__",
+      "path": "/files/PATH_TRAVERSAL_INDICATOR",
       "query": {},
       "headers": {},
       "body": "",
@@ -23,7 +23,7 @@
     "request": {
       "method": "GET",
       "path": "/search",
-      "query": {"q": "__SCRIPT_INJECTION_INDICATOR__"},
+      "query": {"q": "SCRIPT_INJECTION_INDICATOR"},
       "headers": {},
       "body": "",
       "source_ip": "192.168.1.101"
@@ -40,7 +40,7 @@
       "path": "/api/login",
       "query": {},
       "headers": {"Content-Type": "application/x-www-form-urlencoded"},
-      "body": "username=admin&password=__SQLI_INDICATOR__",
+      "body": "username=admin&password=SQLI_INDICATOR",
       "source_ip": "192.168.1.102"
     }
   },
@@ -53,7 +53,7 @@
     "request": {
       "method": "GET",
       "path": "/api/ping",
-      "query": {"host": "localhost__COMMAND_DELIMITER_INDICATOR__"},
+      "query": {"host": "localhostCOMMAND_DELIMITER_INDICATOR"},
       "headers": {},
       "body": "",
       "source_ip": "192.168.1.103"
@@ -68,7 +68,7 @@
     "request": {
       "method": "GET",
       "path": "/files",
-      "query": {"name": "__ENCODED_TRAVERSAL_INDICATOR__"},
+      "query": {"name": "ENCODED_TRAVERSAL_INDICATOR"},
       "headers": {},
       "body": "",
       "source_ip": "192.168.1.104"

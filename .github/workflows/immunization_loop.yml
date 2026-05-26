@@ -12,19 +12,35 @@ on:
           - noop
           - offline-sample
           - live-model
+          - gemini-paid-credit
   schedule:
     # Scheduled runs always use noop to avoid unintended API calls.
-    # Trigger a manual workflow_dispatch with mode=offline-sample or
-    # mode=live-model to actually run an evolution cycle.
+    # Trigger a manual workflow_dispatch with mode=offline-sample,
+    # mode=live-model, or mode=gemini-paid-credit to run an evolution cycle.
     - cron: "0 2 * * *"
+
+# Prevent concurrent runs on the same branch from racing to write the
+# API usage ledger or the promoted detector.  cancel-in-progress: false
+# ensures a running evolution cycle is never cancelled mid-way.
+concurrency:
+  group: cyber-immunizer-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   # -----------------------------------------------------------------------
   # Job 1: PROPOSE
-  # Runs the mutation proposer (noop / offline sample / live model).
+  # Runs the mutation proposer (noop / offline sample / live model / paid).
   # Has read-only permissions and may receive GEMINI_API_KEY.
   # Does NOT execute candidate code.
-  # GEMINI_API_KEY is scoped to this job only.
+  # GEMINI_API_KEY is scoped to this job only; absent from ALL other jobs.
+  #
+  # The "Propose mutation patch" step uses set +e so that a non-zero exit
+  # from propose_mutation.py does NOT immediately abort the step.  This
+  # allows ledger_changed detection and artifact upload to run even when
+  # patch generation fails (e.g., schema validation rejects the LLM output
+  # after the API call already updated the ledger).  The propose failure is
+  # surfaced by the finalize-propose-status job AFTER persist-ledger
+  # completes, keeping the budget cap fail-closed.
   # -----------------------------------------------------------------------
   propose:
     name: Propose Mutation
@@ -33,6 +49,9 @@ jobs:
       contents: read
     outputs:
       patch_exists: ${{ steps.propose.outputs.patch_exists }}
+      ledger_changed: ${{ steps.propose.outputs.ledger_changed }}
+      propose_exit_code: ${{ steps.propose.outputs.propose_exit_code }}
+      propose_failed: ${{ steps.propose.outputs.propose_failed }}
 
     steps:
       - name: Checkout repository
@@ -59,34 +78,85 @@ jobs:
             echo "effective_mode=${{ github.event.inputs.mode || 'noop' }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install Gemini dependencies (live-model only)
-        if: steps.mode.outputs.effective_mode == 'live-model'
+      - name: Install Gemini dependencies (live-model and gemini-paid-credit)
+        if: >
+          steps.mode.outputs.effective_mode == 'live-model' ||
+          steps.mode.outputs.effective_mode == 'gemini-paid-credit'
         run: pip install "google-genai>=1.0.0" "pydantic>=2.0"
+
+      - name: Capture ledger checksum before proposal
+        id: ledger_before
+        run: |
+          if [ -f "data/api_usage_ledger.json" ]; then
+            echo "checksum=$(sha256sum data/api_usage_ledger.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          else
+            echo "checksum=" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Propose mutation patch
         id: propose
         env:
           # GEMINI_API_KEY is only present in the propose job.
-          # It is intentionally absent from evaluate and promote jobs.
+          # It is intentionally absent from ALL other jobs.
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EFFECTIVE_MODE: ${{ steps.mode.outputs.effective_mode }}
         run: |
+          # set +e: disable automatic exit on non-zero.
+          # This is intentional — propose_mutation.py may fail AFTER the API
+          # call has already updated the ledger.  We must not exit here;
+          # instead we capture the exit code and let ledger_changed detection
+          # and artifact upload run unconditionally.  The finalize-propose-status
+          # job will surface the failure once persist-ledger is complete.
+          set +e
           if [ "$EFFECTIVE_MODE" = "noop" ]; then
             python scripts/propose_mutation.py --noop --json
+            PROPOSE_EXIT=$?
           elif [ "$EFFECTIVE_MODE" = "offline-sample" ]; then
             python scripts/propose_mutation.py --offline-sample --json
+            PROPOSE_EXIT=$?
           elif [ "$EFFECTIVE_MODE" = "live-model" ]; then
             python scripts/propose_mutation.py --live-model --allow-live-model --json
+            PROPOSE_EXIT=$?
+          elif [ "$EFFECTIVE_MODE" = "gemini-paid-credit" ]; then
+            python scripts/propose_mutation.py --gemini-paid-credit --allow-live-model --json
+            PROPOSE_EXIT=$?
           else
             echo "Unknown mode: $EFFECTIVE_MODE" >&2
-            exit 1
+            PROPOSE_EXIT=1
           fi
+          set -e
 
+          # patch_exists — checked even when propose fails
           if [ -f ".cyber_immunizer/mutation_patch.json" ]; then
             echo "patch_exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "patch_exists=false" >> "$GITHUB_OUTPUT"
           fi
+
+          # ledger_changed — ALWAYS computed regardless of PROPOSE_EXIT.
+          # This ensures the ledger artifact is uploaded even when patch
+          # generation fails after the API call updated the ledger.
+          BEFORE="${{ steps.ledger_before.outputs.checksum }}"
+          if [ -f "data/api_usage_ledger.json" ]; then
+            AFTER=$(sha256sum data/api_usage_ledger.json | cut -d' ' -f1)
+          else
+            AFTER=""
+          fi
+          if [ "$BEFORE" != "$AFTER" ]; then
+            echo "ledger_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ledger_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # propose_exit_code and propose_failed outputs
+          echo "propose_exit_code=$PROPOSE_EXIT" >> "$GITHUB_OUTPUT"
+          if [ "$PROPOSE_EXIT" != "0" ]; then
+            echo "propose_failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "propose_failed=false" >> "$GITHUB_OUTPUT"
+          fi
+          # DO NOT exit 1 here — the finalize-propose-status job surfaces
+          # propose failures after persist-ledger completes.
 
       - name: Upload mutation patch artifact
         if: steps.propose.outputs.patch_exists == 'true'
@@ -96,8 +166,126 @@ jobs:
           path: .cyber_immunizer/mutation_patch.json
           retention-days: 1
 
+      - name: Upload API usage ledger artifact (if changed)
+        if: always() && steps.propose.outputs.ledger_changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-usage-ledger
+          path: data/api_usage_ledger.json
+          retention-days: 1
+          # NOTE: no continue-on-error — upload failure is a critical error
+          # when the ledger has changed.  Failing here keeps the budget cap
+          # fail-closed; persist-ledger would otherwise commit stale data.
+
   # -----------------------------------------------------------------------
-  # Job 2: EVALUATE
+  # Job 2: PERSIST-LEDGER
+  # Commits the updated API usage ledger to the repository immediately
+  # after the propose job, regardless of whether the candidate is later
+  # adopted by the evaluate/promote pipeline.  This ensures every API call
+  # is recorded even when the candidate fails the adoption gate or when
+  # propose_mutation.py fails after the API call — preventing the budget
+  # cap from becoming fail-open.
+  #
+  # SECURITY CONSTRAINTS:
+  #   - Has write permissions, but NO model API secrets.
+  #   - Does NOT download candidate or patch artifacts.
+  #   - Does NOT execute any generated code.
+  #   - GEMINI_API_KEY is intentionally absent from this job.
+  # -----------------------------------------------------------------------
+  persist-ledger:
+    name: Persist API Usage Ledger
+    needs: propose
+    if: always() && needs.propose.outputs.ledger_changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # NOTE: no secrets: block — this job intentionally has no GEMINI_API_KEY
+    # or other model credentials.  Write permission is scoped to committing
+    # the API usage ledger only.
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # GITHUB_TOKEN provides write permission for this job.
+          # It has no access to GEMINI_API_KEY or other model credentials.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create data directory
+        run: mkdir -p data
+
+      - name: Download API usage ledger
+        uses: actions/download-artifact@v4
+        with:
+          name: api-usage-ledger
+          path: data/
+        # NOTE: intentionally no continue-on-error.  If ledger_changed is
+        # true but the artifact is unavailable, that is a critical error —
+        # failing here prevents the monthly/daily budget cap from becoming
+        # fail-open on future runs.
+
+      - name: Commit API usage ledger
+        run: |
+          git config user.name "Cyber-Immunizer Bot"
+          git config user.email "cyber-immunizer-bot@noreply.github.com"
+          git add data/api_usage_ledger.json
+          git diff --cached --quiet || git commit -m \
+            "chore(ledger): record API usage $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push
+
+  # -----------------------------------------------------------------------
+  # Job 3: FINALIZE-PROPOSE-STATUS
+  # Surfaces any propose failure AFTER persist-ledger completes.
+  #
+  # Purpose: propose_mutation.py is run with set +e so that ledger artifact
+  # upload always runs even when patch generation fails.  This means the
+  # propose step itself exits 0 regardless of the script's exit code.  This
+  # job makes the workflow fail appropriately — but only after persist-ledger
+  # has committed the API usage record, keeping the budget cap fail-closed.
+  #
+  # This job runs unconditionally (if: always()) so it always reflects the
+  # true propose outcome, regardless of whether persist-ledger ran or was
+  # skipped.
+  # -----------------------------------------------------------------------
+  finalize-propose-status:
+    name: Finalize Propose Status
+    needs: [propose, persist-ledger]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: none
+
+    steps:
+      - name: Check propose outcome and ledger persistence
+        env:
+          PROPOSE_FAILED: ${{ needs.propose.outputs.propose_failed }}
+          LEDGER_CHANGED: ${{ needs.propose.outputs.ledger_changed }}
+          PERSIST_RESULT: ${{ needs.persist-ledger.result }}
+        run: |
+          echo "propose_failed=${PROPOSE_FAILED}"
+          echo "ledger_changed=${LEDGER_CHANGED}"
+          echo "persist_ledger_result=${PERSIST_RESULT}"
+
+          # If the ledger changed, persist-ledger MUST have succeeded.
+          # Any result other than "success" (failure, skipped, cancelled) means
+          # the API usage record was not committed — a critical budget-cap error.
+          # ledger_changed=false means no API call was made and skipped is safe.
+          if [ "$LEDGER_CHANGED" = "true" ] && [ "$PERSIST_RESULT" != "success" ]; then
+            echo "::error::ledger_changed=true but persist-ledger did not succeed. result=${PERSIST_RESULT}. API usage ledger may not be committed. Budget cap integrity is compromised."
+            exit 1
+          fi
+
+          # Surface any propose_mutation.py failure now that ledger
+          # persistence is complete (or confirmed unnecessary).
+          if [ "$PROPOSE_FAILED" = "true" ]; then
+            echo "::error::propose_mutation.py exited with non-zero status. See propose job logs for details."
+            exit 1
+          fi
+
+          echo "Propose status is clean and ledger is consistent."
+
+  # -----------------------------------------------------------------------
+  # Job 4: EVALUATE
   # Applies the patch and evaluates the candidate in a subprocess.
   # Has read-only permissions and NO secrets.
   # Generated candidate code is never executed with write permissions or API keys.
@@ -185,21 +373,34 @@ print('true' if fr.get('passed_adoption_gate') else 'false')
           retention-days: 1
 
   # -----------------------------------------------------------------------
-  # Job 3: PROMOTE
+  # Job 5: PROMOTE
   # Promotes the candidate ONLY if the adoption gate passed.
   # Has write permissions, but NO model API secrets.
   # Does not execute candidate code — only copies files and updates data.
   # GEMINI_API_KEY is intentionally absent from this job.
+  #
+  # Sequencing: promote needs persist-ledger in its needs list.  This means
+  # GitHub Actions guarantees persist-ledger finishes BEFORE promote starts,
+  # eliminating the risk of concurrent write commits to the same branch.
+  #
+  # Ledger persistence is the responsibility of the persist-ledger job (Job 2).
+  # This job commits ONLY the promoted detector and related files — never
+  # the API usage ledger.
   # -----------------------------------------------------------------------
   promote:
     name: Promote Candidate
-    needs: evaluate
-    if: needs.evaluate.outputs.passed_adoption_gate == 'true'
+    needs: [propose, persist-ledger, evaluate]
+    if: >
+      always() &&
+      needs.evaluate.outputs.passed_adoption_gate == 'true' &&
+      needs.propose.outputs.propose_failed != 'true' &&
+      (needs.persist-ledger.result == 'success' || needs.persist-ledger.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     # NOTE: no GEMINI_API_KEY here — write permissions and model secrets are
     # intentionally kept in separate jobs.
+    # NOTE: ledger is committed by persist-ledger, not this job.
 
     steps:
       - name: Checkout repository

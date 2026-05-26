@@ -100,7 +100,10 @@ Cyber-Immunizer/
 │   ├── regression_cases.json   # リグレッションテストケース
 │   ├── active_threats.json     # 脅威レコード（安全なスタブ）
 │   ├── genome.json             # 現世代のメタデータ
-│   └── evolution_history.json  # 進化の全履歴
+│   ├── evolution_history.json  # 進化の全履歴
+│   └── api_usage_ledger.json   # Gemini API 使用量台帳（gemini-paid-credit モード）
+├── docs/
+│   └── AUDIT_CHARTER.md    # GPT Audit Gate 憲章（役割・カテゴリ・決定基準・出力フォーマット）
 ├── intelligence/
 │   └── threat_feeds.py     # 脅威インテリジェンスモジュール（スタブ）
 ├── scripts/
@@ -108,17 +111,24 @@ Cyber-Immunizer/
 │   ├── apply_mutation.py       # 変異パッチの適用
 │   ├── evaluate_candidate.py   # サブプロセスによる候補評価
 │   ├── promote_candidate.py    # 採用ゲート通過時の昇格
-│   ├── propose_mutation.py     # LLM変異提案（スタブ＋オフラインサンプル）
+│   ├── propose_mutation.py     # LLM変異提案（noop/offline-sample/live-model/paid-credit）
+│   ├── api_budget.py           # API 予算管理（標準ライブラリのみ、fail-closed）
 │   └── update_readme.py        # READMEステータスブロック更新
 ├── tests/
-│   ├── test_contract.py            # 検出器インターフェース契約テスト
-│   ├── test_ast_policy.py          # ASTポリシー検証テスト
-│   ├── test_fitness.py             # 適合度評価テスト
-│   ├── test_mutation_boundaries.py # 変異境界テスト
-│   ├── test_promote_candidate.py   # 昇格ゲートテスト（tmp_path使用、実ファイル非破壊）
-│   └── test_types.py               # Request イミュータビリティテスト
-├── .github/workflows/
-│   └── immunization_loop.yml   # propose / evaluate / promote 分離ワークフロー
+│   ├── test_contract.py              # 検出器インターフェース契約テスト
+│   ├── test_ast_policy.py            # ASTポリシー検証テスト
+│   ├── test_fitness.py               # 適合度評価テスト
+│   ├── test_mutation_boundaries.py   # 変異境界テスト
+│   ├── test_promote_candidate.py     # 昇格ゲートテスト（tmp_path使用、実ファイル非破壊）
+│   ├── test_types.py                 # Request イミュータビリティテスト
+│   ├── test_gemini_integration.py    # Gemini API 統合テスト（68件、モック使用）
+│   ├── test_api_budget.py            # API 予算管理テスト（49件）
+│   ├── test_gemini_paid_credit.py    # Gemini 有料クレジットモードテスト（44件）
+│   └── test_audit_docs.py            # 監査ドキュメント存在・内容テスト
+├── .github/
+│   ├── PULL_REQUEST_TEMPLATE.md  # PR 監査チェックリスト（GPT Audit Gate 用）
+│   └── workflows/
+│       └── immunization_loop.yml # propose / evaluate / promote 分離ワークフロー
 ├── pyproject.toml
 ├── LICENSE
 └── README.md
@@ -293,6 +303,24 @@ python scripts/propose_mutation.py --noop --json
 | プロンプト長制限 | プロンプト全体が `genome.max_prompt_chars`（デフォルト 12000）以下 |
 | プリフライトスキャン | プロンプトに機密トークンが含まれないこと |
 
+#### Gemini へ送信するコンテキストの最小化
+
+Cyber-Immunizer が Gemini へ送信するのは以下の**最小限のコンテキスト**のみです：
+
+| 送信するもの | 内容 |
+|---|---|
+| 検出器の変異領域コード | `# === MUTATION_START ===` 〜 `# === MUTATION_END ===` の間のコードのみ |
+| 検出器インターフェース要約 | 関数シグネチャと戻り値型の説明（静的テキスト） |
+| 中和された脅威 ID | `THREAT-2024-001` のような安全な識別子のみ（ペイロード・署名は除外） |
+
+| **絶対に送信しないもの** |
+|---|
+| シークレット・APIキー・環境変数 |
+| フルリポジトリテキスト（`send_repository_full_text: false` で強制） |
+| 実ユーザーログ・実トラフィックデータ |
+| プライベートな脆弱性情報・CVE詳細 |
+| 生のエクスプロイトペイロード（`send_raw_payloads: false` で強制） |
+
 #### Gemini オプション依存関係のインストール
 
 ```bash
@@ -306,18 +334,131 @@ pip install "google-genai>=1.0.0" "pydantic>=2.0"
 
 ---
 
-## GitHub Actions ワークフロー
+## Google AI Pro / $10 GenAI & Cloud クレジット戦略
 
-`.github/workflows/immunization_loop.yml` は **propose / evaluate / promote** の3ジョブを意図的に分離しています。
+### Google AI Pro の GenAI & Cloud クレジットとは
 
-| ジョブ | 権限 | シークレット | 生成コードを実行するか |
-|---|---|---|---|
-| `propose` | `contents: read` | GEMINI_API_KEY（任意） | ❌ しない |
-| `evaluate` | `contents: read` | なし | ✅ する（サブプロセス隔離） |
-| `promote` | `contents: write` | GITHUB_TOKEN のみ | ❌ しない |
+Google AI Pro（旧 Google One AI Premium）または Google Developer Program への参加により、毎月 $10 の GenAI & Cloud 開発者クレジットが提供される場合があります。このクレジットは **Gemini アプリの使用制限とは別物**です。
+
+> ⚠️ **重要な区別:**
+> - **Google AI Pro アプリのサブスクリプション**（gemini.google.com）：Gemini チャットアプリの使用枠
+> - **Gemini API プロジェクトクォータ**（Google AI Studio / Cloud Billing）：API 呼び出し用の別枠
+>
+> API を呼び出すには、Cloud Billing にリンクされた Google Cloud / AI Studio プロジェクトが必要です。
+
+### データプライバシーの重要な注意点
+
+| API 種別 | データの扱い |
+|---|---|
+| **Gemini API 無料クォータ** | Google によるモデル改善に使用される可能性あり |
+| **Gemini API 有料クォータ** | プロンプト・レスポンスはモデル改善に使用されない |
+
+> **Cyber-Immunizer は、有料クォータを使用している場合でも、シークレット・APIキー・環境変数・プライベートな脆弱性情報・実ユーザーログ・フルリポジトリテキスト・生のエクスプロイトペイロードをプロンプトに含めません。**
+> プロンプトに含まれるのは：検出器の変異領域コード・検出器インターフェースの要約・中和された脅威IDのみです。
+
+### `gemini-paid-credit` モードの設定と使用方法
+
+#### 前提条件
+
+1. **Google AI Pro の GenAI & Cloud クレジットをアクティベート**
+   - Google Developer Program にて確認・有効化
+2. **Cloud Billing リンク済みプロジェクトの設定**
+   - Google AI Studio または Google Cloud Console でプロジェクトを作成
+3. **GEMINI_API_KEY を GitHub Secrets に登録**
+4. **`data/genome.json` の設定変更**（レビュー済みコミットで実施）:
+   ```json
+   { "live_model_enabled": true }
+   ```
+5. **workflow_dispatch で `mode=gemini-paid-credit` を選択**
+
+#### 推奨ワークフローモード一覧
+
+| モード | 動作 | API 消費 |
+|---|---|---|
+| `noop`（デフォルト・スケジュール実行） | パッチ生成なし | ゼロ |
+| `offline-sample` | ビルトインサンプルパッチを使用 | ゼロ |
+| `live-model` | Gemini API 呼び出し（基本フリーティア用） | あり |
+| `gemini-paid-credit` | Gemini API 呼び出し（月次・日次予算キャップ付き） | あり（課金） |
+
+#### 予算管理（`data/api_usage_ledger.json`）
+
+`gemini-paid-credit` モードは呼び出しごとにコストを推定し、`data/api_usage_ledger.json` に記録します。
+
+- 月次上限（`monthly_api_budget_usd`）と日次上限（`daily_api_budget_usd`）を超える場合は呼び出しを拒否
+- コスト推定は**保守的な過大見積もり**（`ceil(chars / 4)` トークン換算）
+- 実際のトークン数は API レスポンスメタデータから取得（利用可能な場合）
+
+#### ローカル実行コマンド
+
+```bash
+# 安全なローカル開発（APIキー不要）
+python scripts/propose_mutation.py --offline-sample --json
+
+# 有料クレジットモード（明示的ダブルオプトイン + genome 設定が必要）
+export GEMINI_API_KEY=your_api_key_here
+python scripts/propose_mutation.py --gemini-paid-credit --allow-live-model --json
+
+# noop（スケジュール実行のデフォルト）
+python scripts/propose_mutation.py --noop --json
+```
+
+#### 安全ゲート一覧（`gemini-paid-credit` モード）
+
+| ゲート | 条件 |
+|---|---|
+| 明示的オプトイン | `--gemini-paid-credit` + `--allow-live-model` の両フラグ必須 |
+| API キー | `GEMINI_API_KEY` 環境変数が設定されていること |
+| ライブモード有効 | `genome.live_model_enabled == true` |
+| 有料ティア確認 | `genome.require_paid_tier == true` |
+| 無料専用モード無効 | `genome.free_tier_only == false` |
+| 月次予算 | `genome.monthly_api_budget_usd > 0` かつ月次支出 + 推定コスト ≤ 上限 |
+| 日次予算 | `genome.daily_api_budget_usd > 0` かつ日次支出 + 推定コスト ≤ 上限 |
+| リクエスト数制限 | `genome.max_model_requests_per_run <= 1` |
+| グラウンディング無効 | `genome.allow_google_search_grounding == false` |
+| コード実行無効 | `genome.allow_code_execution_tool == false` |
+| URL コンテキスト無効 | `genome.allow_url_context == false` |
+| フルリポジトリ送信禁止 | `genome.send_repository_full_text == false` |
+| 生ペイロード送信禁止 | `genome.send_raw_payloads == false` |
+| シークレット送信禁止 | `genome.send_secrets == false` |
+| プロンプト長制限 | プロンプト全体が `genome.max_prompt_chars`（デフォルト 12000）以下 |
+| プリフライトスキャン | プロンプトに機密トークンが含まれないこと |
+
+---
+
+## GPT Audit Gate
+
+すべての PR はマージ前に **GPT Audit Gate** レビューを通過しなければなりません。詳細は `docs/AUDIT_CHARTER.md` を参照してください。
+
+| 役割 | 担当 |
+|---|---|
+| **GPT Audit Gate** | 6カテゴリの構造的レビュー（アーキテクチャ・セキュリティ・フィットネス・コスト・ドキュメント・法的） |
+| **Human Owner** | 最終マージ判断（GPT の推薦を覆す権限あり） |
+| **Claude Code** | 実装・テスト・Audit Gate 支援情報の提供 |
+
+Audit Gate の決定: **APPROVE / REQUEST CHANGES / BLOCK**  
+PR テンプレート（`.github/PULL_REQUEST_TEMPLATE.md`）に GPT Audit Gate レポートの貼り付け欄があります。
+
+---
+
+`.github/workflows/immunization_loop.yml` は **propose / persist-ledger / finalize-propose-status / evaluate / promote** の5ジョブを意図的に分離しています。
+
+| ジョブ | 権限 | シークレット | 生成コードを実行するか | 責務 |
+|---|---|---|---|---|
+| `propose` | `contents: read` | GEMINI_API_KEY（任意） | ❌ | 変異提案・ledger artifact生成・exit code出力（`propose_failed`） |
+| `persist-ledger` | `contents: write` | GITHUB_TOKEN のみ | ❌ | **ledgerのみ**をcommit（candidate採用/不採用に関係なく） |
+| `finalize-propose-status` | `contents: none` | なし | ❌ | ledger永続化後にpropose失敗をworkflow失敗として表現 |
+| `evaluate` | `contents: read` | なし | ✅ する（サブプロセス隔離） | 候補評価 |
+| `promote` | `contents: write` | GITHUB_TOKEN のみ | ❌ | 検出器・genome・READMEのcommit（`persist-ledger`完了後のみ） |
+
+**`persist-ledger` ジョブは `propose` 直後に実行されます。** `propose_mutation.py` がAPI呼び出し後に失敗しても、`set +e` によりledger artifact uploadには必ず到達します。candidate が `evaluate` で不採用になっても、API使用記録は必ずリポジトリに永続化されます。これにより月次・日次 budget cap が fail-open になりません。
+
+**`propose` 失敗はledger永続化後に `finalize-propose-status` ジョブがworkflow失敗として表現します。** ledger永続化とpropose失敗の表現を分離することで、API使用記録が確実に保存されます。
+
+**`promote` は `persist-ledger` の完了を待ってから実行されます。** これにより `persist-ledger` と `promote` が同一branchへ並列write commitする競合を防ぎます。
 
 **生成コードが実行されるジョブには書き込み権限もモデルAPIシークレットも付与しません。**  
-**`promote` ジョブは GITHUB_TOKEN（リポジトリへの書き込み用）のみを保持し、GEMINI_API_KEY は持ちません。**
+**`persist-ledger` と `promote` は GITHUB_TOKEN（リポジトリへの書き込み用）のみを保持し、GEMINI_API_KEY は持ちません。**  
+**`persist-ledger` は候補detector・変異パッチをダウンロードしません。ledger ファイルのみを扱います。**
 
 ### ワークフロートリガーとモード
 
@@ -328,6 +469,7 @@ pip install "google-genai>=1.0.0" "pydantic>=2.0"
 | `noop` | propose / evaluate / promote をすべてスキップ（ブランチテスト用） |
 | `offline-sample` | 組み込みサンプルパッチを使用（APIキー不要） |
 | `live-model` | Gemini API を呼び出す（GEMINI_API_KEY 必須） |
+| `gemini-paid-credit` | Gemini API を呼び出す（月次・日次予算キャップ付き、Google AI Pro クレジット用） |
 
 **スケジュール実行（毎日 02:00 UTC）は常に `noop` モード**で動作します。意図しないAPI呼び出しを防ぎ、`offline-sample` や `live-model` は手動 `workflow_dispatch` でのみ使用します。
 
@@ -357,13 +499,18 @@ pip install "google-genai>=1.0.0" "pydantic>=2.0"
 | `test_mutation_boundaries.py` | マーカー外の不変性、マーカーの存在、重複マーカーの拒否、マーカー含有コードの拒否、不正パッチの拒否 |
 | `test_promote_candidate.py` | ハッシュ検証・スキーマ検証・採用失敗時の拒否・ast_policy_ok=False時の拒否・fp_rate超過時の拒否（すべて `tmp_path` 使用、実ファイル非破壊） |
 | `test_types.py` | `Request.query` / `Request.headers` の MappingProxyType イミュータビリティ、構築後のソースdict変更の影響なし |
+| `test_gemini_integration.py` | noop・offline-sample・live-model モード、プリフライトスキャン、スキーマ検証、replacement_code 検証（68件） |
+| `test_api_budget.py` | トークン推定・月次/日次集計・月次/日次超過拒否・ledger 破損 fail-closed（上書き禁止）・不明モデル保守的コスト（51件） |
+| `test_gemini_paid_credit.py` | paid-credit ゲート拒否・予算超過拒否・シークレットスキャン・スキーマ検証・ledger 追記・ledger 書き込み失敗→hard error（48件） |
+| `test_audit_docs.py` | AUDIT_CHARTER.md 存在・PR テンプレート存在・BLOCK/REQUEST CHANGES/APPROVE 条件・symbolic indicator 整合性 |
+| `test_workflow.py` | persist-ledger ジョブ存在・権限・if条件に always() 必須・GEMINI_API_KEY 不在・candidate artifact 不在・promote の ledger 責務分離・concurrency・propose `set +e` 構造・finalize-propose-status の != success 厳格化・promote の persist-ledger sequencing（39件） |
 
 ```bash
 python -m pytest -v
-# 125 passed
+# 367 passed
 ```
 
-テストはすべて `tmp_path` インジェクションを使用し、`core/detector.py` や `data/genome.json` などの実リポジトリファイルを変更しません。
+テストはすべて `tmp_path` インジェクションまたはファイルシステム参照（読み取り専用）を使用し、`core/detector.py` や `data/genome.json` などの実リポジトリファイルを変更しません。
 
 ---
 
