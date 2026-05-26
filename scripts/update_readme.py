@@ -30,6 +30,11 @@ def _load_json(path: Path) -> dict | list | None:
         return None
 
 
+def _bool_str(value: object) -> str:
+    """Return 'true' or 'false' string from a bool-like value."""
+    return "true" if value else "false"
+
+
 def _build_status_block() -> str:
     genome = _load_json(_GENOME_PATH) or {}
     history = _load_json(_HISTORY_PATH) or []
@@ -40,6 +45,7 @@ def _build_status_block() -> str:
     if isinstance(raw_report, dict):
         fitness = raw_report.get("fitness_report") or raw_report
 
+    # --- Legacy fields (preserved) ---
     generation = genome.get("generation", 0)
     best_score = genome.get("best_score", "N/A")
     detector_hash = genome.get("current_detector_hash", "unknown")
@@ -69,12 +75,50 @@ def _build_status_block() -> str:
 
     now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 
+    # --- Phase 2 fields (read from genome.json) ---
+    live_model_enabled: bool = bool(genome.get("live_model_enabled", False))
+    api_mode: str = genome.get("api_mode", "N/A")
+    model_provider: str = genome.get("model_provider", "N/A")
+    max_model_requests: object = genome.get("max_model_requests_per_run", "N/A")
+    max_commits: object = genome.get("max_commits_per_run", "N/A")
+    monthly_budget: object = genome.get("monthly_api_budget_usd", "N/A")
+    daily_budget: object = genome.get("daily_api_budget_usd", "N/A")
+    send_repo_text: bool = bool(genome.get("send_repository_full_text", False))
+    send_raw_payloads: bool = bool(genome.get("send_raw_payloads", False))
+    send_secrets: bool = bool(genome.get("send_secrets", False))
+
+    # Derive Phase 2 display values
+    current_phase = "Phase 2 — API-disconnected operations"
+
+    if live_model_enabled:
+        api_connection = "BLOCKED: live_model_enabled=true is not allowed in Phase 2"
+    else:
+        api_connection = "Not connected"
+
     lines = [
         _STATUS_START,
         "## 🧬 Cyber-Immunizer Status",
         "",
-        f"| Field | Value |",
-        f"|---|---|",
+        "| Field | Value |",
+        "|---|---|",
+        f"| Current Phase | {current_phase} |",
+        f"| API Connection | {api_connection} |",
+        f"| live_model_enabled | {_bool_str(live_model_enabled)} |",
+        f"| API Mode | {api_mode} |",
+        f"| Model Provider | {model_provider} |",
+        f"| Max Model Requests / Run | {max_model_requests} |",
+        f"| Max Commits / Run | {max_commits} |",
+        f"| Monthly API Budget | {monthly_budget} USD |",
+        f"| Daily API Budget | {daily_budget} USD |",
+        f"| Send Full Repository Text | {_bool_str(send_repo_text)} |",
+        f"| Send Raw Payloads | {_bool_str(send_raw_payloads)} |",
+        f"| Send Secrets | {_bool_str(send_secrets)} |",
+        "| Schedule Mode | noop only |",
+        "| CI Status | Manual check required / see Actions |",
+        "| Noop Path | Verified |",
+        "| Offline Sample Path | Verified |",
+        "| Paid-Credit Preflight | Fail-closed when GEMINI_API_KEY missing |",
+        "| Phase 3 Gate | Human Owner explicit decision required |",
         f"| Generation | {generation} |",
         f"| Best Score | {best_score} |",
         f"| Detector Hash | `{detector_hash[:16]}…` |",
