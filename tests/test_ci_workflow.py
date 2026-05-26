@@ -8,6 +8,7 @@ Key invariants tested:
   - ci.yml file exists
   - name: CI is present
   - on: / "on": trigger is present
+  - workflow_dispatch: trigger is present (allows manual runs from GitHub UI)
   - push: and pull_request: triggers are present without branch filters
   - branches: ["**"] is NOT present (causes GitHub Actions to reject the file)
   - contents: read permission is present
@@ -91,6 +92,19 @@ class TestCiWorkflowTriggers:
         """ci.yml must have a 'pull_request:' trigger."""
         assert "pull_request:" in ci_content, (
             "ci.yml must contain 'pull_request:' trigger so CI runs on every PR."
+        )
+
+    def test_ci_has_workflow_dispatch_trigger(self, ci_content: str) -> None:
+        """ci.yml must have a 'workflow_dispatch:' trigger.
+
+        This allows the CI workflow to be manually triggered from the GitHub
+        Actions UI (Run workflow button), which is useful for diagnosing
+        whether Actions is properly configured without waiting for a push or PR.
+        """
+        assert "workflow_dispatch:" in ci_content, (
+            "ci.yml must contain 'workflow_dispatch:' trigger so the CI can be "
+            "manually triggered from the GitHub Actions UI. "
+            "Add 'workflow_dispatch:' under the '\"on\":' section."
         )
 
     def test_ci_has_no_branches_wildcard_filter(self, ci_content: str) -> None:
