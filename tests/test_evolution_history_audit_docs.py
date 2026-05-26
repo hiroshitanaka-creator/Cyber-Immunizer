@@ -114,6 +114,115 @@ class TestApiUsageLedgerExclusion:
 
 
 # ──────────────────────────────────────────────────────────────
+# 3b. api_usage_ledger regression guard
+#     Verifies that docs/EVOLUTION_HISTORY_AUDIT.md does NOT contain
+#     any dangerous reverse-direction phrases that would incorrectly
+#     include or permit modification of the API usage ledger in
+#     evolution history rollback / backtrack / promote scope.
+# ──────────────────────────────────────────────────────────────
+
+class TestApiUsageLedgerRegressionGuard:
+    """Regression guard: prohibit dangerous inclusion/modification phrases for api_usage_ledger.
+
+    These tests guard against future document degradation where the audit design doc
+    might accidentally permit rolling back or modifying data/api_usage_ledger.json.
+
+    The Cost/API Governance invariant is:
+      data/api_usage_ledger.json is NEVER included in evolution_history rollback/backtrack scope
+      and NEVER modified by rollback/backtrack/promote operations.
+
+    If any of the prohibited phrases appear in EVOLUTION_HISTORY_AUDIT.md,
+    the corresponding test must fail immediately to catch the regression.
+    """
+
+    def test_api_usage_ledger_not_included_in_rollback_regression_guard(self):
+        """EVOLUTION_HISTORY_AUDIT.md must NOT state that api_usage_ledger.json
+        is included in evolution history rollback scope.
+
+        Prohibited phrases signal a dangerous policy reversal.
+        """
+        content = _read(AUDIT_DOC)
+        prohibited_phrases = [
+            "api_usage_ledger.json is included in evolution history rollback",
+            "API usage ledger is included in rollback",
+            "API usage ledger is included in backtrack",
+            "api_usage_ledger.json を rollback 対象に含める",
+            "api_usage_ledger.json をrollback対象に含める",
+            "api_usage_ledger.json をbacktrack対象に含める",
+            "api_usage_ledger.json を evolution history rollback 対象",
+            "ledger も rollback 対象",
+            "ledger も backtrack 対象",
+        ]
+        for phrase in prohibited_phrases:
+            assert phrase not in content, (
+                f"EVOLUTION_HISTORY_AUDIT.md must NOT contain '{phrase}'. "
+                "This phrase incorrectly includes api_usage_ledger.json in "
+                "evolution history rollback/backtrack scope, which violates the "
+                "Cost/API Governance invariant."
+            )
+
+    def test_api_usage_ledger_modification_permission_is_forbidden(self):
+        """EVOLUTION_HISTORY_AUDIT.md must NOT state that api_usage_ledger.json
+        may or can be modified during rollback/backtrack operations.
+
+        These phrases represent a direct violation of the Cost/API Governance invariant.
+        """
+        content = _read(AUDIT_DOC)
+        prohibited_phrases = [
+            "API usage ledger may be modified during rollback",
+            "API usage ledger can be modified during rollback",
+            "API usage ledger may be modified during backtrack",
+            "API usage ledger can be modified during backtrack",
+            "API usage ledger を変更してよい",
+            "API usage ledger を変更してもよい",
+            "api_usage_ledger.json を変更してよい",
+            "api_usage_ledger.json を変更してもよい",
+            "API usage ledger は変更可",
+            "API usage ledger は修正可",
+        ]
+        for phrase in prohibited_phrases:
+            assert phrase not in content, (
+                f"EVOLUTION_HISTORY_AUDIT.md must NOT contain '{phrase}'. "
+                "This phrase incorrectly permits modification of api_usage_ledger.json, "
+                "which is a Cost/API Governance violation. "
+                "The ledger is an immutable billing/audit record and must never be modified."
+            )
+
+    def test_api_usage_ledger_reverse_policy_phrases_are_rejected(self):
+        """EVOLUTION_HISTORY_AUDIT.md must NOT contain any phrase that reverses the
+        'api_usage_ledger.json is never rolled back' policy.
+
+        This is the core invariant: the ledger tracks real API spend and must remain
+        immutable regardless of evolution history operations.
+        """
+        content = _read(AUDIT_DOC)
+        prohibited_phrases = [
+            # English reverse-policy phrases
+            "API usage ledger is rolled back",
+            "api_usage_ledger.json is rolled back",
+            "API usage ledger should be rolled back",
+            "API usage ledger must be rolled back",
+            "API usage ledger is reverted",
+            "API usage ledger は rollback 対象",
+            "API usage ledger は rollback対象",
+            "API usage ledger は backtrack 対象",
+            "API usage ledger は backtrack対象",
+            # Japanese reverse-policy phrases
+            "api_usage_ledger.json を巻き戻す",
+            "API usage ledger を巻き戻す",
+            "api_usage_ledger.json も巻き戻す",
+            "API usage ledger も巻き戻す",
+        ]
+        for phrase in prohibited_phrases:
+            assert phrase not in content, (
+                f"EVOLUTION_HISTORY_AUDIT.md must NOT contain '{phrase}'. "
+                "This phrase reverses the policy that api_usage_ledger.json is "
+                "NEVER rolled back. The ledger is an immutable billing/audit record. "
+                "Violating this invariant would corrupt the Cost/API Governance trail."
+            )
+
+
+# ──────────────────────────────────────────────────────────────
 # 4. Required record fields
 # ──────────────────────────────────────────────────────────────
 
