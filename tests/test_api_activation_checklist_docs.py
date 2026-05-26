@@ -152,27 +152,47 @@ class TestApiActivationChecklistSafetyBoundaries(_ChecklistFixture):
         )
 
     def test_states_no_live_model_enabled_true_in_phase2e(self) -> None:
-        """Checklist must state that live_model_enabled=true is not set in Phase 2-E."""
+        """Checklist must confirm live_model_enabled=false in Phase 2-E.
+
+        live_model_enabled=true must NOT be treated as positive evidence that the
+        document correctly records the constraint.  The checklist must explicitly
+        state the value is false (e.g. 'live_model_enabled | false' in the Current
+        phase status table) and/or use prohibition language such as 'にしない' or
+        'trueにしない'.  A bare occurrence of 'live_model_enabled=true' anywhere in
+        the document (even in a non-goal bullet) is insufficient and must not pass
+        this test.
+        """
         assert "live_model_enabled" in self.content, (
             "Checklist must mention live_model_enabled"
         )
-        # Must state it remains false
         content_lower = self.content.lower()
-        assert "false" in content_lower or "にしない" in self.content or (
-            "live_model_enabled=true にしない" in self.content
-            or "live_model_enabled=true" in self.content
+
+        # Must state live_model_enabled=false explicitly, NOT just mention =true
+        assert (
+            "live_model_enabled=false" in content_lower
+            or "live_model_enabled | false" in content_lower
+            or "live_model_enabled** | false" in content_lower
+            or "にしない" in self.content
+            or "trueにしない" in self.content
         ), (
-            "Checklist must state that live_model_enabled remains false in Phase 2-E"
+            "Checklist must explicitly state live_model_enabled=false or use prohibition "
+            "language; a bare 'live_model_enabled=true' is not sufficient evidence"
         )
-        # The current phase status must show false
+
+        # The Current phase status section must explicitly show false
         if "Current phase status" in self.content:
             status_start = self.content.find("Current phase status")
             status_end = self.content.find("\n---", status_start + 1)
             if status_end == -1:
                 status_end = status_start + 2000
-            status_block = self.content[status_start:status_end]
-            assert "false" in status_block.lower(), (
-                "Current phase status section must show live_model_enabled = false"
+            status_block = self.content[status_start:status_end].lower()
+            assert (
+                "live_model_enabled | false" in status_block
+                or "live_model_enabled=false" in status_block
+                or ("live_model_enabled" in status_block and "false" in status_block)
+            ), (
+                "Current phase status section must explicitly show live_model_enabled = false, "
+                "not merely mention live_model_enabled=true"
             )
 
     def test_states_no_gemini_api_call_in_phase2e(self) -> None:
@@ -421,13 +441,33 @@ class TestApiActivationChecklistWorkflowSchedule(_ChecklistFixture):
         )
 
     def test_no_contents_write_in_normal_ci(self) -> None:
-        """Checklist must state that normal CI has no contents: write permission."""
+        """Checklist must confirm normal CI has no 'contents: write' (read-only only).
+
+        A bare occurrence of 'contents: write' anywhere in the document is NOT
+        sufficient — the check must confirm a prohibition context:
+          - 'read-only' or 'read only' (the CI is described as read-only), OR
+          - 'contents: read' (the permitted permission is named), OR
+          - 'No `contents: write`' / 'no contents: write' (explicit prohibition).
+
+        This prevents a document that says 'normal CI uses contents: write' from
+        passing the test.
+        """
         content_lower = self.content.lower()
-        assert (
-            "contents: write" in content_lower
-            or "contents:write" in content_lower
-        ), (
-            "Checklist must mention 'contents: write' in the context of normal CI"
+
+        has_read_only = "read-only" in content_lower or "read only" in content_lower
+        has_contents_read = "contents: read" in content_lower
+        # Accept backtick-quoted form ("no `contents: write`") or plain form
+        has_no_write_prohibition = (
+            "no `contents: write`" in content_lower
+            or "no contents: write" in content_lower
+            or "no contents:write" in content_lower
+        )
+
+        assert has_read_only or has_contents_read or has_no_write_prohibition, (
+            "Checklist must confirm normal CI is read-only / has no 'contents: write' "
+            "permission using prohibition context (e.g. 'CI workflow remains read-only', "
+            "'No `contents: write` in normal CI', or 'contents: read'); "
+            "a bare 'contents: write' mention is insufficient"
         )
 
 
@@ -822,3 +862,79 @@ class TestForbiddenPhrases:
     def test_no_api_key_stored_in_repo_japanese(self) -> None:
         """'APIキーをリポジトリに保存してよい' must not appear in any target document."""
         self._assert_phrase_absent("APIキーをリポジトリに保存してよい")
+
+    # --- live_model_enabled=true affirmative phrases (Codex指摘1 addition) ---
+
+    def test_no_phase2e_sets_live_model_enabled_true(self) -> None:
+        """'Phase 2-E sets live_model_enabled=true' must not appear in any target document.
+
+        Codex指摘1: live_model_enabled=true affirmative guard — Phase 2-E must NOT
+        set live_model_enabled=true; only 'にしない' / prohibition contexts are allowed.
+        """
+        self._assert_phrase_absent("Phase 2-E sets live_model_enabled=true")
+
+    def test_no_phase2e_enables_live_model_enabled_true(self) -> None:
+        """'Phase 2-E enables live_model_enabled=true' must not appear in any target document.
+
+        Codex指摘1: live_model_enabled=true affirmative guard.
+        """
+        self._assert_phrase_absent("Phase 2-E enables live_model_enabled=true")
+
+    def test_no_live_model_enabled_true_activated_japanese(self) -> None:
+        """'live_model_enabled=true有効化済み' must not appear in any target document.
+
+        Codex指摘1: Japanese affirmative guard for live_model_enabled=true.
+        """
+        self._assert_phrase_absent("live_model_enabled=true有効化済み")
+
+    # --- contents: write permission grant phrases (Codex指摘2 addition) ---
+
+    def test_no_normal_ci_uses_contents_write(self) -> None:
+        """'normal CI uses contents: write' must not appear in any target document.
+
+        Codex指摘2: contents: write permission grant guard — normal CI must be
+        read-only; granting write permission to normal CI is forbidden.
+        """
+        self._assert_phrase_absent("normal CI uses contents: write")
+
+    def test_no_normal_ci_has_contents_write(self) -> None:
+        """'normal CI has contents: write' must not appear in any target document.
+
+        Codex指摘2: contents: write permission grant guard.
+        """
+        self._assert_phrase_absent("normal CI has contents: write")
+
+    def test_no_ci_workflow_uses_contents_write(self) -> None:
+        """'CI workflow uses contents: write' must not appear in any target document.
+
+        Codex指摘2: contents: write permission grant guard.
+        """
+        self._assert_phrase_absent("CI workflow uses contents: write")
+
+    def test_no_ci_grants_contents_write(self) -> None:
+        """'CI grants contents: write' must not appear in any target document.
+
+        Codex指摘2: contents: write permission grant guard.
+        """
+        self._assert_phrase_absent("CI grants contents: write")
+
+    def test_no_contents_write_is_allowed_in_normal_ci(self) -> None:
+        """'contents: write is allowed in normal CI' must not appear in any target document.
+
+        Codex指摘2: contents: write permission grant guard.
+        """
+        self._assert_phrase_absent("contents: write is allowed in normal CI")
+
+    def test_no_normal_ci_uses_contents_write_japanese(self) -> None:
+        """'通常CIでcontents: writeを使う' must not appear in any target document.
+
+        Codex指摘2: Japanese contents: write permission grant guard.
+        """
+        self._assert_phrase_absent("通常CIでcontents: writeを使う")
+
+    def test_no_normal_ci_write_permission_granted_japanese(self) -> None:
+        """'通常CIにwrite権限を付与する' must not appear in any target document.
+
+        Codex指摘2: Japanese contents: write permission grant guard.
+        """
+        self._assert_phrase_absent("通常CIにwrite権限を付与する")
