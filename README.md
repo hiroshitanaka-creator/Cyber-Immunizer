@@ -440,6 +440,33 @@ PR テンプレート（`.github/PULL_REQUEST_TEMPLATE.md`）に GPT Audit Gate 
 
 ---
 
+## CI ワークフロー構成
+
+このリポジトリには2つの GitHub Actions ワークフローがあります。用途・権限・動作がまったく異なります。
+
+| 項目 | `ci.yml`（通常CI） | `immunization_loop.yml`（進化ループ） |
+|---|---|---|
+| **トリガー** | `push` / `pull_request` | `workflow_dispatch` / `schedule`（毎日 02:00 UTC） |
+| **目的** | コードの健全性確認（テスト・AST検証・スモークテスト） | 検出器の自律進化（propose → evaluate → promote） |
+| **`permissions`** | `contents: read`（読み取り専用） | propose/evaluate: `read` / persist-ledger/promote: `write` |
+| **`GEMINI_API_KEY`** | ❌ 使用しない | ⚠️ `propose` ジョブのみ（手動モード選択時のみ） |
+| **`promote_candidate.py`** | ❌ 呼ばない | ✅ `promote` ジョブで呼ぶ（採用ゲート通過時のみ） |
+| **`git commit` / `git push`** | ❌ しない | ✅ `persist-ledger` / `promote` ジョブでのみ実施 |
+| **`live-model` / `gemini-paid-credit`** | ❌ 実行しない | ✅ `workflow_dispatch` で手動選択時のみ |
+| **`timeout-minutes`** | `10`（ジョブ全体） | 設定なし（進化サイクルは長時間になりうる） |
+
+### `ci.yml` — 通常 CI（read-only）
+
+- **`push` / `pull_request` で自動実行**される軽量な安全チェックです
+- `contents: read` のみ — リポジトリへの書き込みは一切行いません
+- `GEMINI_API_KEY` は環境変数に存在しません
+- `promote_candidate.py` は呼び出しません
+- `git commit` / `git push` はしません
+- `live-model` / `gemini-paid-credit` は実行しません
+- 実行内容: `pytest` → `validate_mutation` → `core.fitness --baseline` → `propose_mutation --noop` → `propose_mutation --offline-sample` → `apply_mutation` → `evaluate_candidate --soft-reject`
+
+### `immunization_loop.yml` — 進化ループ（workflow_dispatch / schedule）
+
 `.github/workflows/immunization_loop.yml` は **propose / persist-ledger / finalize-propose-status / evaluate / promote** の5ジョブを意図的に分離しています。
 
 | ジョブ | 権限 | シークレット | 生成コードを実行するか | 責務 |
