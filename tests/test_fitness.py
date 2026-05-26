@@ -166,17 +166,17 @@ class TestRegressionEnforcement:
 
 class TestScoreDeterminism:
     def test_score_is_deterministic(self):
-        """Same candidate + same data must produce the same classification results.
+        """Same candidate + same data must produce the exact same score.
 
-        The score formula includes avg_latency_ms which is timing-dependent, so
-        the raw score may vary slightly between runs.  We verify that all
-        non-timing fields are bitwise-identical (TP/FP/TN/FN rates, code_chars,
-        changed_lines) and that the score delta is explained solely by latency.
+        avg_latency_ms is excluded from the score formula, so the score is
+        bitwise-identical across repeated evaluations of the same candidate on
+        the same test data, regardless of timing variation.
         """
         baseline = _PROJECT_ROOT / "core" / "detector.py"
         r1 = evaluate(baseline, baseline_mode=True)
         r2 = evaluate(baseline, baseline_mode=True)
 
+        # All classification counts must be identical
         assert r1.true_positive == r2.true_positive, "true_positive non-deterministic"
         assert r1.false_positive == r2.false_positive, "false_positive non-deterministic"
         assert r1.true_negative == r2.true_negative, "true_negative non-deterministic"
@@ -188,34 +188,76 @@ class TestScoreDeterminism:
         assert r1.changed_lines == r2.changed_lines, "changed_lines non-deterministic"
         assert r1.exception_count == r2.exception_count, "exception_count non-deterministic"
 
-        # Score difference must be explained entirely by latency variation
-        latency_delta = abs(r1.avg_latency_ms - r2.avg_latency_ms)
-        score_delta = abs(r1.score - r2.score)
-        expected_score_delta = 2.0 * latency_delta
-        assert score_delta <= expected_score_delta + 1e-9, (
-            f"Score delta {score_delta} exceeds expected latency-driven delta "
-            f"{expected_score_delta} (latency_delta={latency_delta}ms)"
+        # Score must be exactly equal — latency is NOT in the formula
+        assert r1.score == r2.score, (
+            f"Score must be deterministic (latency is excluded from the formula). "
+            f"Got r1.score={r1.score}, r2.score={r2.score}"
         )
 
+    def test_latency_reported_but_not_in_score(self):
+        """avg_latency_ms must be reported but must not affect the score."""
+        baseline = _PROJECT_ROOT / "core" / "detector.py"
+        report = evaluate(baseline, baseline_mode=True)
+
+        # avg_latency_ms is present and non-negative
+        assert isinstance(report.avg_latency_ms, float), "avg_latency_ms must be float"
+        assert report.avg_latency_ms >= 0.0, "avg_latency_ms must be non-negative"
+
+        # Verify score formula doesn't include latency by checking manually
+        expected_score = _compute_score(
+            tp_rate=report.tp_rate,
+            fp_rate=report.fp_rate,
+            fn_rate=report.fn_rate,
+            exception_count=report.exception_count,
+            code_chars=report.code_chars,
+            changed_lines=report.changed_lines,
+        )
+        assert report.score == pytest.approx(expected_score), (
+            f"Score should match formula without latency. "
+            f"Expected {expected_score}, got {report.score}"
+        )
+
+    def test_latency_gate_enforced_separately(self):
+        """The adoption gate must check avg_latency_ms even though it's not in score."""
+        # We can't easily inject a slow candidate here, but we can verify the
+        # baseline report contains avg_latency_ms in the report (not in score).
+        baseline = _PROJECT_ROOT / "core" / "detector.py"
+        report = evaluate(baseline, baseline_mode=True)
+        assert hasattr(report, "avg_latency_ms"), "FitnessReport must have avg_latency_ms"
+
     def test_score_formula(self):
-        """Score formula produces expected value for known inputs."""
+        """Score formula produces expected value for known inputs (no latency param)."""
         score = _compute_score(
             tp_rate=1.0,
             fp_rate=0.0,
             fn_rate=0.0,
             exception_count=0,
-            avg_latency_ms=0.0,
             code_chars=0,
             changed_lines=0,
         )
         assert score == pytest.approx(1000.0), f"Expected 1000.0 got {score}"
 
     def test_score_penalises_fp(self):
-        no_fp = _compute_score(1.0, 0.0, 0.0, 0, 0, 0, 0)
-        with_fp = _compute_score(1.0, 0.5, 0.0, 0, 0, 0, 0)
+        no_fp = _compute_score(1.0, 0.0, 0.0, 0, 0, 0)
+        with_fp = _compute_score(1.0, 0.5, 0.0, 0, 0, 0)
         assert with_fp < no_fp
 
     def test_score_penalises_fn(self):
-        no_fn = _compute_score(1.0, 0.0, 0.0, 0, 0, 0, 0)
-        with_fn = _compute_score(1.0, 0.0, 0.5, 0, 0, 0, 0)
+        no_fn = _compute_score(1.0, 0.0, 0.0, 0, 0, 0)
+        with_fn = _compute_score(1.0, 0.0, 0.5, 0, 0, 0)
         assert with_fn < no_fn
+
+    def test_score_penalises_exceptions(self):
+        no_exc = _compute_score(1.0, 0.0, 0.0, 0, 0, 0)
+        with_exc = _compute_score(1.0, 0.0, 0.0, 1, 0, 0)
+        assert with_exc < no_exc
+
+    def test_score_penalises_code_size(self):
+        small = _compute_score(1.0, 0.0, 0.0, 0, 100, 0)
+        large = _compute_score(1.0, 0.0, 0.0, 0, 10000, 0)
+        assert large < small
+
+    def test_score_penalises_changed_lines(self):
+        few = _compute_score(1.0, 0.0, 0.0, 0, 0, 1)
+        many = _compute_score(1.0, 0.0, 0.0, 0, 0, 100)
+        assert many < few

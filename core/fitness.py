@@ -5,98 +5,40 @@ Usage (CLI):
 
 SAFETY NOTICE
 =============
-Candidate code is loaded via importlib after AST validation.
-The subprocess boundary is enforced by scripts/evaluate_candidate.py.
+Candidate code is loaded via importlib only after strict policy validation.
+The subprocess boundary is enforced by scripts/evaluate_candidate.py, which
+passes no secrets or write credentials to this process.
+
+SCORE DETERMINISM
+=================
+avg_latency_ms is EXCLUDED from the ranking score to ensure the score is
+identical across repeated runs for the same candidate and same test data.
+Latency is still measured and reported; it is enforced as a hard adoption gate
+via genome.json::max_avg_latency_ms.
 """
 from __future__ import annotations
 
 import argparse
-import ast
-import hashlib
 import importlib.util
 import json
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
+from core.policy import run_full_policy
 from core.test_attacker import (
-    build_request,
     evaluate_detector,
     load_test_cases,
     summarize_results,
 )
-from core.types import FitnessReport, Request, DetectionResult
+from core.types import DetectionResult, FitnessReport, Request
 
 _DATA_DIR = Path(__file__).parent.parent / "data"
 _GENOME_PATH = _DATA_DIR / "genome.json"
 
-# ---------------------------------------------------------------------------
-# AST policy check (mirrors validate_mutation.py for in-process use)
-# ---------------------------------------------------------------------------
-
-_FORBIDDEN_NAMES = frozenset(
-    {
-        "eval", "exec", "compile", "__import__", "open",
-        "globals", "locals", "vars", "input",
-        "getattr", "setattr", "delattr",
-    }
-)
-
-_FORBIDDEN_MODULES = frozenset(
-    {
-        "os", "subprocess", "socket", "pathlib", "shutil",
-        "requests", "urllib", "sys",
-    }
-)
-
-_FORBIDDEN_DUNDERS = frozenset(
-    {
-        "__class__", "__dict__", "__globals__", "__subclasses__",
-        "__builtins__", "__code__",
-    }
-)
-
-
-def _ast_policy_ok(source: str) -> tuple[bool, list[str]]:
-    """Return (ok, reasons) after checking AST policy constraints."""
-    violations: list[str] = []
-    try:
-        tree = ast.parse(source)
-    except SyntaxError as exc:
-        return False, [f"syntax error: {exc}"]
-
-    for node in ast.walk(tree):
-        # Forbidden built-in calls
-        if isinstance(node, ast.Call):
-            func = node.func
-            if isinstance(func, ast.Name) and func.id in _FORBIDDEN_NAMES:
-                violations.append(f"forbidden call: {func.id}()")
-            if isinstance(func, ast.Attribute) and func.attr in _FORBIDDEN_NAMES:
-                violations.append(f"forbidden attribute call: .{func.attr}()")
-
-        # Forbidden imports
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                base = alias.name.split(".")[0]
-                if base in _FORBIDDEN_MODULES:
-                    violations.append(f"forbidden import: {alias.name}")
-
-        if isinstance(node, ast.ImportFrom):
-            mod = (node.module or "").split(".")[0]
-            if mod in _FORBIDDEN_MODULES:
-                violations.append(f"forbidden import from: {node.module}")
-
-        # Forbidden dunder attribute access
-        if isinstance(node, ast.Attribute):
-            if node.attr in _FORBIDDEN_DUNDERS:
-                violations.append(f"forbidden dunder access: {node.attr}")
-
-    return len(violations) == 0, violations
-
 
 # ---------------------------------------------------------------------------
-# Score formula
+# Score formula  (deterministic — no timing component)
 # ---------------------------------------------------------------------------
 
 def _compute_score(
@@ -104,16 +46,19 @@ def _compute_score(
     fp_rate: float,
     fn_rate: float,
     exception_count: int,
-    avg_latency_ms: float,
     code_chars: int,
     changed_lines: int,
 ) -> float:
+    """Deterministic fitness score.
+
+    avg_latency_ms is intentionally excluded so the score is identical
+    across repeated evaluations of the same candidate on the same data.
+    """
     return (
         1000.0 * tp_rate
         - 2000.0 * fp_rate
         - 1500.0 * fn_rate
         - 50.0 * exception_count
-        - 2.0 * avg_latency_ms
         - 0.02 * code_chars
         - 10.0 * changed_lines
     )
@@ -132,11 +77,13 @@ def _adoption_gate(
     exception_count: int,
     regression_pass_rate: float,
     fp_rate: float,
+    avg_latency_ms: float,
     score: float,
     previous_best_score: float,
     baseline_mode: bool,
     max_fp_rate: float,
     min_regression_pass_rate: float,
+    max_avg_latency_ms: float,
 ) -> tuple[bool, list[str]]:
     reasons: list[str] = []
 
@@ -157,9 +104,14 @@ def _adoption_gate(
         )
     if fp_rate > max_fp_rate:
         reasons.append(f"fp_rate={fp_rate:.3f} > max_fp_rate={max_fp_rate:.3f}")
+    if avg_latency_ms > max_avg_latency_ms:
+        reasons.append(
+            f"avg_latency_ms={avg_latency_ms:.2f} > "
+            f"max_avg_latency_ms={max_avg_latency_ms:.2f}"
+        )
     if not baseline_mode and score <= previous_best_score:
         reasons.append(
-            f"score={score:.2f} <= previous_best={previous_best_score:.2f}"
+            f"score={score:.4f} <= previous_best={previous_best_score:.4f}"
         )
 
     return len(reasons) == 0, reasons
@@ -170,19 +122,18 @@ def _adoption_gate(
 # ---------------------------------------------------------------------------
 
 def _count_changed_lines(candidate_source: str, base_path: Path) -> int:
-    """Count lines that differ between candidate and base detector."""
+    """Count lines that differ between candidate and the current base detector."""
     if not base_path.exists():
         return 0
     base_lines = base_path.read_text(encoding="utf-8").splitlines()
     cand_lines = candidate_source.splitlines()
     max_len = max(len(base_lines), len(cand_lines))
-    diffs = sum(
+    return sum(
         1
         for i in range(max_len)
-        if (base_lines[i] if i < len(base_lines) else "") !=
-           (cand_lines[i] if i < len(cand_lines) else "")
+        if (base_lines[i] if i < len(base_lines) else "")
+        != (cand_lines[i] if i < len(cand_lines) else "")
     )
-    return diffs
 
 
 # ---------------------------------------------------------------------------
@@ -196,15 +147,7 @@ def _contract_ok(module: Any) -> tuple[bool, str]:
     fn = module.inspect_request
     if not callable(fn):
         return False, "inspect_request is not callable"
-    # Quick smoke-test call
-    dummy = Request(
-        method="GET",
-        path="/",
-        query={},
-        headers={},
-        body="",
-        source_ip=None,
-    )
+    dummy = Request(method="GET", path="/", query={}, headers={}, body="")
     try:
         result = fn(dummy)
     except Exception as exc:
@@ -226,35 +169,29 @@ def evaluate(
     baseline_mode: bool = False,
     genome_path: Path | None = None,
 ) -> FitnessReport:
-    """Evaluate a candidate detector and return a FitnessReport."""
+    """Evaluate a candidate detector and return a FitnessReport.
+
+    The strict AST policy from core.policy is applied before any import.
+    """
     genome_path = genome_path or _GENOME_PATH
     genome = json.loads(genome_path.read_text(encoding="utf-8"))
-    max_fp_rate: float = genome.get("max_fp_rate", 0.05)
-    min_regression_pass_rate: float = genome.get("min_regression_pass_rate", 1.0)
-    previous_best_score: float = genome.get("best_score", -1e9)
+    max_fp_rate: float = float(genome.get("max_fp_rate", 0.05))
+    min_regression_pass_rate: float = float(genome.get("min_regression_pass_rate", 1.0))
+    previous_best_score: float = float(genome.get("best_score", -1e9))
+    max_avg_latency_ms: float = float(genome.get("max_avg_latency_ms", 100.0))
 
     source = candidate_path.read_text(encoding="utf-8")
     code_chars = len(source)
 
-    # --- Syntax check ---
-    syntax_ok = True
-    try:
-        ast.parse(source)
-    except SyntaxError:
-        syntax_ok = False
+    # --- Strict policy check (identical to scripts/validate_mutation.py) ---
+    policy_result = run_full_policy(candidate_path)
+    syntax_ok = not any("SyntaxError" in v for v in policy_result.get("violations", []))
+    policy_ok = policy_result["valid"]
 
-    # --- AST policy ---
-    policy_ok, policy_violations = _ast_policy_ok(source)
-
-    # Early-exit if syntax is broken (can't load module)
-    if not syntax_ok or not policy_ok:
-        rejection_reasons: list[str] = []
-        if not syntax_ok:
-            rejection_reasons.append("syntax_ok is False")
-        rejection_reasons.extend(policy_violations)
+    if not policy_ok:
         return FitnessReport(
             syntax_ok=syntax_ok,
-            ast_policy_ok=policy_ok,
+            ast_policy_ok=False,
             contract_ok=False,
             timed_out=False,
             exception_count=0,
@@ -271,7 +208,7 @@ def evaluate(
             changed_lines=0,
             score=-1e9,
             passed_adoption_gate=False,
-            rejection_reasons=tuple(rejection_reasons),
+            rejection_reasons=tuple(policy_result["violations"]),
         )
 
     # --- Load module ---
@@ -369,7 +306,8 @@ def evaluate(
     # Regression pass rate
     regression_results = [r for r in results if r.get("kind") == "regression"]
     reg_pass = sum(
-        1 for r in regression_results
+        1
+        for r in regression_results
         if r["actual_blocked"] == r["expected_blocked"] and not r["exception"]
     )
     regression_pass_rate = (
@@ -387,12 +325,12 @@ def evaluate(
         source, Path(__file__).parent / "detector.py"
     )
 
+    # Deterministic score (latency excluded)
     score = _compute_score(
         tp_rate=tp_rate,
         fp_rate=fp_rate,
         fn_rate=fn_rate,
         exception_count=exception_count,
-        avg_latency_ms=avg_latency_ms,
         code_chars=code_chars,
         changed_lines=changed_lines,
     )
@@ -405,11 +343,13 @@ def evaluate(
         exception_count=exception_count,
         regression_pass_rate=regression_pass_rate,
         fp_rate=fp_rate,
+        avg_latency_ms=avg_latency_ms,
         score=score,
         previous_best_score=previous_best_score,
         baseline_mode=baseline_mode,
         max_fp_rate=max_fp_rate,
         min_regression_pass_rate=min_regression_pass_rate,
+        max_avg_latency_ms=max_avg_latency_ms,
     )
 
     return FitnessReport(

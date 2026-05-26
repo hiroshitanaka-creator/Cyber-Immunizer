@@ -2,14 +2,30 @@ name: Cyber-Immunizer Evolution Loop
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: >
+          Evolution mode:
+            noop          — skip propose/evaluate/promote (dry-run / branch test)
+            offline-sample — use built-in sample patch, no API call
+            live-model    — call Gemini API (requires GEMINI_API_KEY secret)
+        required: false
+        default: "offline-sample"
+        type: choice
+        options:
+          - noop
+          - offline-sample
+          - live-model
   schedule:
-    # Run once daily at 02:00 UTC
+    # Scheduled runs always use noop to avoid unintended API calls.
+    # Trigger a manual workflow_dispatch with mode=offline-sample or
+    # mode=live-model to actually run an evolution cycle.
     - cron: "0 2 * * *"
 
 jobs:
   # -----------------------------------------------------------------------
   # Job 1: PROPOSE
-  # Runs the mutation proposer (LLM or offline sample).
+  # Runs the mutation proposer (offline sample or live model).
   # Has read-only permissions and may receive GEMINI_API_KEY.
   # Does NOT execute candidate code.
   # -----------------------------------------------------------------------
@@ -33,17 +49,35 @@ jobs:
       - name: Create working directory
         run: mkdir -p .cyber_immunizer
 
+      - name: Resolve effective mode
+        id: mode
+        run: |
+          # Scheduled runs hard-code noop; manual dispatch uses the input.
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "effective_mode=noop" >> "$GITHUB_OUTPUT"
+          else
+            echo "effective_mode=${{ github.event.inputs.mode || 'offline-sample' }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Propose mutation patch
         id: propose
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          EFFECTIVE_MODE: ${{ steps.mode.outputs.effective_mode }}
         run: |
-          # If GEMINI_API_KEY is absent, fall back to offline sample.
-          if [ -z "$GEMINI_API_KEY" ]; then
-            echo "GEMINI_API_KEY not set; using offline sample."
+          if [ "$EFFECTIVE_MODE" = "noop" ]; then
+            echo "Mode is noop — skipping proposal."
+            echo "patch_exists=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$EFFECTIVE_MODE" = "offline-sample" ]; then
             python scripts/propose_mutation.py --offline-sample --json
+          elif [ "$EFFECTIVE_MODE" = "live-model" ]; then
+            python scripts/propose_mutation.py --allow-live-model --json
           else
-            python scripts/propose_mutation.py --json
+            echo "Unknown mode: $EFFECTIVE_MODE" >&2
+            exit 1
           fi
 
           if [ -f ".cyber_immunizer/mutation_patch.json" ]; then
@@ -65,6 +99,7 @@ jobs:
   # Applies the patch and evaluates the candidate in a subprocess.
   # Has read-only permissions and NO secrets.
   # Generated candidate code is never executed with write permissions or API keys.
+  # Uses --soft-reject so adoption gate failures are not treated as CI errors.
   # -----------------------------------------------------------------------
   evaluate:
     name: Apply and Evaluate Candidate
@@ -74,6 +109,8 @@ jobs:
     permissions:
       contents: read
     # NOTE: no secrets: block — this job intentionally has no API keys.
+    outputs:
+      passed_adoption_gate: ${{ steps.evaluate.outputs.passed_adoption_gate }}
 
     steps:
       - name: Checkout repository
@@ -104,11 +141,26 @@ jobs:
       - name: Evaluate candidate (subprocess + timeout)
         id: evaluate
         run: |
+          # --soft-reject: exit 0 when gate evaluated cleanly (even if rejected);
+          # exit 1 only on tool failures (AST violation, timeout, crash).
           python scripts/evaluate_candidate.py \
             --candidate .cyber_immunizer/candidate_detector.py \
             --timeout 10 \
-            --json
-          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+            --json \
+            --soft-reject
+
+          # Extract passed_adoption_gate from the fitness report
+          if [ -f ".cyber_immunizer/fitness_report.json" ]; then
+            GATE=$(python -c "
+import json, sys
+r = json.load(open('.cyber_immunizer/fitness_report.json'))
+fr = r.get('fitness_report') or r
+print('true' if fr.get('passed_adoption_gate') else 'false')
+")
+            echo "passed_adoption_gate=$GATE" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed_adoption_gate=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload candidate detector artifact
         if: always()
@@ -128,14 +180,14 @@ jobs:
 
   # -----------------------------------------------------------------------
   # Job 3: PROMOTE
-  # Promotes the candidate only if evaluation succeeded.
+  # Promotes the candidate ONLY if the adoption gate passed.
   # Has write permissions, but NO model API secrets.
   # Does not execute candidate code — only copies files and updates data.
   # -----------------------------------------------------------------------
   promote:
     name: Promote Candidate
     needs: evaluate
-    if: needs.evaluate.result == 'success'
+    if: needs.evaluate.outputs.passed_adoption_gate == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -146,7 +198,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # Use a PAT or the default GITHUB_TOKEN with write permissions
+          # GITHUB_TOKEN provides write permission for this job.
+          # It has no access to GEMINI_API_KEY or other model credentials.
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python 3.11

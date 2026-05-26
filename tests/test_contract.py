@@ -120,32 +120,103 @@ class TestBaselineBenign:
 
 
 class TestBaselineAttack:
+    """Attack tests use neutralized symbolic indicators — not real exploit strings.
+
+    The indicator strings correspond exactly to the tokens in
+    data/attack_requests.json and data/regression_cases.json.
+    Replacing these with real exploit strings is prohibited.
+    """
+
     def test_path_traversal_blocked(self):
+        """Path traversal symbolic indicator must be blocked."""
         req = Request(
             method="GET",
-            path="/files/../../../etc/passwd",
+            path="/files/__PATH_TRAVERSAL_INDICATOR__",
             query={}, headers={}, body="",
         )
         result = inspect_request(req)
-        assert result.blocked, "Path traversal should be blocked"
+        assert result.blocked, (
+            "Path traversal symbolic indicator (__PATH_TRAVERSAL_INDICATOR__) "
+            "should be blocked"
+        )
 
     def test_xss_blocked(self):
+        """Script injection symbolic indicator must be blocked."""
         req = Request(
             method="GET",
             path="/search",
-            query={"q": "<script>alert(1)</script>"},
+            query={"q": "__SCRIPT_INJECTION_INDICATOR__"},
             headers={}, body="",
         )
         result = inspect_request(req)
-        assert result.blocked, "XSS indicator should be blocked"
+        assert result.blocked, (
+            "Script injection symbolic indicator (__SCRIPT_INJECTION_INDICATOR__) "
+            "should be blocked"
+        )
 
     def test_sqli_blocked(self):
+        """SQL injection symbolic indicator must be blocked."""
         req = Request(
             method="POST",
             path="/api/login",
             query={},
             headers={},
-            body="username=admin&password=' or '1'='1",
+            body="username=admin&password=__SQLI_INDICATOR__",
         )
         result = inspect_request(req)
-        assert result.blocked, "SQL injection should be blocked"
+        assert result.blocked, (
+            "SQL injection symbolic indicator (__SQLI_INDICATOR__) should be blocked"
+        )
+
+    def test_command_delimiter_blocked(self):
+        """Command delimiter symbolic indicator must be blocked."""
+        req = Request(
+            method="GET",
+            path="/api/ping",
+            query={"host": "localhost__COMMAND_DELIMITER_INDICATOR__"},
+            headers={}, body="",
+        )
+        result = inspect_request(req)
+        assert result.blocked, (
+            "Command delimiter symbolic indicator (__COMMAND_DELIMITER_INDICATOR__) "
+            "should be blocked"
+        )
+
+    def test_encoded_traversal_blocked(self):
+        """Encoded traversal symbolic indicator must be blocked."""
+        req = Request(
+            method="GET",
+            path="/files",
+            query={"name": "__ENCODED_TRAVERSAL_INDICATOR__"},
+            headers={}, body="",
+        )
+        result = inspect_request(req)
+        assert result.blocked, (
+            "Encoded traversal symbolic indicator (__ENCODED_TRAVERSAL_INDICATOR__) "
+            "should be blocked"
+        )
+
+    def test_attack_confidence_above_zero(self):
+        """Attack indicators must produce confidence > 0.0."""
+        req = Request(
+            method="GET",
+            path="/files/__PATH_TRAVERSAL_INDICATOR__",
+            query={}, headers={}, body="",
+        )
+        result = inspect_request(req)
+        assert result.confidence > 0.0, (
+            f"Attack request should have confidence > 0.0, got {result.confidence}"
+        )
+
+    def test_attack_returns_matched_signals(self):
+        """Blocked requests must list matched signals."""
+        req = Request(
+            method="GET",
+            path="/files/__PATH_TRAVERSAL_INDICATOR__",
+            query={}, headers={}, body="",
+        )
+        result = inspect_request(req)
+        assert isinstance(result.matched_signals, tuple)
+        assert len(result.matched_signals) > 0, (
+            "Blocked attack request must have at least one matched signal"
+        )

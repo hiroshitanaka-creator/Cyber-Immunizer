@@ -77,13 +77,27 @@ def _apply_replacement(base_source: str, replacement_code: str) -> tuple[str | N
 
     Returns (new_source, error).
     """
+    # Require exactly one occurrence of each marker — prevents double-apply attacks
+    start_count = base_source.count(_MUTATION_START)
+    end_count = base_source.count(_MUTATION_END)
+    if start_count == 0:
+        return None, f"base file missing {_MUTATION_START!r}"
+    if start_count > 1:
+        return None, (
+            f"base file has {start_count} occurrences of {_MUTATION_START!r}; "
+            "expected exactly 1 — possible double-apply detected"
+        )
+    if end_count == 0:
+        return None, f"base file missing {_MUTATION_END!r}"
+    if end_count > 1:
+        return None, (
+            f"base file has {end_count} occurrences of {_MUTATION_END!r}; "
+            "expected exactly 1 — possible double-apply detected"
+        )
+
     start_idx = base_source.find(_MUTATION_START)
     end_idx = base_source.find(_MUTATION_END)
 
-    if start_idx == -1:
-        return None, f"base file missing {_MUTATION_START!r}"
-    if end_idx == -1:
-        return None, f"base file missing {_MUTATION_END!r}"
     if end_idx <= start_idx:
         return None, "MUTATION_END appears before MUTATION_START in base file"
 

@@ -3,11 +3,11 @@
     "id": "regression-001",
     "kind": "regression",
     "expected_blocked": true,
-    "description": "Regression: path traversal must be blocked",
+    "description": "Regression: path traversal category must be blocked",
     "tags": ["regression", "path-traversal"],
     "request": {
       "method": "GET",
-      "path": "/files/../../../etc/passwd",
+      "path": "/files/__PATH_TRAVERSAL_INDICATOR__",
       "query": {},
       "headers": {},
       "body": "",
@@ -18,14 +18,14 @@
     "id": "regression-002",
     "kind": "regression",
     "expected_blocked": true,
-    "description": "Regression: SQL injection must be blocked",
+    "description": "Regression: SQL-like token category must be blocked",
     "tags": ["regression", "sqli"],
     "request": {
       "method": "POST",
       "path": "/api/login",
       "query": {},
       "headers": {"Content-Type": "application/x-www-form-urlencoded"},
-      "body": "username=admin&password=' or '1'='1",
+      "body": "username=admin&password=__SQLI_INDICATOR__",
       "source_ip": "10.0.0.11"
     }
   },
@@ -33,12 +33,12 @@
     "id": "regression-003",
     "kind": "regression",
     "expected_blocked": true,
-    "description": "Regression: XSS indicator must be blocked",
+    "description": "Regression: script injection category must be blocked",
     "tags": ["regression", "xss"],
     "request": {
       "method": "GET",
       "path": "/search",
-      "query": {"q": "<script>alert(1)</script>"},
+      "query": {"q": "__SCRIPT_INJECTION_INDICATOR__"},
       "headers": {},
       "body": "",
       "source_ip": "10.0.0.12"

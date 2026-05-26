@@ -118,8 +118,18 @@ def update_readme(readme_path: Path | None = None) -> bool:
     return True
 
 
-def main() -> int:
-    success = update_readme()
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    parser = argparse.ArgumentParser(description="Update README status block")
+    parser.add_argument(
+        "--readme",
+        default=None,
+        help="Override path to README.md (for tests)",
+    )
+    args = parser.parse_args(argv)
+
+    readme_path = Path(args.readme) if args.readme else None
+    success = update_readme(readme_path)
     if success:
         print("README status block updated.")
         return 0

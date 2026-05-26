@@ -49,17 +49,29 @@ def _read_region(source: str) -> str:
 class TestBoundaryReplacement:
     def test_only_mutation_region_changes(self):
         """Lines outside the mutation markers must remain byte-for-byte identical."""
-        replacement = textwrap.dedent("""\
-            return DetectionResult(False, "test", 0.0, ())
-        """)
+        replacement = "    return DetectionResult(False, 'test', 0.0, ())\n"
         patch_path = _make_patch(replacement)
         out_path = _make_out_path()
 
-        result = apply_mutation(_BASE_DETECTOR, _BASE_DETECTOR, out_path)
+        result = apply_mutation(patch_path, _BASE_DETECTOR, out_path)
+        assert result["success"], f"apply_mutation failed: {result}"
 
-        # Wait — apply_mutation signature is (patch_path, base_path, out_path)
-        # Let me re-check.
-        pass
+        base_source = _BASE_DETECTOR.read_text(encoding="utf-8")
+        cand_source = out_path.read_text(encoding="utf-8")
+
+        # Prefix (everything before MUTATION_START) must be identical
+        base_before = base_source[: base_source.find(_MUTATION_START)]
+        cand_before = cand_source[: cand_source.find(_MUTATION_START)]
+        assert base_before == cand_before, (
+            "Text before MUTATION_START changed unexpectedly"
+        )
+
+        # Suffix (everything from MUTATION_END onward) must be identical
+        base_after = base_source[base_source.find(_MUTATION_END):]
+        cand_after = cand_source[cand_source.find(_MUTATION_END):]
+        assert base_after == cand_after, (
+            "Text after MUTATION_END changed unexpectedly"
+        )
 
     def test_apply_mutation_modifies_only_marked_region(self):
         """After apply_mutation, only the mutation region changes."""
@@ -180,3 +192,40 @@ class TestRejectedPatches:
         out_path = _make_out_path()
         result = apply_mutation(patch_path, Path("/nonexistent/detector.py"), out_path)
         assert not result["success"]
+
+    def test_rejects_base_with_duplicate_mutation_start(self, tmp_path):
+        """Base file with two MUTATION_START markers must be rejected."""
+        base_source = _BASE_DETECTOR.read_text(encoding="utf-8")
+        # Insert a second MUTATION_START marker at the very top
+        doubled = _MUTATION_START + "\n" + base_source
+        base_doubled = tmp_path / "doubled_start.py"
+        base_doubled.write_text(doubled, encoding="utf-8")
+
+        patch_path = _make_patch("    return DetectionResult(False, 'ok', 0.0, ())\n")
+        out_path = _make_out_path()
+
+        result = apply_mutation(patch_path, base_doubled, out_path)
+        assert not result["success"], (
+            "Base with duplicate MUTATION_START should be rejected"
+        )
+        assert "double" in result["error"].lower() or "2" in result["error"], (
+            f"Error should mention duplicate marker, got: {result['error']!r}"
+        )
+
+    def test_rejects_base_with_duplicate_mutation_end(self, tmp_path):
+        """Base file with two MUTATION_END markers must be rejected."""
+        base_source = _BASE_DETECTOR.read_text(encoding="utf-8")
+        doubled = base_source + "\n" + _MUTATION_END + "\n"
+        base_doubled = tmp_path / "doubled_end.py"
+        base_doubled.write_text(doubled, encoding="utf-8")
+
+        patch_path = _make_patch("    return DetectionResult(False, 'ok', 0.0, ())\n")
+        out_path = _make_out_path()
+
+        result = apply_mutation(patch_path, base_doubled, out_path)
+        assert not result["success"], (
+            "Base with duplicate MUTATION_END should be rejected"
+        )
+        assert "double" in result["error"].lower() or "2" in result["error"], (
+            f"Error should mention duplicate marker, got: {result['error']!r}"
+        )

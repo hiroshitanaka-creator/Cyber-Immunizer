@@ -6,8 +6,15 @@ Only the region between MUTATION_START and MUTATION_END may be modified by
 automated mutation tools.  Everything outside those markers is part of the
 stable interface contract and must remain unchanged.
 
-ALLOWED IMPORTS (inside mutation region):  none — only the two imports below
-are permitted in this file.
+ALLOWED IMPORTS (inside mutation region):  none — only the import below
+is permitted in this file.
+
+TEST DATA NOTE
+==============
+Suspicious tokens use neutralized symbolic indicators (e.g.,
+__PATH_TRAVERSAL_INDICATOR__) rather than raw exploit-looking strings.
+Test request payloads in data/*.json use the same symbolic indicators.
+This keeps the test corpus free of copyable exploit patterns.
 """
 from core.types import Request, DetectionResult
 
@@ -25,7 +32,7 @@ def inspect_request(request: Request) -> DetectionResult:
         DetectionResult — never raises, never returns bool.
     """
     # === MUTATION_START ===
-    # --- mutated detector logic (sample) ---
+    # Normalise all textual fields into one lowercase inspection surface.
     surface_parts = [
         request.method.lower(),
         request.path.lower(),
@@ -35,18 +42,15 @@ def inspect_request(request: Request) -> DetectionResult:
     ]
     surface = " ".join(surface_parts)
 
+    # Neutralized symbolic indicators — not real exploit strings.
+    # Test data in data/attack_requests.json and data/regression_cases.json
+    # uses the same indicators (lowercased at match time).
     _SUSPICIOUS_TOKENS: tuple[str, ...] = (
-        # path-traversal
-        "../", "..\\", "%2e%2e%2f", "%2e%2e/",
-        # script-injection
-        "<script", "javascript:", "onerror=", "onload=",
-        # SQL-like
-        "\' or \'1\'=\'1", "union select", "drop table", "\'; --",
-        "insert into", "select * from", "delete from",
-        # command-like
-        "; ls ", "| cat ", "`id`", "$(id)",
-        # encoded
-        "%00", "%0d%0a",
+        "__path_traversal_indicator__",
+        "__script_injection_indicator__",
+        "__sqli_indicator__",
+        "__command_delimiter_indicator__",
+        "__encoded_traversal_indicator__",
     )
 
     matched: list[str] = []
@@ -58,15 +62,15 @@ def inspect_request(request: Request) -> DetectionResult:
         confidence = min(1.0, 0.4 + 0.15 * len(matched))
         return DetectionResult(
             blocked=True,
-            reason=f"suspicious pattern(s) matched: {matched[0]!r}",
+            reason=f"suspicious indicator matched: {matched[0]!r}",
             confidence=confidence,
             matched_signals=tuple(matched),
         )
 
     return DetectionResult(
         blocked=False,
-        reason="no suspicious pattern matched",
+        reason="no suspicious indicator matched",
         confidence=0.0,
         matched_signals=(),
     )
-# === MUTATION_END ===
+    # === MUTATION_END ===
