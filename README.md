@@ -109,6 +109,7 @@ Cyber-Immunizer/
 │   ├── ROLLBACK_BACKTRACK_DESIGN.md            # rollback/backtrack 設計文書（Phase 2-B: design-only）
 │   ├── EVOLUTION_HISTORY_AUDIT.md              # evolution history 監査仕様（Phase 2-C: design and audit spec only）
 │   ├── OFFLINE_SAMPLE_PROMOTE_SEPARATION.md    # offline-sample dry-run / promote 分離設計（Phase 2-D: design-only）
+│   ├── API_ACTIVATION_CHECKLIST.md             # API有効化チェックリスト（Phase 2-E: docs-only）
 │   └── API_ACTIVATION_RUNBOOK.md               # API有効化手順書（Phase 3 で実施・GEMINI_API_KEY 登録〜live_model_enabled=true）
 ├── intelligence/
 │   └── threat_feeds.py     # 脅威インテリジェンスモジュール（スタブ）
@@ -699,7 +700,9 @@ python -m pytest -v
 
 Phase 2 の計画・実施内容・禁止事項の詳細は **[`docs/PHASE_2_PLAN.md`](docs/PHASE_2_PLAN.md)** を参照してください。
 
-### Phase 2 Progress Checkpoint (as of PR #22 / #23 / #24 / #25 / #26)
+### Phase 2 Progress Checkpoint (as of PR #22 / #23 / #24 / #25 / #26 / Phase 2-E)
+
+Phase 2 API activation checklist: **[`docs/API_ACTIVATION_CHECKLIST.md`](docs/API_ACTIVATION_CHECKLIST.md)**
 
 | Phase item | Status |
 |---|---|
@@ -707,11 +710,12 @@ Phase 2 の計画・実施内容・禁止事項の詳細は **[`docs/PHASE_2_PLA
 | Phase 2-B: rollback / backtrack design documentation | ✅ Completed |
 | Phase 2-C: evolution_history audit specification | ✅ Completed |
 | Phase 2-D: offline-sample dry-run / promote separation design | ✅ Completed |
-| Phase 2-E: API activation checklist hardening | ⏭ Next |
+| Phase 2-E: API activation checklist hardening | ✅ Completed |
 
-> ℹ️ Phase 2-D (offline-sample dry-run / promote separation design) is completed (design-only).
-> Phase 2-E (API activation checklist hardening) is the next item.
-> Phase 3 (real Gemini API connection) starts only after Human Owner explicit decision.
+> ℹ️ **Phase 2 is complete as a readiness milestone.**  
+> Phase 2-E (API activation checklist hardening) is completed (docs/tests only).  
+> Phase 3 is not started. Phase 3 requires explicit Human Owner decision.  
+> API remains not connected. live_model_enabled remains false.
 
 ### Phase 2-A: README Dashboard Accuracy Improvement (completed)
 
@@ -750,6 +754,16 @@ Offline-sample dry-run / promote separation design is documented in **[`docs/OFF
 - CI smoke path is read-only (contents: write なし), no GEMINI_API_KEY, no live_model_enabled=true
 - fail-closed: unknown / missing / corrupt artifacts are rejected at promote gate
 - `data/api_usage_ledger.json` is not changed in Phase 2-D
+
+### Phase 2-E: API Activation Checklist Hardening (docs/tests only, completed)
+
+API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`](docs/API_ACTIVATION_CHECKLIST.md)**.
+
+- Phase 2-E is docs/tests only — no API connection, no GEMINI_API_KEY registration, no live_model_enabled=true, no Gemini API call
+- Documents all pre-activation checks: repository safety, billing/budget, ledger/cost governance, runtime/workflow, privacy/data minimization, promotion/generated code safety
+- Defines Human Owner approval gate that must be satisfied before Phase 3 begins
+- Defines fail-closed conditions that block Phase 3
+- Phase 3 activation must use a dedicated PR reviewed by GPT Audit Gate
 
 > ⚠️ **Phase 2 中は `live_model_enabled=true` への変更・`GEMINI_API_KEY` 登録・実 Gemini API call は行いません。**  
 > これらの変更を含む PR は GPT Audit Gate によって BLOCK または REQUEST CHANGES の対象になります。
