@@ -1,0 +1,37 @@
+[
+  {
+    "id": "THREAT-2024-001",
+    "source": "internal-stub",
+    "summary": "Generic path traversal pattern observed in local test corpus",
+    "defensive_focus": "path-traversal",
+    "created_at": "2024-01-01T00:00:00Z"
+  },
+  {
+    "id": "THREAT-2024-002",
+    "source": "internal-stub",
+    "summary": "SQL injection pattern with single-quote bypass indicator",
+    "defensive_focus": "sqli",
+    "created_at": "2024-01-02T00:00:00Z"
+  },
+  {
+    "id": "THREAT-2024-003",
+    "source": "internal-stub",
+    "summary": "Reflected XSS via script tag injection in query parameters",
+    "defensive_focus": "xss",
+    "created_at": "2024-01-03T00:00:00Z"
+  },
+  {
+    "id": "THREAT-2024-004",
+    "source": "internal-stub",
+    "summary": "Command injection via semicolon delimiter in input fields",
+    "defensive_focus": "cmdi",
+    "created_at": "2024-01-04T00:00:00Z"
+  },
+  {
+    "id": "THREAT-2024-005",
+    "source": "internal-stub",
+    "summary": "URL-encoded path traversal bypass attempt",
+    "defensive_focus": "path-traversal-encoded",
+    "created_at": "2024-01-05T00:00:00Z"
+  }
+]

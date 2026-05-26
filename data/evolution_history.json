@@ -1,0 +1,26 @@
+[
+  {
+    "generation": 0,
+    "detector_hash": "9ea056fcd6d897290e5265dc72212c20b08e7d1a582045fc5356a6b2861cf114",
+    "score": -1000000.0,
+    "passed_adoption_gate": false,
+    "rejection_reasons": [
+      "baseline \u2014 score not yet computed"
+    ],
+    "promoted_at": "2026-05-26T00:00:00Z",
+    "note": "Initial baseline generation"
+  },
+  {
+    "generation": 1,
+    "detector_hash": "cbd6bdee7f8f4c197b0e139fa644e2f716ffaa4b5fb900aca325de2b15d43877",
+    "score": 383.67051093329087,
+    "passed_adoption_gate": true,
+    "rejection_reasons": [],
+    "promoted_at": "2026-05-26T01:09:22.857101Z",
+    "tp_rate": 1.0,
+    "fp_rate": 0.0,
+    "fn_rate": 0.0,
+    "avg_latency_ms": 0.004744533354520779,
+    "total_cases": 15
+  }
+]

@@ -1,0 +1,77 @@
+[
+  {
+    "id": "regression-001",
+    "kind": "regression",
+    "expected_blocked": true,
+    "description": "Regression: path traversal must be blocked",
+    "tags": ["regression", "path-traversal"],
+    "request": {
+      "method": "GET",
+      "path": "/files/../../../etc/passwd",
+      "query": {},
+      "headers": {},
+      "body": "",
+      "source_ip": "10.0.0.10"
+    }
+  },
+  {
+    "id": "regression-002",
+    "kind": "regression",
+    "expected_blocked": true,
+    "description": "Regression: SQL injection must be blocked",
+    "tags": ["regression", "sqli"],
+    "request": {
+      "method": "POST",
+      "path": "/api/login",
+      "query": {},
+      "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "body": "username=admin&password=' or '1'='1",
+      "source_ip": "10.0.0.11"
+    }
+  },
+  {
+    "id": "regression-003",
+    "kind": "regression",
+    "expected_blocked": true,
+    "description": "Regression: XSS indicator must be blocked",
+    "tags": ["regression", "xss"],
+    "request": {
+      "method": "GET",
+      "path": "/search",
+      "query": {"q": "<script>alert(1)</script>"},
+      "headers": {},
+      "body": "",
+      "source_ip": "10.0.0.12"
+    }
+  },
+  {
+    "id": "regression-004",
+    "kind": "regression",
+    "expected_blocked": false,
+    "description": "Regression: health check must NOT be blocked",
+    "tags": ["regression", "benign"],
+    "request": {
+      "method": "GET",
+      "path": "/health",
+      "query": {},
+      "headers": {},
+      "body": "",
+      "source_ip": "127.0.0.1"
+    }
+  },
+  {
+    "id": "regression-005",
+    "kind": "regression",
+    "expected_blocked": false,
+    "description": "Regression: root path must NOT be blocked",
+    "tags": ["regression", "benign"],
+    "request": {
+      "method": "GET",
+      "path": "/",
+      "query": {},
+      "headers": {},
+      "body": "",
+      "source_ip": "127.0.0.1"
+    }
+  }
+]
