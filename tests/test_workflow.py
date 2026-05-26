@@ -654,3 +654,74 @@ class TestPromoteSequencing:
             "promote if condition must include always() to allow the explicit "
             "gate conditions to be evaluated even when some needs were skipped."
         )
+
+
+# ---------------------------------------------------------------------------
+# 12. Hyphen-containing job IDs must use bracket notation in expressions
+# ---------------------------------------------------------------------------
+
+
+class TestBracketNotationForHyphenatedJobIds:
+    """GitHub Actions does not support dot notation for job IDs that contain
+    hyphens inside ${{ }} expressions.  All references to hyphenated job IDs
+    must use bracket notation: needs['job-id'].result instead of
+    needs.job-id.result.
+    """
+
+    def test_no_dot_notation_for_persist_ledger(
+        self, workflow_content: str
+    ) -> None:
+        """Workflow must NOT reference persist-ledger via dot notation.
+
+        ``needs.persist-ledger`` in a ${{ }} expression is a GitHub Actions
+        syntax error because hyphens are not valid in dot-notation identifiers.
+        """
+        assert "needs.persist-ledger" not in workflow_content, (
+            "Found 'needs.persist-ledger' (dot notation) in the workflow. "
+            "Hyphenated job IDs must be referenced with bracket notation: "
+            "needs['persist-ledger'].result"
+        )
+
+    def test_bracket_notation_for_persist_ledger_result_exists(
+        self, workflow_content: str
+    ) -> None:
+        """Workflow must use bracket notation needs['persist-ledger'].result."""
+        assert "needs['persist-ledger'].result" in workflow_content, (
+            "Expected needs['persist-ledger'].result (bracket notation) in the "
+            "workflow, but it was not found.  Hyphenated job IDs must use "
+            "bracket notation inside ${{ }} expressions."
+        )
+
+    def test_no_dot_notation_for_finalize_propose_status(
+        self, workflow_content: str
+    ) -> None:
+        """Workflow must NOT reference finalize-propose-status via dot notation."""
+        assert "needs.finalize-propose-status" not in workflow_content, (
+            "Found 'needs.finalize-propose-status' (dot notation). "
+            "Use bracket notation: needs['finalize-propose-status'].result"
+        )
+
+    def test_no_hyphenated_job_id_dot_notation_in_expressions(
+        self, workflow_content: str
+    ) -> None:
+        """No hyphen-containing job ID may appear after 'needs.' inside expressions.
+
+        Scans every ${{ ... }} expression block and rejects any pattern of the
+        form needs.<word>-<word> which is invalid GitHub Actions syntax.
+        """
+        import re as _re
+
+        # Extract all ${{ ... }} expression bodies
+        expression_bodies = _re.findall(r"\$\{\{(.*?)\}\}", workflow_content, _re.DOTALL)
+        violations = []
+        for expr in expression_bodies:
+            # Match needs.<identifier-with-hyphen>
+            for m in _re.finditer(r"needs\.([A-Za-z][\w]*-[\w\-]*)", expr):
+                violations.append(m.group(0))
+
+        assert not violations, (
+            "Found hyphenated job IDs referenced via dot notation inside "
+            "${{ }} expressions (invalid GitHub Actions syntax): "
+            + ", ".join(violations)
+            + ".  Use bracket notation, e.g. needs['job-id'].result"
+        )
