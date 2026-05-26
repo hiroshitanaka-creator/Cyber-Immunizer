@@ -503,11 +503,11 @@ PR テンプレート（`.github/PULL_REQUEST_TEMPLATE.md`）に GPT Audit Gate 
 | `test_api_budget.py` | トークン推定・月次/日次集計・月次/日次超過拒否・ledger 破損 fail-closed（上書き禁止）・不明モデル保守的コスト（51件） |
 | `test_gemini_paid_credit.py` | paid-credit ゲート拒否・予算超過拒否・シークレットスキャン・スキーマ検証・ledger 追記・ledger 書き込み失敗→hard error（48件） |
 | `test_audit_docs.py` | AUDIT_CHARTER.md 存在・PR テンプレート存在・BLOCK/REQUEST CHANGES/APPROVE 条件・symbolic indicator 整合性 |
-| `test_workflow.py` | persist-ledger ジョブ存在・権限・GEMINI_API_KEY 不在・candidate artifact 不在・promote の ledger 責務分離・concurrency・propose `set +e` 構造・finalize-propose-status ジョブ・promote の persist-ledger sequencing（36件） |
+| `test_workflow.py` | persist-ledger ジョブ存在・権限・if条件に always() 必須・GEMINI_API_KEY 不在・candidate artifact 不在・promote の ledger 責務分離・concurrency・propose `set +e` 構造・finalize-propose-status の != success 厳格化・promote の persist-ledger sequencing（39件） |
 
 ```bash
 python -m pytest -v
-# 364 passed
+# 367 passed
 ```
 
 テストはすべて `tmp_path` インジェクションまたはファイルシステム参照（読み取り専用）を使用し、`core/detector.py` や `data/genome.json` などの実リポジトリファイルを変更しません。

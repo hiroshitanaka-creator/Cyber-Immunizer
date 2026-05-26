@@ -65,6 +65,75 @@ def promote_section(workflow_content: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+class TestPersistLedgerIfCondition:
+    def test_persist_ledger_if_has_always(self, persist_ledger_section: str) -> None:
+        """persist-ledger job-level if must include always().
+
+        Without always(), if the propose job exits with failure status, GitHub
+        Actions will skip all dependent jobs by default — even when the if
+        expression would otherwise evaluate to true.  always() overrides that
+        behaviour so persist-ledger runs whenever ledger_changed=true, regardless
+        of whether propose succeeded or failed.
+        """
+        assert "always()" in persist_ledger_section, (
+            "persist-ledger job if condition must contain 'always()' so it runs "
+            "even when the propose job exits with a failure status."
+        )
+
+    def test_persist_ledger_if_checks_ledger_changed(
+        self, persist_ledger_section: str
+    ) -> None:
+        """persist-ledger if must still gate on ledger_changed == 'true'.
+
+        always() alone would run persist-ledger unconditionally.  The condition
+        must also require ledger_changed=true so no unnecessary write commit
+        occurs when no API call was made.
+        """
+        assert "ledger_changed" in persist_ledger_section, (
+            "persist-ledger if condition must include ledger_changed check "
+            "so the job only runs when the ledger was actually modified."
+        )
+
+
+class TestFinalizePersistLedgerAcceptance:
+    def test_finalize_accepts_skipped_when_ledger_not_changed(
+        self, finalize_section: str
+    ) -> None:
+        """finalize-propose-status must accept persist-ledger skipped when ledger_changed=false.
+
+        When no API call was made the ledger is unchanged and persist-ledger is
+        legitimately skipped.  The finalize job must NOT treat this as an error.
+        The strict check (PERSIST_RESULT != success) is only applied when
+        LEDGER_CHANGED = true.
+        """
+        # Verify the guard is conditional on LEDGER_CHANGED=true,
+        # not an unconditional persist-ledger result check.
+        assert "LEDGER_CHANGED" in finalize_section or "ledger_changed" in finalize_section, (
+            "finalize-propose-status must gate the persist-ledger result check "
+            "on ledger_changed=true, so skipped is accepted when no API call occurred."
+        )
+        # The != success check must be inside a ledger_changed=true branch
+        finalize_lines = finalize_section.splitlines()
+        in_ledger_block = False
+        found_not_success_inside_ledger_block = False
+        for line in finalize_lines:
+            stripped = line.strip()
+            if 'LEDGER_CHANGED' in stripped and '"true"' in stripped or \
+               "LEDGER_CHANGED" in stripped and "'true'" in stripped:
+                in_ledger_block = True
+            if in_ledger_block and ('!= "success"' in stripped or "!= 'success'" in stripped):
+                found_not_success_inside_ledger_block = True
+                break
+            # Reset on fi (block end) — simple heuristic
+            if stripped == "fi":
+                in_ledger_block = False
+        assert found_not_success_inside_ledger_block, (
+            "The persist-ledger != success check must be nested inside a "
+            "ledger_changed=true branch so skipped is only rejected when the "
+            "ledger was actually modified."
+        )
+
+
 class TestPersistLedgerJobExists:
     def test_persist_ledger_job_defined(self, workflow_content: str) -> None:
         """persist-ledger job must exist in the workflow."""
@@ -506,17 +575,20 @@ class TestFinalizeProposeStatusJob:
             "finalize-propose-status must check the propose_failed output."
         )
 
-    def test_finalize_propose_status_fails_on_persist_ledger_failure(
+    def test_finalize_propose_status_fails_on_persist_ledger_non_success(
         self, finalize_section: str
     ) -> None:
-        """finalize-propose-status must fail when persist-ledger failed but ledger changed.
+        """finalize-propose-status must fail when ledger_changed=true and persist-ledger != success.
 
-        If the ledger was modified but persist-ledger couldn't commit it, the
-        budget cap integrity is compromised — this must be a hard error.
+        Checking only for 'failure' is insufficient: persist-ledger could be
+        'skipped' or 'cancelled' and the ledger would still be uncommitted.
+        The condition must use != success so all non-success results are rejected
+        when the ledger was modified.
         """
-        assert "persist" in finalize_section.lower() and "failure" in finalize_section.lower(), (
-            "finalize-propose-status must check persist-ledger result and fail "
-            "when ledger changed but persist-ledger failed."
+        assert '!= "success"' in finalize_section or "!= 'success'" in finalize_section, (
+            "finalize-propose-status must check PERSIST_RESULT != 'success' "
+            "(not just == 'failure') when ledger_changed=true.  A skipped or "
+            "cancelled persist-ledger job also leaves the ledger uncommitted."
         )
 
     def test_finalize_propose_status_has_no_gemini_api_key(

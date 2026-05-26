@@ -195,7 +195,7 @@ jobs:
   persist-ledger:
     name: Persist API Usage Ledger
     needs: propose
-    if: needs.propose.outputs.ledger_changed == 'true'
+    if: always() && needs.propose.outputs.ledger_changed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -266,10 +266,12 @@ jobs:
           echo "ledger_changed=${LEDGER_CHANGED}"
           echo "persist_ledger_result=${PERSIST_RESULT}"
 
-          # If the ledger changed but persist-ledger failed, API budget data
-          # may not have been committed.  This is a critical error.
-          if [ "$LEDGER_CHANGED" = "true" ] && [ "$PERSIST_RESULT" = "failure" ]; then
-            echo "::error::persist-ledger job failed. API usage ledger may not be committed. Budget cap integrity is compromised."
+          # If the ledger changed, persist-ledger MUST have succeeded.
+          # Any result other than "success" (failure, skipped, cancelled) means
+          # the API usage record was not committed — a critical budget-cap error.
+          # ledger_changed=false means no API call was made and skipped is safe.
+          if [ "$LEDGER_CHANGED" = "true" ] && [ "$PERSIST_RESULT" != "success" ]; then
+            echo "::error::ledger_changed=true but persist-ledger did not succeed. result=${PERSIST_RESULT}. API usage ledger may not be committed. Budget cap integrity is compromised."
             exit 1
           fi
 
