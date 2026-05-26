@@ -165,14 +165,14 @@ _SAMPLE_MUTATION: dict = {
     surface = " ".join(surface_parts)
 
     # Neutralized symbolic indicators — not real exploit strings.
-    # Test data in data/attack_requests.json and data/regression_cases.json
-    # uses the same indicators (lowercased at match time).
+    # These tokens appear in the JSON test corpus (uppercase) and are
+    # lowercased at match time. No double-underscore prefix/suffix.
     _SUSPICIOUS_TOKENS: tuple[str, ...] = (
-        "__path_traversal_indicator__",
-        "__script_injection_indicator__",
-        "__sqli_indicator__",
-        "__command_delimiter_indicator__",
-        "__encoded_traversal_indicator__",
+        "path_traversal_indicator",
+        "script_injection_indicator",
+        "sqli_indicator",
+        "command_delimiter_indicator",
+        "encoded_traversal_indicator",
     )
 
     matched: list[str] = []
@@ -232,9 +232,13 @@ STRICT RULES — YOU MUST FOLLOW ALL OF THEM:
 12. Prefer low false positives. Maximize true positive rate while keeping
     false positive rate at or below 5%.
 13. Use only neutralized symbolic indicators from the local test corpus.
-    Tokens like __path_traversal_indicator__, __script_injection_indicator__,
-    __sqli_indicator__, __command_delimiter_indicator__,
-    __encoded_traversal_indicator__ are the only detection signals.
+    Tokens like path_traversal_indicator, script_injection_indicator,
+    sqli_indicator, command_delimiter_indicator,
+    encoded_traversal_indicator are the only detection signals.
+    These tokens appear as uppercase in the JSON test corpus
+    (PATH_TRAVERSAL_INDICATOR etc.) but the detector lowercases all input
+    before matching, so use the lowercase forms in replacement_code.
+    Do NOT add double-underscore prefix/suffix to these tokens.
 14. Do not include real CVE exploit details. No actual vulnerability
     payloads, shellcode, or real attack strings.
 15. Do not include raw offensive payloads. Use only the neutralized

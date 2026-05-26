@@ -7,7 +7,7 @@
     "tags": ["regression", "path-traversal"],
     "request": {
       "method": "GET",
-      "path": "/files/__PATH_TRAVERSAL_INDICATOR__",
+      "path": "/files/PATH_TRAVERSAL_INDICATOR",
       "query": {},
       "headers": {},
       "body": "",
@@ -25,7 +25,7 @@
       "path": "/api/login",
       "query": {},
       "headers": {"Content-Type": "application/x-www-form-urlencoded"},
-      "body": "username=admin&password=__SQLI_INDICATOR__",
+      "body": "username=admin&password=SQLI_INDICATOR",
       "source_ip": "10.0.0.11"
     }
   },
@@ -38,7 +38,7 @@
     "request": {
       "method": "GET",
       "path": "/search",
-      "query": {"q": "__SCRIPT_INJECTION_INDICATOR__"},
+      "query": {"q": "SCRIPT_INJECTION_INDICATOR"},
       "headers": {},
       "body": "",
       "source_ip": "10.0.0.12"

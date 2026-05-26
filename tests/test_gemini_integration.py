@@ -579,19 +579,19 @@ class TestReplacementCodeValidation:
         assert err == "", f"Expected clean code to pass, got: {err}"
 
     def test_accepts_sample_mutation_code(self) -> None:
-        """The built-in sample mutation replacement_code passes validation."""
+        """The built-in sample mutation replacement_code passes validation.
+
+        After the symbolic indicator rename (from __path_traversal_indicator__
+        to path_traversal_indicator), the sample code no longer contains any
+        double-underscore tokens and therefore passes _validate_replacement_code
+        cleanly.  This confirms that LLM-generated code can also reference
+        these indicators without tripping the dunder prohibition.
+        """
         code = pm._SAMPLE_MUTATION["replacement_code"]
-        # The sample uses __path_traversal_indicator__ etc. which contain __
-        # but are NOT forbidden — only object attribute access via __ is.
-        # However, our check looks for the literal string "__" anywhere.
-        # This is intentionally strict; the sample code uses these tokens.
-        # In practice, the sample is used via --offline-sample which bypasses
-        # _validate_replacement_code. Verify the sample _would_ be caught:
         err = pm._validate_replacement_code(code)
-        # Sample uses __path_traversal_indicator__ (contains "__") so IS caught.
-        # This is expected — the offline sample is pre-validated/trusted.
-        # The live model output is what we validate. Document this behaviour:
-        assert isinstance(err, str)  # may or may not be empty, just verify type
+        assert err == "", (
+            f"Sample mutation replacement_code should pass validation, got: {err}"
+        )
 
 
 # ---------------------------------------------------------------------------

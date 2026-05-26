@@ -12,9 +12,13 @@ is permitted in this file.
 TEST DATA NOTE
 ==============
 Suspicious tokens use neutralized symbolic indicators (e.g.,
-__PATH_TRAVERSAL_INDICATOR__) rather than raw exploit-looking strings.
-Test request payloads in data/*.json use the same symbolic indicators.
+PATH_TRAVERSAL_INDICATOR) rather than raw exploit-looking strings.
+Test request payloads in data/*.json use the same symbolic indicators
+(uppercase in the JSON; lowercased at match time by the detector).
 This keeps the test corpus free of copyable exploit patterns.
+Double-underscore prefixes/suffixes are intentionally absent so that
+LLM-generated replacement_code can reference these tokens without
+triggering the dunder-access prohibition in _validate_replacement_code.
 """
 from core.types import Request, DetectionResult
 
@@ -44,13 +48,16 @@ def inspect_request(request: Request) -> DetectionResult:
 
     # Neutralized symbolic indicators — not real exploit strings.
     # Test data in data/attack_requests.json and data/regression_cases.json
-    # uses the same indicators (lowercased at match time).
+    # uses the same indicators (uppercase in JSON; lowercased at match time).
+    # No double-underscore prefix/suffix — avoids conflict with the dunder
+    # prohibition in _validate_replacement_code while remaining clearly
+    # non-exploitable placeholder strings.
     _SUSPICIOUS_TOKENS: tuple[str, ...] = (
-        "__path_traversal_indicator__",
-        "__script_injection_indicator__",
-        "__sqli_indicator__",
-        "__command_delimiter_indicator__",
-        "__encoded_traversal_indicator__",
+        "path_traversal_indicator",
+        "script_injection_indicator",
+        "sqli_indicator",
+        "command_delimiter_indicator",
+        "encoded_traversal_indicator",
     )
 
     matched: list[str] = []

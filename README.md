@@ -100,7 +100,10 @@ Cyber-Immunizer/
 │   ├── regression_cases.json   # リグレッションテストケース
 │   ├── active_threats.json     # 脅威レコード（安全なスタブ）
 │   ├── genome.json             # 現世代のメタデータ
-│   └── evolution_history.json  # 進化の全履歴
+│   ├── evolution_history.json  # 進化の全履歴
+│   └── api_usage_ledger.json   # Gemini API 使用量台帳（gemini-paid-credit モード）
+├── docs/
+│   └── AUDIT_CHARTER.md    # GPT Audit Gate 憲章（役割・カテゴリ・決定基準・出力フォーマット）
 ├── intelligence/
 │   └── threat_feeds.py     # 脅威インテリジェンスモジュール（スタブ）
 ├── scripts/
@@ -108,17 +111,24 @@ Cyber-Immunizer/
 │   ├── apply_mutation.py       # 変異パッチの適用
 │   ├── evaluate_candidate.py   # サブプロセスによる候補評価
 │   ├── promote_candidate.py    # 採用ゲート通過時の昇格
-│   ├── propose_mutation.py     # LLM変異提案（スタブ＋オフラインサンプル）
+│   ├── propose_mutation.py     # LLM変異提案（noop/offline-sample/live-model/paid-credit）
+│   ├── api_budget.py           # API 予算管理（標準ライブラリのみ、fail-closed）
 │   └── update_readme.py        # READMEステータスブロック更新
 ├── tests/
-│   ├── test_contract.py            # 検出器インターフェース契約テスト
-│   ├── test_ast_policy.py          # ASTポリシー検証テスト
-│   ├── test_fitness.py             # 適合度評価テスト
-│   ├── test_mutation_boundaries.py # 変異境界テスト
-│   ├── test_promote_candidate.py   # 昇格ゲートテスト（tmp_path使用、実ファイル非破壊）
-│   └── test_types.py               # Request イミュータビリティテスト
-├── .github/workflows/
-│   └── immunization_loop.yml   # propose / evaluate / promote 分離ワークフロー
+│   ├── test_contract.py              # 検出器インターフェース契約テスト
+│   ├── test_ast_policy.py            # ASTポリシー検証テスト
+│   ├── test_fitness.py               # 適合度評価テスト
+│   ├── test_mutation_boundaries.py   # 変異境界テスト
+│   ├── test_promote_candidate.py     # 昇格ゲートテスト（tmp_path使用、実ファイル非破壊）
+│   ├── test_types.py                 # Request イミュータビリティテスト
+│   ├── test_gemini_integration.py    # Gemini API 統合テスト（68件、モック使用）
+│   ├── test_api_budget.py            # API 予算管理テスト（49件）
+│   ├── test_gemini_paid_credit.py    # Gemini 有料クレジットモードテスト（44件）
+│   └── test_audit_docs.py            # 監査ドキュメント存在・内容テスト
+├── .github/
+│   ├── PULL_REQUEST_TEMPLATE.md  # PR 監査チェックリスト（GPT Audit Gate 用）
+│   └── workflows/
+│       └── immunization_loop.yml # propose / evaluate / promote 分離ワークフロー
 ├── pyproject.toml
 ├── LICENSE
 └── README.md
@@ -293,6 +303,24 @@ python scripts/propose_mutation.py --noop --json
 | プロンプト長制限 | プロンプト全体が `genome.max_prompt_chars`（デフォルト 12000）以下 |
 | プリフライトスキャン | プロンプトに機密トークンが含まれないこと |
 
+#### Gemini へ送信するコンテキストの最小化
+
+Cyber-Immunizer が Gemini へ送信するのは以下の**最小限のコンテキスト**のみです：
+
+| 送信するもの | 内容 |
+|---|---|
+| 検出器の変異領域コード | `# === MUTATION_START ===` 〜 `# === MUTATION_END ===` の間のコードのみ |
+| 検出器インターフェース要約 | 関数シグネチャと戻り値型の説明（静的テキスト） |
+| 中和された脅威 ID | `THREAT-2024-001` のような安全な識別子のみ（ペイロード・署名は除外） |
+
+| **絶対に送信しないもの** |
+|---|
+| シークレット・APIキー・環境変数 |
+| フルリポジトリテキスト（`send_repository_full_text: false` で強制） |
+| 実ユーザーログ・実トラフィックデータ |
+| プライベートな脆弱性情報・CVE詳細 |
+| 生のエクスプロイトペイロード（`send_raw_payloads: false` で強制） |
+
 #### Gemini オプション依存関係のインストール
 
 ```bash
@@ -397,6 +425,21 @@ python scripts/propose_mutation.py --noop --json
 
 ---
 
+## GPT Audit Gate
+
+すべての PR はマージ前に **GPT Audit Gate** レビューを通過しなければなりません。詳細は `docs/AUDIT_CHARTER.md` を参照してください。
+
+| 役割 | 担当 |
+|---|---|
+| **GPT Audit Gate** | 6カテゴリの構造的レビュー（アーキテクチャ・セキュリティ・フィットネス・コスト・ドキュメント・法的） |
+| **Human Owner** | 最終マージ判断（GPT の推薦を覆す権限あり） |
+| **Claude Code** | 実装・テスト・Audit Gate 支援情報の提供 |
+
+Audit Gate の決定: **APPROVE / REQUEST CHANGES / BLOCK**  
+PR テンプレート（`.github/PULL_REQUEST_TEMPLATE.md`）に GPT Audit Gate レポートの貼り付け欄があります。
+
+---
+
 `.github/workflows/immunization_loop.yml` は **propose / evaluate / promote** の3ジョブを意図的に分離しています。
 
 | ジョブ | 権限 | シークレット | 生成コードを実行するか |
@@ -447,13 +490,17 @@ python scripts/propose_mutation.py --noop --json
 | `test_mutation_boundaries.py` | マーカー外の不変性、マーカーの存在、重複マーカーの拒否、マーカー含有コードの拒否、不正パッチの拒否 |
 | `test_promote_candidate.py` | ハッシュ検証・スキーマ検証・採用失敗時の拒否・ast_policy_ok=False時の拒否・fp_rate超過時の拒否（すべて `tmp_path` 使用、実ファイル非破壊） |
 | `test_types.py` | `Request.query` / `Request.headers` の MappingProxyType イミュータビリティ、構築後のソースdict変更の影響なし |
+| `test_gemini_integration.py` | noop・offline-sample・live-model モード、プリフライトスキャン、スキーマ検証、replacement_code 検証（68件） |
+| `test_api_budget.py` | トークン推定・月次/日次集計・月次/日次超過拒否・ledger 破損 fail-closed・不明モデル保守的コスト（49件） |
+| `test_gemini_paid_credit.py` | paid-credit ゲート拒否・予算超過拒否・シークレットスキャン・スキーマ検証・ledger 追記（44件） |
+| `test_audit_docs.py` | AUDIT_CHARTER.md 存在・PR テンプレート存在・BLOCK/REQUEST CHANGES/APPROVE 条件・symbolic indicator 整合性 |
 
 ```bash
 python -m pytest -v
-# 125 passed
+# 286+ passed
 ```
 
-テストはすべて `tmp_path` インジェクションを使用し、`core/detector.py` や `data/genome.json` などの実リポジトリファイルを変更しません。
+テストはすべて `tmp_path` インジェクションまたはファイルシステム参照（読み取り専用）を使用し、`core/detector.py` や `data/genome.json` などの実リポジトリファイルを変更しません。
 
 ---
 
