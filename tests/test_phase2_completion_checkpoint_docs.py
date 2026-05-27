@@ -31,6 +31,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 _PROJECT_ROOT = Path(__file__).parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
@@ -40,6 +41,7 @@ _CHECKPOINT = _PROJECT_ROOT / "docs" / "PHASE_2_COMPLETION_CHECKPOINT.md"
 _README = _PROJECT_ROOT / "README.md"
 _PHASE2_PLAN = _PROJECT_ROOT / "docs" / "PHASE_2_PLAN.md"
 _API_RUNBOOK = _PROJECT_ROOT / "docs" / "API_ACTIVATION_RUNBOOK.md"
+_WORKFLOW = _PROJECT_ROOT / ".github" / "workflows" / "immunization_loop.yml"
 
 
 # ---------------------------------------------------------------------------
@@ -1496,3 +1498,134 @@ class TestCritical1PrePhase3HardeningPR:
                     f"Traceability Matrix must NOT mark 'promote requires GPT Audit Gate APPROVE' "
                     f"as '| Covered |'. Got: {line!r}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# 12. Workflow-level enforcement of promote_approved gate — Critical #1
+#
+#     These tests PARSE immunization_loop.yml and assert that the promote
+#     job is gated on an explicit Human Owner approval input.
+#
+#     ALL tests in this class are marked xfail(strict=True) because
+#     Critical #1 has NOT been fixed yet.  They will XFAIL now (CI passes)
+#     and become XPASS once the dedicated pre-Phase-3 hardening PR adds the
+#     gate (strict=True makes XPASS → CI failure, signalling that the
+#     xfail markers must be removed).
+#
+#     What the hardening PR must add to immunization_loop.yml:
+#       on.workflow_dispatch.inputs.promote_approved:
+#         required: false
+#         default: 'false'
+#         type: choice
+#         options: ['false', 'true']
+#       jobs.promote.if must include:
+#         github.event_name == 'workflow_dispatch'
+#         github.event.inputs.promote_approved == 'true'
+# ---------------------------------------------------------------------------
+
+
+def _load_workflow() -> dict:
+    """Parse immunization_loop.yml with PyYAML.
+
+    Note: PyYAML (YAML 1.1) parses the bare key 'on' as boolean True.
+    Callers must access workflow_dispatch triggers via wf[True], not wf['on'].
+    """
+    assert _WORKFLOW.exists(), f"Workflow file not found: {_WORKFLOW}"
+    return yaml.safe_load(_WORKFLOW.read_text(encoding="utf-8"))
+
+
+class TestWorkflowPromoteApprovedGateEnforced:
+    """Parse immunization_loop.yml and assert promote_approved gate is enforced.
+
+    All tests are xfail(strict=True).  They currently FAIL because Critical #1
+    has not been fixed (the gate does not exist in the workflow).  Once the
+    dedicated pre-Phase-3 hardening PR adds the gate:
+      - Tests will PASS  →  XPASS  →  CI fails (strict=True)
+      - Developer must remove xfail markers to acknowledge the fix
+
+    This design makes the unsafe state VISIBLE: CI only stays green because
+    the failure is EXPECTED.  Adding the gate without removing the markers
+    would break CI, forcing an explicit acknowledgement of the fix.
+    """
+
+    pytestmark = pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "Critical #1: promote_approved gate not yet added to immunization_loop.yml. "
+            "Fix required in dedicated pre-Phase-3 hardening PR before any Phase 3 "
+            "activation PR is opened or merged."
+        ),
+    )
+
+    @pytest.fixture(autouse=True)
+    def _load(self) -> None:
+        wf = _load_workflow()
+        # PyYAML 1.1 parses the YAML key 'on' as boolean True
+        triggers = wf.get(True, {})
+        wd = (triggers.get("workflow_dispatch") or {})
+        self._wd_inputs: dict = (wd.get("inputs") or {})
+        self._promote_if: str = str(
+            (wf.get("jobs") or {}).get("promote", {}).get("if", "")
+        )
+
+    def test_workflow_dispatch_has_promote_approved_input(self) -> None:
+        """workflow_dispatch.inputs must include a 'promote_approved' key.
+
+        Without this input, there is no way for Human Owner to explicitly
+        approve promotion at workflow_dispatch invocation time.
+        """
+        assert "promote_approved" in self._wd_inputs, (
+            "immunization_loop.yml workflow_dispatch inputs must include "
+            "'promote_approved' (required: false, default: 'false', type: choice). "
+            "Critical #1: this input is currently absent."
+        )
+
+    def test_promote_approved_input_defaults_to_false_not_true(self) -> None:
+        """promote_approved input must default to 'false', NOT 'true'.
+
+        A default of 'true' would silently enable promotion on every
+        workflow_dispatch invocation without explicit Human Owner intent.
+        """
+        pa = self._wd_inputs.get("promote_approved") or {}
+        default = str(pa.get("default", "MISSING")).lower()
+        assert default == "false", (
+            f"promote_approved input 'default' must be 'false', got {default!r}. "
+            "A default of 'true' allows promotion without explicit Human Owner approval. "
+            "Critical #1: this input is currently absent (default is MISSING)."
+        )
+
+    def test_promote_job_if_requires_promote_approved_true(self) -> None:
+        """promote job 'if' condition must gate on promote_approved == 'true'.
+
+        Without this check, the promote job can execute whenever the adoption
+        gate passes, regardless of Human Owner intent.
+        """
+        promote_if_lower = self._promote_if.lower()
+        assert (
+            "inputs.promote_approved == 'true'" in promote_if_lower
+            or "inputs.promote_approved == \"true\"" in promote_if_lower
+        ), (
+            "promote job 'if' condition must include "
+            "github.event.inputs.promote_approved == 'true'. "
+            f"Current 'if': {self._promote_if!r}. "
+            "Critical #1: this gate is currently absent."
+        )
+
+    def test_promote_job_if_prevents_schedule_triggered_promotion(self) -> None:
+        """promote job 'if' must require workflow_dispatch event to prevent schedule promote.
+
+        The workflow has a daily schedule trigger (cron).  Without an explicit
+        event_name check, a schedule run where evaluation passes could trigger
+        the promote job, bypassing Human Owner approval entirely.
+        """
+        promote_if_lower = self._promote_if.lower()
+        assert (
+            "github.event_name == 'workflow_dispatch'" in promote_if_lower
+            or "github.event_name == \"workflow_dispatch\"" in promote_if_lower
+        ), (
+            "promote job 'if' condition must require "
+            "github.event_name == 'workflow_dispatch' to prevent schedule-triggered "
+            "promotion. "
+            f"Current 'if': {self._promote_if!r}. "
+            "Critical #1: this guard is currently absent."
+        )
