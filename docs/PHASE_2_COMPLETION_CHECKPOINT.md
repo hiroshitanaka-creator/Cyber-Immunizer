@@ -102,13 +102,20 @@ All of the following safety invariants are preserved at Phase 2 completion:
 - generated code is not executed in write-permission jobs
 - dry-run artifact is not promote artifact
 - offline-sample success is not promote approval
-- promote requires Human Owner approval
-- promote requires GPT Audit Gate APPROVE
 - Phase 3 activation requires dedicated PR
 - Human Owner explicit decision is required before Phase 3
 - no workflow permission escalation in Phase 2
 
-> **Note:** "promote requires Human Owner approval" and "promote requires GPT Audit Gate APPROVE" are documented invariants. However, `.github/workflows/immunization_loop.yml` does not yet enforce these as gates (Critical #1 — see Section 6 Known Phase 3 Blockers). Workflow enforcement of these invariants is pending Phase 3 activation PR. Phase 3 must not start until Critical #1 is addressed.
+### Documented but Not Yet Workflow-Enforced Invariants
+
+The following requirements are documented in source documents and tests but are **not yet enforced by `.github/workflows/immunization_loop.yml`**. They must not be listed as preserved or enforced until workflow tests prove enforcement.
+
+- promote requires Human Owner approval
+- promote requires GPT Audit Gate APPROVE
+- These requirements are documented but not yet enforced by `.github/workflows/immunization_loop.yml`
+- Blocked by Critical #1 (see Section 6 Known Phase 3 Blockers)
+- Phase 3 must not start until Critical #1 is fixed in a dedicated pre-Phase-3 hardening PR
+- These items must not be listed as preserved or enforced until workflow tests prove enforcement
 
 ---
 
@@ -142,7 +149,7 @@ The following workflow enforcement gaps must be resolved before Phase 3 activati
 
 | ID | Description | Impact | Required Action |
 |---|---|---|---|
-| Critical #1 | `.github/workflows/immunization_loop.yml` promote job checks only `passed_adoption_gate == 'true'` — there is no `promote_approved=true` gate requiring Human Owner approval or GPT Audit Gate APPROVE. The promote job can execute without explicit Human Owner or Audit Gate gate. | High: generated code can be promoted to `core/detector.py` without Human Owner or Audit Gate approval. | Phase 3 activation PR must add `promote_approved` gate to workflow before enabling live API. Phase 3 must not start until Critical #1 is addressed. |
+| Critical #1 | `.github/workflows/immunization_loop.yml` promote job checks only `passed_adoption_gate == 'true'` — there is no `promote_approved=true` gate requiring Human Owner approval or GPT Audit Gate APPROVE. The promote job can execute without explicit Human Owner or Audit Gate gate. | High: generated code can be promoted to `core/detector.py` without Human Owner or Audit Gate approval. | Critical #1 must be fixed in a **dedicated pre-Phase-3 hardening PR** before any Phase 3 activation PR is opened or merged. Phase 3 activation PR may proceed only after the promote gate is already enforced and audited. The dedicated hardening PR must: add `promote_approved` workflow_dispatch input (default: false); gate promote job on `github.event.inputs.promote_approved == 'true'`; prevent schedule promote; add workflow tests. |
 
 ---
 
@@ -164,7 +171,7 @@ The following risks remain at Phase 2 completion and must be addressed by Phase 
 | Phase 3 activation PR must re-check live_model_enabled=true transition | The live_model_enabled=true change must be in a dedicated, reviewed PR only. | GPT Audit Gate + Human Owner |
 | Phase 3 activation PR must verify that GEMINI_API_KEY is stored only in GitHub Secrets | Key must not appear in repository files, logs, comments, or any artifact. | GPT Audit Gate + Human Owner |
 | Phase 3 activation PR must verify that repository files do not contain API keys | GPT Audit Gate scans PR diff; Human Owner verifies GitHub Secrets out-of-band. | GPT Audit Gate + Human Owner |
-| Promote approval gate is not yet enforced in workflow | `.github/workflows/immunization_loop.yml` does not check `promote_approved=true`. Docs require Human Owner approval and GPT Audit Gate APPROVE before promote, but workflow does not enforce this gate (Critical #1). Phase 3 must not start until Critical #1 is implemented in the Phase 3 activation PR. | GPT Audit Gate + Human Owner |
+| Promote approval gate is not yet enforced in workflow | `.github/workflows/immunization_loop.yml` does not check `promote_approved=true`. Docs require Human Owner approval and GPT Audit Gate APPROVE before promote, but workflow does not enforce this gate (Critical #1). Critical #1 must be fixed in a dedicated pre-Phase-3 hardening PR before any Phase 3 activation PR is opened. Phase 3 must not start until Critical #1 is addressed. | GPT Audit Gate + Human Owner |
 
 ---
 

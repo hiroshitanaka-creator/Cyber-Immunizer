@@ -1229,3 +1229,270 @@ class TestPromoteApprovalGateNotClaimedCovered:
             "PHASE_2_COMPLETION_CHECKPOINT.md must have a 'Known Phase 3 Blockers' section "
             "documenting Critical #1 (promote approval gate not enforced in workflow)"
         )
+
+
+# ---------------------------------------------------------------------------
+# 10. Safety Invariants Preserved excludes unenforced items — issue from
+#     PR #29 REQUEST CHANGES: promote approval was listed as "preserved"
+#     even though immunization_loop.yml does not enforce it.
+#     The preamble bullet list of Section 5 must NOT include them.
+#     A dedicated "Documented but Not Yet Workflow-Enforced Invariants"
+#     subsection must list them with explicit not-enforced language.
+# ---------------------------------------------------------------------------
+
+
+def _extract_safety_invariants_preamble(content: str) -> str:
+    """Extract the Safety Invariants Preserved preamble bullet list.
+
+    Returns lines from '## ... Safety Invariants Preserved' up to (but not
+    including) the first '###' subsection heading or the next '##' heading.
+    """
+    lines = content.splitlines()
+    in_section = False
+    result: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("##"):
+            if "safety invariants preserved" in stripped.lower():
+                in_section = True
+                result.append(line)
+                continue
+            if in_section:
+                break  # next same-level heading
+        if in_section:
+            if stripped.startswith("###"):
+                break  # first subsection — stop here
+            result.append(line)
+    return "\n".join(result)
+
+
+class TestSafetyInvariantsPreservedExcludesUnenforced:
+    """PR #29 REQUEST CHANGES fix: promote approval items removed from preserved list.
+
+    Safety Invariants Preserved preamble must NOT list promote approval items
+    (they are not workflow-enforced — Critical #1).  Those items belong in the
+    dedicated 'Documented but Not Yet Workflow-Enforced Invariants' subsection.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _load(self) -> None:
+        assert _CHECKPOINT.exists()
+        self.content = _CHECKPOINT.read_text(encoding="utf-8")
+        self.preamble = _extract_safety_invariants_preamble(self.content)
+        self.not_enforced = _extract_section(
+            self.content, "Documented but Not Yet Workflow-Enforced"
+        )
+
+    # --- Negative: preamble bullet list must NOT contain the two promote items ---
+
+    def test_preserved_preamble_excludes_promote_human_owner_approval(self) -> None:
+        """Safety Invariants Preserved preamble must NOT list 'promote requires Human Owner approval'.
+
+        That invariant is not workflow-enforced (Critical #1) and must live only in the
+        'Documented but Not Yet Workflow-Enforced Invariants' subsection.
+        """
+        preamble_lower = self.preamble.lower()
+        assert "- promote requires human owner approval" not in preamble_lower, (
+            "Safety Invariants Preserved preamble must NOT include "
+            "'- promote requires Human Owner approval' as a preserved/enforced bullet. "
+            "It is not yet workflow-enforced (Critical #1). "
+            "Move it to 'Documented but Not Yet Workflow-Enforced Invariants'."
+        )
+
+    def test_preserved_preamble_excludes_promote_gpt_audit_gate_approve(self) -> None:
+        """Safety Invariants Preserved preamble must NOT list 'promote requires GPT Audit Gate APPROVE'."""
+        preamble_lower = self.preamble.lower()
+        assert "- promote requires gpt audit gate" not in preamble_lower, (
+            "Safety Invariants Preserved preamble must NOT include "
+            "'- promote requires GPT Audit Gate APPROVE' as a preserved/enforced bullet. "
+            "It is not yet workflow-enforced (Critical #1)."
+        )
+
+    # --- Positive: 'Documented but Not Yet Workflow-Enforced' subsection must exist ---
+
+    def test_documented_not_enforced_subsection_exists(self) -> None:
+        """Checkpoint must have a 'Documented but Not Yet Workflow-Enforced Invariants' subsection."""
+        content_lower = self.content.lower()
+        assert (
+            "documented but not yet workflow-enforced" in content_lower
+            or "not yet workflow-enforced" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must have a "
+            "'Documented but Not Yet Workflow-Enforced Invariants' subsection"
+        )
+
+    def test_documented_not_enforced_contains_promote_human_owner(self) -> None:
+        """The subsection must list 'promote requires Human Owner approval'."""
+        assert self.not_enforced, (
+            "Could not extract 'Documented but Not Yet Workflow-Enforced' section"
+        )
+        assert "promote requires human owner approval" in self.not_enforced.lower(), (
+            "'Documented but Not Yet Workflow-Enforced' section must contain "
+            "'promote requires Human Owner approval'"
+        )
+
+    def test_documented_not_enforced_contains_promote_gpt_audit_gate(self) -> None:
+        """The subsection must list 'promote requires GPT Audit Gate APPROVE'."""
+        assert self.not_enforced, (
+            "Could not extract 'Documented but Not Yet Workflow-Enforced' section"
+        )
+        assert "promote requires gpt audit gate" in self.not_enforced.lower(), (
+            "'Documented but Not Yet Workflow-Enforced' section must contain "
+            "'promote requires GPT Audit Gate APPROVE'"
+        )
+
+    def test_documented_not_enforced_states_not_yet_enforced(self) -> None:
+        """The subsection must use explicit 'not yet enforced' language."""
+        assert self.not_enforced, (
+            "Could not extract 'Documented but Not Yet Workflow-Enforced' section"
+        )
+        section_lower = self.not_enforced.lower()
+        assert (
+            "not yet enforced" in section_lower
+            or "not yet workflow-enforced" in section_lower
+        ), (
+            "'Documented but Not Yet Workflow-Enforced' section must explicitly "
+            "state 'not yet enforced'"
+        )
+
+    def test_documented_not_enforced_references_critical1(self) -> None:
+        """The subsection must reference Critical #1."""
+        assert self.not_enforced, (
+            "Could not extract 'Documented but Not Yet Workflow-Enforced' section"
+        )
+        assert "Critical #1" in self.not_enforced, (
+            "'Documented but Not Yet Workflow-Enforced' section must reference 'Critical #1'"
+        )
+
+    def test_documented_not_enforced_states_phase3_must_not_start_until_critical1_fixed(self) -> None:
+        """The subsection must state Phase 3 must not start until Critical #1 is fixed."""
+        assert self.not_enforced, (
+            "Could not extract 'Documented but Not Yet Workflow-Enforced' section"
+        )
+        section_lower = self.not_enforced.lower()
+        assert (
+            "phase 3 must not start until critical #1 is fixed" in section_lower
+            or (
+                "phase 3 must not start" in section_lower
+                and "critical #1" in section_lower.lower()
+            )
+        ), (
+            "'Documented but Not Yet Workflow-Enforced' section must state "
+            "'Phase 3 must not start until Critical #1 is fixed'"
+        )
+
+    def test_documented_not_enforced_states_no_listing_until_tests_prove_enforcement(self) -> None:
+        """The subsection must state items must not be listed as preserved until tests prove enforcement."""
+        assert self.not_enforced, (
+            "Could not extract 'Documented but Not Yet Workflow-Enforced' section"
+        )
+        section_lower = self.not_enforced.lower()
+        assert (
+            "workflow tests prove enforcement" in section_lower
+            or "tests prove enforcement" in section_lower
+            or "until workflow" in section_lower
+        ), (
+            "'Documented but Not Yet Workflow-Enforced' section must state items "
+            "must not be listed as preserved until workflow tests prove enforcement"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 11. Critical #1 must be fixed in dedicated pre-Phase-3 hardening PR,
+#     NOT in the Phase 3 activation PR itself.
+# ---------------------------------------------------------------------------
+
+
+class TestCritical1PrePhase3HardeningPR:
+    """Verify that Critical #1 is documented to require a dedicated pre-Phase-3 hardening PR.
+
+    The Known Phase 3 Blockers and Residual Risk sections must state that
+    Critical #1 is fixed BEFORE the Phase 3 activation PR, not inside it.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _load(self) -> None:
+        assert _CHECKPOINT.exists()
+        self.content = _CHECKPOINT.read_text(encoding="utf-8")
+
+    def test_critical1_requires_dedicated_pre_phase3_hardening_pr(self) -> None:
+        """Known Phase 3 Blockers must state Critical #1 needs dedicated pre-Phase-3 hardening PR."""
+        content_lower = self.content.lower()
+        assert (
+            "dedicated pre-phase-3 hardening pr" in content_lower
+            or "pre-phase-3 hardening pr" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md Known Phase 3 Blockers must state "
+            "Critical #1 must be fixed in a 'dedicated pre-Phase-3 hardening PR' "
+            "before any Phase 3 activation PR is opened."
+        )
+
+    def test_critical1_says_phase3_activation_pr_may_proceed_only_after_gate_enforced(self) -> None:
+        """Critical #1 entry must state Phase 3 activation PR may proceed ONLY AFTER gate is enforced."""
+        content_lower = self.content.lower()
+        assert (
+            "phase 3 activation pr may proceed only after" in content_lower
+            or (
+                "may proceed only after" in content_lower
+                and "already enforced" in content_lower
+            )
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must state "
+            "'Phase 3 activation PR may proceed only after the promote gate is already enforced and audited'"
+        )
+
+    def test_critical1_says_gate_already_enforced_and_audited(self) -> None:
+        """Critical #1 must require that the gate is already enforced and audited before Phase 3."""
+        content_lower = self.content.lower()
+        assert (
+            "already enforced and audited" in content_lower
+            or "enforced and audited" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must state "
+            "promote gate must be 'already enforced and audited' before Phase 3 activation PR"
+        )
+
+    # --- Negative: forbidden phrases ---
+
+    def test_rejects_phase3_activation_pr_must_add_promote_gate(self) -> None:
+        """Reject 'Phase 3 activation PR must add promote_approved gate'.
+
+        Critical #1 must be fixed in a SEPARATE dedicated hardening PR,
+        not by the Phase 3 activation PR itself.
+        """
+        content_lower = self.content.lower()
+        assert "phase 3 activation pr must add" not in content_lower, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must NOT say "
+            "'Phase 3 activation PR must add promote_approved gate'. "
+            "Critical #1 must be fixed in a dedicated pre-Phase-3 hardening PR."
+        )
+
+    def test_rejects_critical1_will_be_fixed_during_phase3_activation(self) -> None:
+        """Reject 'Critical #1 will be fixed during Phase 3 activation'."""
+        content_lower = self.content.lower()
+        assert "critical #1 will be fixed during phase 3 activation" not in content_lower, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must NOT say "
+            "'Critical #1 will be fixed during Phase 3 activation'. "
+            "It must be fixed BEFORE Phase 3 activation in a dedicated hardening PR."
+        )
+
+    def test_rejects_promote_approval_covered_in_matrix(self) -> None:
+        """Reject any Traceability Matrix row marking promote approval as 'Covered'."""
+        for line in self.content.splitlines():
+            line_lower = line.lower()
+            if (
+                "promote requires human owner approval" in line_lower
+                and line.strip().startswith("|")
+            ):
+                assert "| covered |" not in line_lower, (
+                    f"Traceability Matrix must NOT mark 'promote requires Human Owner approval' "
+                    f"as '| Covered |'. Got: {line!r}"
+                )
+            if (
+                "promote requires gpt audit gate" in line_lower
+                and line.strip().startswith("|")
+            ):
+                assert "| covered |" not in line_lower, (
+                    f"Traceability Matrix must NOT mark 'promote requires GPT Audit Gate APPROVE' "
+                    f"as '| Covered |'. Got: {line!r}"
+                )
