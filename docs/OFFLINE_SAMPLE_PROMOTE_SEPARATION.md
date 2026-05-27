@@ -227,6 +227,30 @@ Phase 2-Dでは以下を実施しない。
 
 ---
 
+## Workflow enforcement status (Critical #1 fix — Phase 2-D完了後の追記)
+
+> **このセクションは Phase 2-D 設計文書への追記です。**
+> Phase 2-D 自体は design-only であり、workflow変更は行っていません（Non-goals に記載のとおり）。
+> Phase 2-D 完了後の pre-Phase-3 hardening PR（Critical #1 fix PR）によって、
+> 本文書が設計・仕様として定義した promote 安全境界がワークフロー上で施行されました。
+> Critical #1 fix PR で `promote_approved` gate が `.github/workflows/immunization_loop.yml` に追加されています。
+
+以下のPromote安全境界が `.github/workflows/immunization_loop.yml` で実施されています（Critical #1 fix後）:
+
+- `promote_approved` workflow_dispatch input が追加されました（default: `"false"`）
+- promote job は `github.event_name == 'workflow_dispatch'` を要求します（schedule からは promote 不可）
+- promote job は `github.event.inputs.promote_approved == 'true'` を要求します（Human Owner の明示承認必須）
+- `promote_approved` のデフォルトは `"false"` — 明示的に `"true"` を選択しない限り promote job は実行されません
+- offline-sample の成功（adoption gate 通過）だけでは promote job は実行されません
+- schedule run からは promote が絶対に実行できません
+
+テスト:
+
+- `tests/test_workflow.py` の Critical #1 テストクラス（`TestPromoteApprovedInputExists`, `TestPromoteJobIfConditionHumanOwnerGate`, `TestScheduleCannotPromote`, `TestOfflineSampleAloneCannotPromote`, `TestPromoteJobSecretBoundary`, `TestRegressionGuardPromoteApproved`）がこれらを検証します
+
+---
+
 *このドキュメントは Project Cyber-Immunizer の Phase 2-D 設計文書です。*
 *Phase 2-D: design-only — 実装・workflow変更・API接続は行いません。*
+*Critical #1 workflow enforcement 追記: pre-Phase-3 hardening PR*
 *作成日: 2026-05-26*
