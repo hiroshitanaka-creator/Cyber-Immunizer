@@ -37,6 +37,7 @@ GEMINI_API_KEY must be stored only in GitHub Secrets during Phase 3 activation.
 | Phase 2-C: evolution_history audit specification | Completed | PR #24 |
 | Phase 2-D: offline-sample dry-run / promote separation design | Completed | PR #26 |
 | Phase 2-E: API activation checklist hardening | Completed | PR #27 |
+| Phase 2-E (backlog #12): fitness report schema bool hardening | Completed | PR-E (#12) — `_validate_fitness_schema` now uses `type(v) is T` (not `isinstance`) to reject bool-as-number in score, rate fields, and exception_count; NaN/±Inf rejected; rate fields bounded [0.0, 1.0]; exception_count requires strict non-negative int |
 
 > **Phase 2 complete does not mean Phase 3 is underway.**
 > Phase 3 is not started. Phase 3 requires explicit Human Owner decision.

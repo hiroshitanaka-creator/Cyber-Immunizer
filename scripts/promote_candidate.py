@@ -29,6 +29,7 @@ import argparse
 import datetime
 import hashlib
 import json
+import math
 import shutil
 import sys
 from pathlib import Path
@@ -45,20 +46,51 @@ _DEFAULT_GENOME_PATH = _PROJECT_ROOT / "data" / "genome.json"
 _DEFAULT_HISTORY_PATH = _PROJECT_ROOT / "data" / "evolution_history.json"
 _DEFAULT_README_PATH = _PROJECT_ROOT / "README.md"
 
-# Required fields inside the fitness_report sub-object.
-# All must be present and have the correct types.
-_REQUIRED_FITNESS_FIELDS: dict[str, type | tuple[type, ...]] = {
-    "syntax_ok": bool,
-    "ast_policy_ok": bool,
-    "contract_ok": bool,
-    "passed_adoption_gate": bool,
-    "score": (int, float),
-    "tp_rate": (int, float),
-    "fp_rate": (int, float),
-    "fn_rate": (int, float),
-    "exception_count": int,
-    "rejection_reasons": list,
-}
+# ---------------------------------------------------------------------------
+# Fitness schema helpers (PR-E: bool hardening — #12)
+# ---------------------------------------------------------------------------
+
+def _is_finite_number(value: object) -> bool:
+    """Return True iff *value* is a non-bool int or a finite float.
+
+    Design notes
+    ------------
+    * ``bool`` is a subclass of ``int`` in Python, so ``isinstance(True, int)``
+      is ``True``.  We use ``type(value) is int`` / ``type(value) is float``
+      to reject bools without isinstance special-casing.
+    * Python ``int`` has arbitrary precision and is always mathematically
+      finite — there is no "int infinity".  We therefore return ``True``
+      immediately for ``int`` **without calling** ``float(value)``.
+      Calling ``float(big_int)`` risks ``OverflowError`` for very large ints
+      (e.g. values parsed from attacker-controlled JSON), which would turn a
+      schema violation into an uncaught exception / traceback.
+    * For ``float`` we call ``math.isfinite(value)`` directly (no conversion
+      needed) to reject NaN and ±Inf.
+    """
+    if type(value) is int:
+        return True              # Python ints are always finite
+    if type(value) is float:
+        return math.isfinite(value)
+    return False
+
+
+def _is_rate_in_range(value: object) -> bool:
+    """Return True iff *value* is a finite non-bool number in [0.0, 1.0].
+
+    Uses Python's native cross-type comparison (int vs float) so that
+    ``float(value)`` is never called — a huge int such as ``10**1000`` would
+    raise ``OverflowError`` if passed to ``float()``, but the native
+    comparison ``0.0 <= 10**1000 <= 1.0`` evaluates to ``False`` correctly
+    and without error.
+    """
+    if not _is_finite_number(value):
+        return False
+    return 0.0 <= value <= 1.0  # native int/float cross-type comparison
+
+
+def _is_strict_int(value: object) -> bool:
+    """Return True iff *value* is exactly ``int`` — bools are rejected."""
+    return type(value) is int
 
 
 def _refuse(reason: str, as_json: bool) -> int:
@@ -123,22 +155,112 @@ def _load_history_strict(path: Path) -> tuple[list | None, str]:
 
 
 def _validate_fitness_schema(fitness: dict) -> list[str]:
-    """Return a list of schema violations in the fitness_report object."""
+    """Return a list of schema violations in the fitness_report object.
+
+    Uses strict ``type(v) is T`` checks (never ``isinstance``) for all numeric
+    fields so that ``bool`` values — which are ``int`` subclasses in Python —
+    are rejected.  Specifically:
+
+    * Boolean fields (``syntax_ok``, ``ast_policy_ok``, ``contract_ok``,
+      ``passed_adoption_gate``): must be exactly ``bool``.
+    * ``score``: must be non-bool ``int`` or ``float``, finite (no NaN/±Inf).
+    * Rate fields (``tp_rate``, ``fp_rate``, ``fn_rate``): must be non-bool
+      ``int`` or ``float``, finite, and in [0.0, 1.0].
+    * ``exception_count``: must be exactly ``int`` (not ``bool``, not
+      ``float``), and ≥ 0.
+    * ``rejection_reasons``: must be a ``list``.
+    """
     errors: list[str] = []
-    for field, expected_type in _REQUIRED_FITNESS_FIELDS.items():
+
+    # --- Strict boolean fields ---
+    for field in ("syntax_ok", "ast_policy_ok", "contract_ok", "passed_adoption_gate"):
         if field not in fitness:
             errors.append(f"fitness_report missing required field: {field!r}")
-        elif not isinstance(fitness[field], expected_type):
+        elif type(fitness[field]) is not bool:
             actual = type(fitness[field]).__name__
-            exp = (
-                expected_type.__name__
-                if isinstance(expected_type, type)
-                else " | ".join(t.__name__ for t in expected_type)
-            )
             errors.append(
                 f"fitness_report.{field} has wrong type: "
-                f"expected {exp}, got {actual!r}"
+                f"expected bool, got {actual!r}"
             )
+
+    # --- rejection_reasons ---
+    if "rejection_reasons" not in fitness:
+        errors.append("fitness_report missing required field: 'rejection_reasons'")
+    elif not isinstance(fitness["rejection_reasons"], list):
+        actual = type(fitness["rejection_reasons"]).__name__
+        errors.append(
+            f"fitness_report.rejection_reasons has wrong type: "
+            f"expected list, got {actual!r}"
+        )
+
+    # --- score: finite number, not bool ---
+    if "score" not in fitness:
+        errors.append("fitness_report missing required field: 'score'")
+    else:
+        v = fitness["score"]
+        if type(v) is bool:
+            errors.append(
+                "fitness_report.score has wrong type: "
+                "expected int | float (not bool), got bool"
+            )
+        elif type(v) not in (int, float):
+            actual = type(v).__name__
+            errors.append(
+                f"fitness_report.score has wrong type: "
+                f"expected int | float, got {actual!r}"
+            )
+        elif not _is_finite_number(v):
+            errors.append(
+                f"fitness_report.score must be finite, got {v!r}"
+            )
+
+    # --- rate fields: finite number in [0.0, 1.0], not bool ---
+    for field in ("tp_rate", "fp_rate", "fn_rate"):
+        if field not in fitness:
+            errors.append(f"fitness_report missing required field: {field!r}")
+        else:
+            v = fitness[field]
+            if type(v) is bool:
+                errors.append(
+                    f"fitness_report.{field} has wrong type: "
+                    f"expected int | float (not bool), got bool"
+                )
+            elif type(v) not in (int, float):
+                actual = type(v).__name__
+                errors.append(
+                    f"fitness_report.{field} has wrong type: "
+                    f"expected int | float, got {actual!r}"
+                )
+            elif not _is_finite_number(v):
+                errors.append(
+                    f"fitness_report.{field} must be finite, got {v!r}"
+                )
+            elif not (0.0 <= v <= 1.0):
+                errors.append(
+                    f"fitness_report.{field} is out of range [0.0, 1.0]: {v!r}"
+                )
+
+    # --- exception_count: strict non-negative int, not bool, not float ---
+    if "exception_count" not in fitness:
+        errors.append("fitness_report missing required field: 'exception_count'")
+    else:
+        v = fitness["exception_count"]
+        if type(v) is bool:
+            errors.append(
+                "fitness_report.exception_count has wrong type: "
+                "expected int (not bool), got bool"
+            )
+        elif type(v) is not int:
+            actual = type(v).__name__
+            errors.append(
+                f"fitness_report.exception_count has wrong type: "
+                f"expected int, got {actual!r}"
+            )
+        elif v < 0:
+            errors.append(
+                f"fitness_report.exception_count must be >= 0, got {v!r}"
+            )
+
     return errors
 
 
@@ -251,7 +373,20 @@ def promote_candidate(
         )
 
     # --- 11. Verify score improvement ---
-    candidate_score: float = float(fitness.get("score", -1e9))
+    # Guard against OverflowError: schema validation accepts any finite int
+    # (Python ints are arbitrary precision), but float() conversion fails for
+    # very large ints.  We treat such a value as unpromotable — it cannot be
+    # meaningfully compared to the genome's float best_score, and storing it
+    # in genome.json (which expects a float) would corrupt the file.
+    try:
+        candidate_score: float = float(fitness.get("score", -1e9))
+    except OverflowError:
+        return _refuse(
+            "fitness_report.score is out of representable float range — "
+            "score value is too large to compare against genome best_score "
+            "or to store in genome.json",
+            as_json,
+        )
     previous_best: float = float(genome_data.get("best_score", -1e9))
     if candidate_score <= previous_best:
         return _refuse(
