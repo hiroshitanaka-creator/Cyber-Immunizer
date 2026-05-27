@@ -110,6 +110,7 @@ Cyber-Immunizer/
 │   ├── EVOLUTION_HISTORY_AUDIT.md              # evolution history 監査仕様（Phase 2-C: design and audit spec only）
 │   ├── OFFLINE_SAMPLE_PROMOTE_SEPARATION.md    # offline-sample dry-run / promote 分離設計（Phase 2-D: design-only）
 │   ├── API_ACTIVATION_CHECKLIST.md             # API有効化チェックリスト（Phase 2-E: docs-only）
+│   ├── PHASE_2_COMPLETION_CHECKPOINT.md        # Phase 2完了チェックポイント（Traceability Matrix・Residual Risk・Go/No-Go template）
 │   └── API_ACTIVATION_RUNBOOK.md               # API有効化手順書（Phase 3 で実施・GEMINI_API_KEY 登録〜live_model_enabled=true）
 ├── intelligence/
 │   └── threat_feeds.py     # 脅威インテリジェンスモジュール（スタブ）
@@ -653,7 +654,7 @@ PR テンプレート（`.github/PULL_REQUEST_TEMPLATE.md`）に GPT Audit Gate 
 | `test_audit_docs.py` | 36 | AUDIT_CHARTER.md 存在・PR テンプレート存在・BLOCK/REQUEST CHANGES/APPROVE 条件・symbolic indicator 整合性 |
 | `test_workflow.py` | 54 | persist-ledger ジョブ存在・権限・if条件に always() 必須・GEMINI_API_KEY 不在・promote の ledger 責務分離・concurrency・propose `set +e` 構造・finalize-propose-status の != success 厳格化・persist-ledger sequencing |
 | `test_ci_workflow.py` | 13 | CI ワークフロー構成（read-only 権限・Gemini 不呼び出し・promote 不実行・timeout 設定） |
-| `test_preflight_mode.py` | 39 | gemini-paid-credit-preflight モード（GEMINI_API_KEY 未登録時 fail-closed・live_model_enabled=false 確認・API未呼び出し） |
+| `test_preflight_mode.py` | 39 | gemini-paid-credit-preflight モード（GEMINI_API_KEY が GitHub Secrets に存在しない場合 fail-closed・live_model_enabled=false 確認・API未呼び出し） |
 | `test_preflight_workflow.py` | 14 | preflight ワークフロー統合（ジョブ構成・権限・シークレット分離・skip 条件） |
 | `test_api_activation_docs.py` | 19 | API Activation Runbook 存在・GEMINI_API_KEY 登録禁止・live_model_enabled 手順・cron 禁止・README リンク |
 | `test_phase1_baseline_docs.py` | 25 | Phase 1 baseline 文書の存在・Safety invariants 記載・Exit criteria・Phase 2 移行条件 |
