@@ -1144,3 +1144,88 @@ class TestCheckpointPhaseState:
         ), (
             "PHASE_2_COMPLETION_CHECKPOINT.md must state Phase 3 activation requires dedicated PR"
         )
+
+
+# ---------------------------------------------------------------------------
+# 9. Promote approval gate not claimed covered — Critical #1
+#    immunization_loop.yml promote job has no promote_approved=true gate.
+#    The Traceability Matrix must NOT mark these invariants as 'Covered'
+#    until the workflow actually enforces them.
+# ---------------------------------------------------------------------------
+
+
+class TestPromoteApprovalGateNotClaimedCovered:
+    """Verify that promote approval gate unenforced state is correctly documented.
+
+    Critical #1: immunization_loop.yml promote job checks only passed_adoption_gate.
+    There is no promote_approved=true gate requiring Human Owner or GPT Audit Gate.
+    The Traceability Matrix must NOT mark these invariants as 'Covered' while
+    workflow enforcement is pending.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _load(self) -> None:
+        assert _CHECKPOINT.exists()
+        self.content = _CHECKPOINT.read_text(encoding="utf-8")
+
+    def test_promote_approval_gate_not_claimed_covered_until_workflow_enforced(self) -> None:
+        """promote requires Human Owner approval must NOT be 'Covered' while
+        immunization_loop.yml lacks promote_approved=true gate.
+        """
+        content = self.content
+        # Must document Critical #1
+        assert "Critical #1" in content, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must document 'Critical #1': "
+            "promote approval gate is not enforced in immunization_loop.yml"
+        )
+        # Must state 'Not enforced' or 'workflow enforcement pending'
+        assert "Not enforced" in content or "workflow enforcement pending" in content, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must state 'Not enforced' or "
+            "'workflow enforcement pending' for promote approval gate invariants (Critical #1)"
+        )
+        # Matrix row for 'promote requires Human Owner approval' must NOT be 'Covered'
+        for line in content.splitlines():
+            if "promote requires human owner approval" in line.lower() and line.strip().startswith("|"):
+                assert "| Covered |" not in line, (
+                    f"Traceability Matrix row 'promote requires Human Owner approval' "
+                    f"must NOT be marked as '| Covered |' while workflow lacks promote_approved gate. "
+                    f"Got: {line!r}"
+                )
+        # Matrix row for 'promote requires GPT Audit Gate APPROVE' must NOT be 'Covered'
+        for line in content.splitlines():
+            if "promote requires gpt audit gate" in line.lower() and line.strip().startswith("|"):
+                assert "| Covered |" not in line, (
+                    f"Traceability Matrix row 'promote requires GPT Audit Gate APPROVE' "
+                    f"must NOT be marked as '| Covered |' while workflow lacks audit gate check. "
+                    f"Got: {line!r}"
+                )
+
+    def test_residual_risk_includes_promote_approval_gate_not_enforced(self) -> None:
+        """Residual Risk Register must include the promote approval gate unenforced risk."""
+        content_lower = self.content.lower()
+        assert (
+            "promote approval gate is not yet enforced" in content_lower
+            or (
+                "promote approval gate" in content_lower
+                and "not yet enforced" in content_lower
+            )
+            or (
+                "promote" in content_lower
+                and "not yet enforced" in content_lower
+                and "workflow" in content_lower
+            )
+        ), (
+            "Residual Risk Register must include "
+            "'Promote approval gate is not yet enforced in workflow' (Critical #1)"
+        )
+
+    def test_known_phase3_blockers_section_exists(self) -> None:
+        """Checkpoint must have a 'Known Phase 3 Blockers' section."""
+        content_lower = self.content.lower()
+        assert (
+            "known phase 3 blockers" in content_lower
+            or "phase 3 blockers" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must have a 'Known Phase 3 Blockers' section "
+            "documenting Critical #1 (promote approval gate not enforced in workflow)"
+        )

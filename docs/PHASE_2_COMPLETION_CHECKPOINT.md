@@ -108,6 +108,8 @@ All of the following safety invariants are preserved at Phase 2 completion:
 - Human Owner explicit decision is required before Phase 3
 - no workflow permission escalation in Phase 2
 
+> **Note:** "promote requires Human Owner approval" and "promote requires GPT Audit Gate APPROVE" are documented invariants. However, `.github/workflows/immunization_loop.yml` does not yet enforce these as gates (Critical #1 — see Section 6 Known Phase 3 Blockers). Workflow enforcement of these invariants is pending Phase 3 activation PR. Phase 3 must not start until Critical #1 is addressed.
+
 ---
 
 ## 6. Safety Invariant Traceability Matrix
@@ -128,11 +130,19 @@ All of the following safety invariants are preserved at Phase 2 completion:
 | generated code is not executed in write-permission jobs | docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md, README.md | tests/test_offline_sample_promote_separation_docs.py, tests/test_workflow.py | Covered |
 | dry-run artifact is not promote artifact | docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md | tests/test_offline_sample_promote_separation_docs.py | Covered |
 | offline-sample success is not promote approval | docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md, README.md | tests/test_offline_sample_promote_separation_docs.py | Covered |
-| promote requires Human Owner approval | docs/API_ACTIVATION_CHECKLIST.md, docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md | tests/test_api_activation_checklist_docs.py, tests/test_offline_sample_promote_separation_docs.py | Covered |
-| promote requires GPT Audit Gate APPROVE | docs/API_ACTIVATION_CHECKLIST.md, docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md | tests/test_api_activation_checklist_docs.py | Covered |
+| promote requires Human Owner approval | docs/API_ACTIVATION_CHECKLIST.md, docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md | docs/tests only; workflow enforcement pending | Not enforced — blocked by Critical #1 |
+| promote requires GPT Audit Gate APPROVE | docs/API_ACTIVATION_CHECKLIST.md, docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md | docs/tests only; workflow enforcement pending | Not enforced — blocked by Critical #1 |
 | Phase 3 activation requires dedicated PR | docs/PHASE_2_PLAN.md, docs/API_ACTIVATION_CHECKLIST.md, docs/PHASE_2_COMPLETION_CHECKPOINT.md | tests/test_phase2_completion_checkpoint_docs.py | Covered |
 | Human Owner explicit decision is required before Phase 3 | docs/PHASE_2_PLAN.md, docs/API_ACTIVATION_CHECKLIST.md, docs/PHASE_2_COMPLETION_CHECKPOINT.md | tests/test_phase2_completion_checkpoint_docs.py | Covered |
 | no workflow permission escalation | docs/PHASE_2_COMPLETION_CHECKPOINT.md | tests/test_phase2_completion_checkpoint_docs.py | Covered |
+
+### Known Phase 3 Blockers
+
+The following workflow enforcement gaps must be resolved before Phase 3 activation. They do NOT block Phase 2 completion (Phase 2 is docs/tests only), but they MUST be fixed in the Phase 3 activation PR.
+
+| ID | Description | Impact | Required Action |
+|---|---|---|---|
+| Critical #1 | `.github/workflows/immunization_loop.yml` promote job checks only `passed_adoption_gate == 'true'` — there is no `promote_approved=true` gate requiring Human Owner approval or GPT Audit Gate APPROVE. The promote job can execute without explicit Human Owner or Audit Gate gate. | High: generated code can be promoted to `core/detector.py` without Human Owner or Audit Gate approval. | Phase 3 activation PR must add `promote_approved` gate to workflow before enabling live API. Phase 3 must not start until Critical #1 is addressed. |
 
 ---
 
@@ -154,6 +164,7 @@ The following risks remain at Phase 2 completion and must be addressed by Phase 
 | Phase 3 activation PR must re-check live_model_enabled=true transition | The live_model_enabled=true change must be in a dedicated, reviewed PR only. | GPT Audit Gate + Human Owner |
 | Phase 3 activation PR must verify that GEMINI_API_KEY is stored only in GitHub Secrets | Key must not appear in repository files, logs, comments, or any artifact. | GPT Audit Gate + Human Owner |
 | Phase 3 activation PR must verify that repository files do not contain API keys | GPT Audit Gate scans PR diff; Human Owner verifies GitHub Secrets out-of-band. | GPT Audit Gate + Human Owner |
+| Promote approval gate is not yet enforced in workflow | `.github/workflows/immunization_loop.yml` does not check `promote_approved=true`. Docs require Human Owner approval and GPT Audit Gate APPROVE before promote, but workflow does not enforce this gate (Critical #1). Phase 3 must not start until Critical #1 is implemented in the Phase 3 activation PR. | GPT Audit Gate + Human Owner |
 
 ---
 
