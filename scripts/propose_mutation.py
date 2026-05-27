@@ -635,11 +635,14 @@ def _propose_via_gemini_paid_credit(
     est_output_tokens = budget.estimate_tokens_from_chars(output_chars)
     est_cost = budget.estimate_cost_usd(est_input_tokens, est_output_tokens, model_name)
 
-    # Load ledger and assert budget
+    # Load ledger and assert budget — FAIL CLOSED for missing/malformed ledger.
+    # Use strict_load_ledger so that a missing ledger is treated as
+    # "budget state unknown" and the API call is refused, not silently
+    # permitted as if no prior spend existed.
     try:
-        ledger = budget.load_ledger(ledger_path)
+        ledger = budget.strict_load_ledger(ledger_path)
     except ValueError as exc:
-        return None, f"API usage ledger is malformed; refusing call: {exc}"
+        return None, f"API usage ledger is not usable; refusing call: {exc}"
 
     budget_ok, budget_err = budget.assert_budget_available(genome, ledger, est_cost)
     if not budget_ok:
@@ -904,11 +907,14 @@ def run_gemini_paid_credit_preflight() -> tuple[dict, str]:
                 "api_call_performed": False, "gemini_api_key_present": True,
                 "live_model_enabled": False, "error": err}, err
 
-    # --- Step 13: Load and validate ledger ---
+    # --- Step 13: Load and validate ledger (fail-closed) ---
+    # Use strict_load_ledger so that a missing ledger is treated as
+    # "budget state unknown" and preflight fails rather than continuing
+    # with an assumed-empty spend history.
     try:
-        ledger = budget.load_ledger(_LEDGER_PATH)
+        ledger = budget.strict_load_ledger(_LEDGER_PATH)
     except ValueError as exc:
-        err = f"API usage ledger is malformed; preflight fails (fail closed): {exc}"
+        err = f"API usage ledger is not usable; preflight fails (fail closed): {exc}"
         return {"success": False, "mode": "gemini-paid-credit-preflight",
                 "api_call_performed": False, "gemini_api_key_present": True,
                 "live_model_enabled": False, "error": err}, err

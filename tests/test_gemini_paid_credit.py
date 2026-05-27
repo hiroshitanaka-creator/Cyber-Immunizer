@@ -807,6 +807,7 @@ class TestNoDependencyRequired:
     def test_api_budget_loads_without_google_genai(self) -> None:
         """api_budget imports successfully (standard library only)."""
         assert hasattr(budget, "load_ledger")
+        assert hasattr(budget, "strict_load_ledger")
         assert hasattr(budget, "assert_budget_available")
         assert hasattr(budget, "append_usage_record")
 
@@ -1031,3 +1032,278 @@ class TestPaidCreditLedgerFailures:
         ledger = json.loads(ledger_path.read_text())
         assert len(ledger) == 1
         assert ledger[0]["success"] is True
+
+
+# ---------------------------------------------------------------------------
+# 18. api_usage_ledger missing / malformed → fail-closed in live paid path (#3)
+# ---------------------------------------------------------------------------
+
+
+class TestPaidCreditLedgerMissingFailClosed:
+    """Verify that the live API budget path fails-closed when api_usage_ledger.json
+    is missing, malformed, or has an invalid top-level type.
+
+    Backlog #3: api_usage_ledger.json missing is fail-open → must become fail-closed.
+    A missing ledger means past spend is unknown; allowing the API call would
+    make the budget cap fail-open.
+    """
+
+    # ------------------------------------------------------------------ #
+    # 1. Missing ledger refuses the API call
+    # ------------------------------------------------------------------ #
+
+    def test_missing_ledger_refuses_paid_credit(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Missing api_usage_ledger.json must refuse the --gemini-paid-credit call."""
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(live_paid_genome), encoding="utf-8")
+        missing_ledger = tmp_path / "api_usage_ledger.json"
+        # DO NOT create the ledger
+
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file, missing_ledger, tmp_path)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        patch_result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert patch_result is None, "Must refuse when ledger is missing"
+        assert err, "Must produce an error message"
+        assert (
+            "budget state unknown" in err.lower()
+            or "not usable" in err.lower()
+            or "not found" in err.lower()
+            or "missing" in err.lower()
+        ), f"Error must mention ledger problem (budget state unknown), got: {err!r}"
+
+    # ------------------------------------------------------------------ #
+    # 2. Malformed ledger refuses the API call
+    # ------------------------------------------------------------------ #
+
+    def test_malformed_ledger_refuses_paid_credit(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Malformed api_usage_ledger.json must refuse the --gemini-paid-credit call."""
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(live_paid_genome), encoding="utf-8")
+        bad_ledger = tmp_path / "api_usage_ledger.json"
+        bad_ledger.write_text("{NOT_VALID_JSON!!!", encoding="utf-8")
+
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file, bad_ledger, tmp_path)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        patch_result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert patch_result is None, "Must refuse when ledger is malformed"
+        assert err, "Must produce an error message"
+
+    # ------------------------------------------------------------------ #
+    # 3. Top-level dict ledger refuses the API call
+    # ------------------------------------------------------------------ #
+
+    def test_dict_ledger_refuses_paid_credit(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Top-level JSON object in api_usage_ledger.json must refuse the API call."""
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(live_paid_genome), encoding="utf-8")
+        dict_ledger = tmp_path / "api_usage_ledger.json"
+        dict_ledger.write_text('{"this": "is wrong"}', encoding="utf-8")
+
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file, dict_ledger, tmp_path)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        patch_result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert patch_result is None, "Must refuse when ledger is a dict"
+        assert err, "Must produce an error message"
+
+    # ------------------------------------------------------------------ #
+    # 4. Top-level null ledger refuses the API call
+    # ------------------------------------------------------------------ #
+
+    def test_null_ledger_refuses_paid_credit(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Top-level JSON null in api_usage_ledger.json must refuse the API call."""
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(live_paid_genome), encoding="utf-8")
+        null_ledger = tmp_path / "api_usage_ledger.json"
+        null_ledger.write_text("null", encoding="utf-8")
+
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file, null_ledger, tmp_path)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        patch_result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert patch_result is None, "Must refuse when ledger is null"
+        assert err, "Must produce an error message"
+
+    # ------------------------------------------------------------------ #
+    # 5. Missing ledger is NOT treated as [] (zero spend)
+    # ------------------------------------------------------------------ #
+
+    def test_missing_ledger_not_silently_treated_as_empty(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A missing ledger must produce a ledger-specific error, not proceed as if empty."""
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(live_paid_genome), encoding="utf-8")
+        missing_ledger = tmp_path / "api_usage_ledger.json"
+        # DO NOT create
+
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file, missing_ledger, tmp_path)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        patch_result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert patch_result is None
+        assert err
+        # The error must be about the ledger/budget state, not just a generic budget
+        # overflow (which would imply the missing ledger was treated as []).
+        assert "ledger" in err.lower() or "budget state unknown" in err.lower() or \
+               "not usable" in err.lower() or "not found" in err.lower(), (
+                   f"Error should reference ledger unavailability, got: {err!r}"
+               )
+
+    # ------------------------------------------------------------------ #
+    # 6. Budget error mentions "budget state unknown"
+    # ------------------------------------------------------------------ #
+
+    def test_missing_ledger_error_mentions_budget_state_unknown(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Error for missing ledger must include the phrase 'budget state unknown'."""
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(live_paid_genome), encoding="utf-8")
+        missing_ledger = tmp_path / "api_usage_ledger.json"
+
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file, missing_ledger, tmp_path)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        patch_result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert patch_result is None
+        assert "budget state unknown" in err.lower(), (
+            f"Error must mention 'budget state unknown' for missing ledger, got: {err!r}"
+        )
+
+    # ------------------------------------------------------------------ #
+    # 7. Valid ledger still passes (regression guard)
+    # ------------------------------------------------------------------ #
+
+    def test_valid_ledger_passes_budget_check(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        ledger_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A valid, empty ledger must not cause false budget failures."""
+        # ledger_file fixture writes [] to the file
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(live_paid_genome), encoding="utf-8")
+
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file, ledger_file, tmp_path)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        valid_response_text = json.dumps({
+            "mutation_rationale": "ok",
+            "target_threats": ["T1"],
+            "expected_improvement": "better",
+            "risk": "low",
+            "replacement_code": (
+                "    surface = request.path.lower()\n"
+                "    return DetectionResult(\n"
+                "        blocked=False,\n"
+                "        reason='no match',\n"
+                "        confidence=0.0,\n"
+                "        matched_signals=(),\n"
+                "    )\n"
+            ),
+        })
+        monkeypatch.setattr(
+            pm, "_call_gemini_api",
+            lambda *a, **kw: (valid_response_text, 100, 50, ""),
+        )
+
+        patch_result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert err == "", f"Valid ledger should allow API call, got: {err}"
+        assert patch_result is not None, "Valid ledger should allow patch to be returned"
+
+    # ------------------------------------------------------------------ #
+    # 8. Missing ledger does NOT cause API call to be performed
+    # ------------------------------------------------------------------ #
+
+    def test_missing_ledger_prevents_api_call(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When ledger is missing, the Gemini API must NOT be called."""
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(live_paid_genome), encoding="utf-8")
+        missing_ledger = tmp_path / "api_usage_ledger.json"
+
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file, missing_ledger, tmp_path)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        api_called = []
+
+        def mock_api_call(*args: Any, **kwargs: Any) -> tuple:
+            api_called.append(True)
+            return None, None, None, "Should not reach here"
+
+        monkeypatch.setattr(pm, "_call_gemini_api", mock_api_call)
+
+        patch_result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert patch_result is None
+        assert err
+        assert not api_called, (
+            "Gemini API must NOT be called when the ledger is missing; "
+            f"api_called={api_called}"
+        )
