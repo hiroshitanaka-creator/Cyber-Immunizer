@@ -51,13 +51,41 @@ _DEFAULT_README_PATH = _PROJECT_ROOT / "README.md"
 # ---------------------------------------------------------------------------
 
 def _is_finite_number(value: object) -> bool:
-    """Return True iff *value* is a non-bool int or float with a finite value.
+    """Return True iff *value* is a non-bool int or a finite float.
 
-    Motivation: in Python, ``bool`` is a subclass of ``int``, so
-    ``isinstance(True, int)`` is ``True``.  Using ``type(value) in (int, float)``
-    rejects bool without any isinstance special-casing.
+    Design notes
+    ------------
+    * ``bool`` is a subclass of ``int`` in Python, so ``isinstance(True, int)``
+      is ``True``.  We use ``type(value) is int`` / ``type(value) is float``
+      to reject bools without isinstance special-casing.
+    * Python ``int`` has arbitrary precision and is always mathematically
+      finite — there is no "int infinity".  We therefore return ``True``
+      immediately for ``int`` **without calling** ``float(value)``.
+      Calling ``float(big_int)`` risks ``OverflowError`` for very large ints
+      (e.g. values parsed from attacker-controlled JSON), which would turn a
+      schema violation into an uncaught exception / traceback.
+    * For ``float`` we call ``math.isfinite(value)`` directly (no conversion
+      needed) to reject NaN and ±Inf.
     """
-    return type(value) in (int, float) and math.isfinite(float(value))
+    if type(value) is int:
+        return True              # Python ints are always finite
+    if type(value) is float:
+        return math.isfinite(value)
+    return False
+
+
+def _is_rate_in_range(value: object) -> bool:
+    """Return True iff *value* is a finite non-bool number in [0.0, 1.0].
+
+    Uses Python's native cross-type comparison (int vs float) so that
+    ``float(value)`` is never called — a huge int such as ``10**1000`` would
+    raise ``OverflowError`` if passed to ``float()``, but the native
+    comparison ``0.0 <= 10**1000 <= 1.0`` evaluates to ``False`` correctly
+    and without error.
+    """
+    if not _is_finite_number(value):
+        return False
+    return 0.0 <= value <= 1.0  # native int/float cross-type comparison
 
 
 def _is_strict_int(value: object) -> bool:
@@ -181,7 +209,7 @@ def _validate_fitness_schema(fitness: dict) -> list[str]:
                 f"fitness_report.score has wrong type: "
                 f"expected int | float, got {actual!r}"
             )
-        elif not math.isfinite(float(v)):
+        elif not _is_finite_number(v):
             errors.append(
                 f"fitness_report.score must be finite, got {v!r}"
             )
@@ -203,11 +231,11 @@ def _validate_fitness_schema(fitness: dict) -> list[str]:
                     f"fitness_report.{field} has wrong type: "
                     f"expected int | float, got {actual!r}"
                 )
-            elif not math.isfinite(float(v)):
+            elif not _is_finite_number(v):
                 errors.append(
                     f"fitness_report.{field} must be finite, got {v!r}"
                 )
-            elif not (0.0 <= float(v) <= 1.0):
+            elif not (0.0 <= v <= 1.0):
                 errors.append(
                     f"fitness_report.{field} is out of range [0.0, 1.0]: {v!r}"
                 )
@@ -345,7 +373,20 @@ def promote_candidate(
         )
 
     # --- 11. Verify score improvement ---
-    candidate_score: float = float(fitness.get("score", -1e9))
+    # Guard against OverflowError: schema validation accepts any finite int
+    # (Python ints are arbitrary precision), but float() conversion fails for
+    # very large ints.  We treat such a value as unpromotable — it cannot be
+    # meaningfully compared to the genome's float best_score, and storing it
+    # in genome.json (which expects a float) would corrupt the file.
+    try:
+        candidate_score: float = float(fitness.get("score", -1e9))
+    except OverflowError:
+        return _refuse(
+            "fitness_report.score is out of representable float range — "
+            "score value is too large to compare against genome best_score "
+            "or to store in genome.json",
+            as_json,
+        )
     previous_best: float = float(genome_data.get("best_score", -1e9))
     if candidate_score <= previous_best:
         return _refuse(

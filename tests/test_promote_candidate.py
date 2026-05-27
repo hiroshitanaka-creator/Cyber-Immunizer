@@ -1287,3 +1287,215 @@ class TestFitnessSchemaBoolHardening:
                 f"Error must mention field name {field!r} for {field}={bool_val!r}, "
                 f"got: {error_data['error']!r}"
             )
+
+    # ------------------------------------------------------------------
+    # Codex P2: huge-int OverflowError protection
+    # _validate_fitness_schema and promote_candidate must never raise an
+    # uncaught exception when numeric fields contain very large integers
+    # (e.g. 2**10000) parsed from attacker-supplied JSON.
+    # ------------------------------------------------------------------
+
+    _HUGE_INT = 2 ** 10_000  # far exceeds float range (~1.8e308)
+
+    def test_schema_huge_int_score_does_not_raise(self):
+        """_validate_fitness_schema must not raise for score=huge_int.
+
+        Python int is always finite; the new _is_finite_number avoids float()
+        conversion, so no OverflowError is possible inside schema validation.
+        """
+        fitness = _make_valid_fitness()
+        fitness["score"] = self._HUGE_INT
+        # Must not raise — result (error list) may be empty or non-empty
+        try:
+            errors = _validate_fitness_schema(fitness)
+        except Exception as exc:
+            raise AssertionError(
+                f"_validate_fitness_schema raised unexpectedly for score=huge_int: {exc!r}"
+            ) from exc
+
+    def test_schema_huge_int_score_is_valid(self):
+        """score=huge_int passes schema validation (int is finite by definition).
+
+        The OverflowError guard is in promote_candidate step-11 (float conversion),
+        not in schema validation — so schema sees no error here.
+        """
+        fitness = _make_valid_fitness()
+        fitness["score"] = self._HUGE_INT
+        errors = _validate_fitness_schema(fitness)
+        assert not errors, (
+            f"score=huge_int should pass schema validation (int is finite), "
+            f"got errors: {errors}"
+        )
+
+    def test_schema_rejects_huge_int_tp_rate(self):
+        """tp_rate=huge_int must be rejected as out of range [0.0, 1.0].
+
+        No OverflowError — Python's native int/float comparison is used.
+        """
+        fitness = _make_valid_fitness()
+        fitness["tp_rate"] = self._HUGE_INT
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for tp_rate=huge_int"
+        assert any("tp_rate" in e for e in errors), (
+            f"Error must mention 'tp_rate': {errors}"
+        )
+
+    def test_schema_rejects_huge_int_fp_rate(self):
+        """fp_rate=huge_int must be rejected as out of range [0.0, 1.0]."""
+        fitness = _make_valid_fitness()
+        fitness["fp_rate"] = self._HUGE_INT
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for fp_rate=huge_int"
+        assert any("fp_rate" in e for e in errors), (
+            f"Error must mention 'fp_rate': {errors}"
+        )
+
+    def test_schema_rejects_huge_int_fn_rate(self):
+        """fn_rate=huge_int must be rejected as out of range [0.0, 1.0]."""
+        fitness = _make_valid_fitness()
+        fitness["fn_rate"] = self._HUGE_INT
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for fn_rate=huge_int"
+        assert any("fn_rate" in e for e in errors), (
+            f"Error must mention 'fn_rate': {errors}"
+        )
+
+    def test_promote_huge_int_score_no_traceback_json_refusal(self, tmp_path):
+        """promote_candidate --json with score=huge_int must produce JSON refusal.
+
+        Flow:
+        1. Schema validation passes (huge int is finite by definition).
+        2. Step-11 float(score) raises OverflowError — caught, refused cleanly.
+        3. Output is machine-readable JSON with success=false and mentions 'score'.
+        4. No side effects on any files.
+        """
+        candidate = _copy_real_candidate(tmp_path)
+        source = candidate.read_text(encoding="utf-8")
+        h = hashlib.sha256(source.encode()).hexdigest()
+
+        # Write a fitness report with score = 2**10000 (valid JSON big integer)
+        report_data = {
+            "candidate_hash": h,
+            "fitness_report": {
+                "syntax_ok": True,
+                "ast_policy_ok": True,
+                "contract_ok": True,
+                "passed_adoption_gate": True,
+                "score": self._HUGE_INT,
+                "tp_rate": 1.0,
+                "fp_rate": 0.0,
+                "fn_rate": 0.0,
+                "exception_count": 0,
+                "rejection_reasons": [],
+            },
+        }
+        report = tmp_path / "huge_int_score_report.json"
+        report.write_text(json.dumps(report_data))
+
+        genome = _make_isolated_genome(tmp_path, best_score=-1e9)
+        history = _make_isolated_history(tmp_path)
+        readme = _make_isolated_readme(tmp_path)
+        detector_out = _make_isolated_detector_out(tmp_path)
+        original_genome = genome.read_text(encoding="utf-8")
+        original_history = history.read_text(encoding="utf-8")
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            exit_code = promote_candidate(
+                candidate, report, as_json=True,
+                detector_path=detector_out, genome_path=genome,
+                history_path=history, readme_path=readme,
+            )
+        output = buf.getvalue()
+
+        # Must not traceback — output must be valid JSON
+        result = json.loads(output)
+
+        # Must refuse (score overflows float at step-11)
+        assert exit_code != 0, (
+            "promote_candidate must refuse for huge int score (float overflow at step-11)"
+        )
+        assert result["success"] is False
+        assert "error" in result
+        assert isinstance(result["error"], str) and result["error"], (
+            "error field must be a non-empty string"
+        )
+        assert "score" in result["error"], (
+            f"JSON error must mention 'score', got: {result['error']!r}"
+        )
+
+        # No side effects
+        assert not detector_out.exists(), (
+            "detector must not be written when score overflows"
+        )
+        assert genome.read_text(encoding="utf-8") == original_genome, (
+            "genome.json must not be modified when score overflows"
+        )
+        assert history.read_text(encoding="utf-8") == original_history, (
+            "evolution_history.json must not be modified when score overflows"
+        )
+
+    def test_promote_huge_int_rate_no_traceback_no_side_effects(self, tmp_path):
+        """promote_candidate --json with tp_rate=huge_int: schema error, no traceback, no side effects.
+
+        Schema validation rejects huge int tp_rate (out of range [0.0, 1.0])
+        using native Python int/float comparison — no OverflowError.
+        """
+        candidate = _copy_real_candidate(tmp_path)
+        source = candidate.read_text(encoding="utf-8")
+        h = hashlib.sha256(source.encode()).hexdigest()
+
+        report_data = {
+            "candidate_hash": h,
+            "fitness_report": {
+                "syntax_ok": True,
+                "ast_policy_ok": True,
+                "contract_ok": True,
+                "passed_adoption_gate": True,
+                "score": 999.0,
+                "tp_rate": self._HUGE_INT,   # huge int → out of range [0,1]
+                "fp_rate": 0.0,
+                "fn_rate": 0.0,
+                "exception_count": 0,
+                "rejection_reasons": [],
+            },
+        }
+        report = tmp_path / "huge_int_rate_report.json"
+        report.write_text(json.dumps(report_data))
+
+        genome = _make_isolated_genome(tmp_path, best_score=-1e9)
+        history = _make_isolated_history(tmp_path)
+        readme = _make_isolated_readme(tmp_path)
+        detector_out = _make_isolated_detector_out(tmp_path)
+        original_genome = genome.read_text(encoding="utf-8")
+        original_history = history.read_text(encoding="utf-8")
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            exit_code = promote_candidate(
+                candidate, report, as_json=True,
+                detector_path=detector_out, genome_path=genome,
+                history_path=history, readme_path=readme,
+            )
+        output = buf.getvalue()
+
+        # Output must be valid JSON (no traceback)
+        result = json.loads(output)
+
+        # Must refuse at schema validation (tp_rate out of range)
+        assert exit_code != 0, "Must refuse when tp_rate=huge_int (out of range)"
+        assert result["success"] is False
+        assert "tp_rate" in result["error"], (
+            f"Error must mention 'tp_rate', got: {result['error']!r}"
+        )
+
+        # No side effects
+        assert not detector_out.exists(), (
+            "detector must not be written when schema is invalid"
+        )
+        assert genome.read_text(encoding="utf-8") == original_genome, (
+            "genome.json must not be modified when schema is invalid"
+        )
+        assert history.read_text(encoding="utf-8") == original_history, (
+            "evolution_history.json must not be modified when schema is invalid"
+        )
