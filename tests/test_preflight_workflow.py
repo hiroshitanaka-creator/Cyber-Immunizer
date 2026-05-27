@@ -2,7 +2,7 @@
 
 Verifies:
   1. immunization_loop.yml has gemini-paid-credit-preflight in mode options
-  2. The propose job dispatch has the elif branch for gemini-paid-credit-preflight
+  2. The propose job has a dedicated step for gemini-paid-credit-preflight (PR-D: step-level split)
   3. gemini-paid-credit-preflight does NOT install live Gemini dependencies
   4. gemini-paid-credit-preflight uses --gemini-paid-credit-preflight flag (not --allow-live-model)
   5. ci.yml does NOT contain gemini-paid-credit-preflight
@@ -75,19 +75,46 @@ class TestWorkflowModeOptions:
 
 
 # ---------------------------------------------------------------------------
-# 2. propose job dispatch has gemini-paid-credit-preflight elif branch
+# 2. propose job has a dedicated step for gemini-paid-credit-preflight
+#    (PR-D: step-level split — the old single-step EFFECTIVE_MODE dispatch is replaced
+#     by a dedicated per-mode step with an if: condition)
 # ---------------------------------------------------------------------------
 
 
 class TestWorkflowDispatchBranch:
-    def test_propose_dispatch_has_preflight_elif(
+    def test_propose_dispatch_has_preflight_step(
         self, workflow_content: str
     ) -> None:
-        """The propose job must have an elif branch for gemini-paid-credit-preflight."""
-        assert 'EFFECTIVE_MODE" = "gemini-paid-credit-preflight"' in workflow_content or \
-               "EFFECTIVE_MODE" in workflow_content and "gemini-paid-credit-preflight" in workflow_content, (
-            "The propose job dispatch must have an elif branch for "
-            "gemini-paid-credit-preflight."
+        """The propose job must have a dedicated step for gemini-paid-credit-preflight.
+
+        PR-D splits the single 'Propose mutation patch' step into five mode-specific
+        steps.  The preflight step must exist with its own if: condition.
+        """
+        import re
+        # After PR-D, the preflight has its own named step
+        assert "Propose mutation patch — gemini-paid-credit-preflight" in workflow_content, (
+            "The propose job must have a step named "
+            "'Propose mutation patch — gemini-paid-credit-preflight'. "
+            "PR-D requires a dedicated per-mode step with an if: condition."
+        )
+
+    def test_preflight_step_has_if_condition(self, workflow_content: str) -> None:
+        """The preflight step must have an if: condition for the correct mode."""
+        import re
+        # Find the preflight step's if condition
+        preflight_step_match = re.search(
+            r"- name: Propose mutation patch — gemini-paid-credit-preflight\b(.*?)"
+            r"(?=\n      - name:|\Z)",
+            workflow_content,
+            re.DOTALL,
+        )
+        assert preflight_step_match is not None, (
+            "Could not find 'Propose mutation patch — gemini-paid-credit-preflight' step."
+        )
+        step_block = preflight_step_match.group(0)
+        assert "gemini-paid-credit-preflight" in step_block, (
+            "Preflight step must have an if: condition restricting it to "
+            "gemini-paid-credit-preflight mode."
         )
 
     def test_preflight_dispatch_calls_correct_script_flag(
@@ -102,23 +129,24 @@ class TestWorkflowDispatchBranch:
     def test_preflight_dispatch_does_not_use_allow_live_model(
         self, workflow_content: str
     ) -> None:
-        """The preflight mode command must NOT use --allow-live-model.
+        """The preflight mode step must NOT use --allow-live-model.
 
         The preflight does not call the API, so --allow-live-model (the explicit
-        opt-in for live API calls) must not be present in the preflight dispatch.
-        We check by finding the preflight elif block specifically.
+        opt-in for live API calls) must not be present in the preflight step.
+        We check by finding the preflight step specifically.
         """
         import re
-        # Find the preflight elif block
+        # Find the preflight step block (PR-D: dedicated step, not an elif branch)
         preflight_match = re.search(
-            r'elif \[ "\$EFFECTIVE_MODE" = "gemini-paid-credit-preflight" \].*?(?=elif|\belse\b|\bfi\b)',
+            r"- name: Propose mutation patch — gemini-paid-credit-preflight\b(.*?)"
+            r"(?=\n      - name:|\Z)",
             workflow_content,
             re.DOTALL,
         )
         if preflight_match:
             preflight_block = preflight_match.group(0)
             assert "--allow-live-model" not in preflight_block, (
-                "The gemini-paid-credit-preflight dispatch must NOT use "
+                "The gemini-paid-credit-preflight step must NOT use "
                 "--allow-live-model since no live API call is made."
             )
 

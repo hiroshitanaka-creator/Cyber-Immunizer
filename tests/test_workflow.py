@@ -1398,3 +1398,512 @@ class TestRegressionGuardPromoteApproved:
             "REGRESSION: needs.persist-ledger.result (dot notation) found in workflow. "
             "Use needs['persist-ledger'].result (bracket notation) instead."
         )
+
+
+# ---------------------------------------------------------------------------
+# 16. PR-D: Step-level secret scoping — mode-specific propose steps
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def propose_noop_step(propose_section: str) -> str:
+    """Extract the 'Propose mutation patch — noop' step block."""
+    match = re.search(
+        r"- name: Propose mutation patch — noop\b(.*?)(?=\n      - name:|\Z)",
+        propose_section,
+        re.DOTALL,
+    )
+    assert match is not None, (
+        "Could not find 'Propose mutation patch — noop' step in the propose job. "
+        "PR-D requires a dedicated noop step with no GEMINI_API_KEY."
+    )
+    return match.group(0)
+
+
+@pytest.fixture(scope="module")
+def propose_offline_sample_step(propose_section: str) -> str:
+    """Extract the 'Propose mutation patch — offline-sample' step block."""
+    match = re.search(
+        r"- name: Propose mutation patch — offline-sample\b(.*?)(?=\n      - name:|\Z)",
+        propose_section,
+        re.DOTALL,
+    )
+    assert match is not None, (
+        "Could not find 'Propose mutation patch — offline-sample' step. "
+        "PR-D requires a dedicated offline-sample step with no GEMINI_API_KEY."
+    )
+    return match.group(0)
+
+
+@pytest.fixture(scope="module")
+def propose_preflight_step(propose_section: str) -> str:
+    """Extract the 'Propose mutation patch — gemini-paid-credit-preflight' step."""
+    match = re.search(
+        r"- name: Propose mutation patch — gemini-paid-credit-preflight\b(.*?)(?=\n      - name:|\Z)",
+        propose_section,
+        re.DOTALL,
+    )
+    assert match is not None, (
+        "Could not find 'Propose mutation patch — gemini-paid-credit-preflight' step. "
+        "PR-D requires a dedicated preflight step with GEMINI_API_KEY_PRESENT signal."
+    )
+    return match.group(0)
+
+
+@pytest.fixture(scope="module")
+def propose_live_model_step(propose_section: str) -> str:
+    """Extract the 'Propose mutation patch — live-model' step block."""
+    match = re.search(
+        r"- name: Propose mutation patch — live-model\b(.*?)(?=\n      - name:|\Z)",
+        propose_section,
+        re.DOTALL,
+    )
+    assert match is not None, (
+        "Could not find 'Propose mutation patch — live-model' step. "
+        "PR-D requires a dedicated live-model step with GEMINI_API_KEY."
+    )
+    return match.group(0)
+
+
+@pytest.fixture(scope="module")
+def propose_paid_credit_step(propose_section: str) -> str:
+    """Extract the 'Propose mutation patch — gemini-paid-credit' step block.
+
+    Uses a negative-lookahead to exclude the preflight variant so that
+    're.search' does not match 'gemini-paid-credit-preflight'.
+    """
+    match = re.search(
+        r"- name: Propose mutation patch — gemini-paid-credit\n(.*?)(?=\n      - name:|\Z)",
+        propose_section,
+        re.DOTALL,
+    )
+    assert match is not None, (
+        "Could not find 'Propose mutation patch — gemini-paid-credit' step "
+        "(distinct from the preflight variant). "
+        "PR-D requires a dedicated gemini-paid-credit step with GEMINI_API_KEY."
+    )
+    return match.group(0)
+
+
+@pytest.fixture(scope="module")
+def propose_aggregate_step(propose_section: str) -> str:
+    """Extract the 'Aggregate propose outputs' step block."""
+    match = re.search(
+        r"- name: Aggregate propose outputs\b(.*?)(?=\n      - name:|\Z)",
+        propose_section,
+        re.DOTALL,
+    )
+    assert match is not None, (
+        "Could not find 'Aggregate propose outputs' step in the propose job. "
+        "PR-D requires an aggregate step (id: propose) that reads the exit code "
+        "written by the mode-specific steps and emits all four job outputs."
+    )
+    return match.group(0)
+
+
+class TestModeSpecificStepsExist:
+    """Verify all five mode-specific propose steps are present in the workflow."""
+
+    def test_noop_step_exists(self, propose_noop_step: str) -> None:
+        """'Propose mutation patch — noop' step must exist."""
+        assert "Propose mutation patch — noop" in propose_noop_step
+
+    def test_offline_sample_step_exists(self, propose_offline_sample_step: str) -> None:
+        """'Propose mutation patch — offline-sample' step must exist."""
+        assert "Propose mutation patch — offline-sample" in propose_offline_sample_step
+
+    def test_preflight_step_exists(self, propose_preflight_step: str) -> None:
+        """'Propose mutation patch — gemini-paid-credit-preflight' step must exist."""
+        assert "gemini-paid-credit-preflight" in propose_preflight_step
+
+    def test_live_model_step_exists(self, propose_live_model_step: str) -> None:
+        """'Propose mutation patch — live-model' step must exist."""
+        assert "Propose mutation patch — live-model" in propose_live_model_step
+
+    def test_paid_credit_step_exists(self, propose_paid_credit_step: str) -> None:
+        """'Propose mutation patch — gemini-paid-credit' step must exist."""
+        assert "gemini-paid-credit" in propose_paid_credit_step
+
+    def test_aggregate_step_exists(self, propose_aggregate_step: str) -> None:
+        """'Aggregate propose outputs' step must exist."""
+        assert "Aggregate propose outputs" in propose_aggregate_step
+
+
+class TestNonApiModeStepsHaveNoRawApiKey:
+    """Verify noop and offline-sample steps do NOT receive GEMINI_API_KEY (minimum privilege).
+
+    These modes are pure local execution — no API calls are made and no
+    secret is needed.  Injecting GEMINI_API_KEY into these steps would
+    violate the minimum-privilege principle without any functional benefit.
+    """
+
+    def test_noop_step_has_no_gemini_api_key(self, propose_noop_step: str) -> None:
+        """noop step must NOT inject secrets.GEMINI_API_KEY.
+
+        The noop mode runs propose_mutation.py --noop which never calls any
+        external API.  Injecting the API key widens the secret's exposure
+        surface for no benefit.
+        """
+        assert "secrets.GEMINI_API_KEY" not in propose_noop_step, (
+            "noop step must NOT pass secrets.GEMINI_API_KEY. "
+            "noop mode makes no API calls; injecting the key is a minimum-privilege violation."
+        )
+
+    def test_offline_sample_step_has_no_gemini_api_key(
+        self, propose_offline_sample_step: str
+    ) -> None:
+        """offline-sample step must NOT inject secrets.GEMINI_API_KEY.
+
+        offline-sample mode uses a bundled sample — no API call is made.
+        """
+        assert "secrets.GEMINI_API_KEY" not in propose_offline_sample_step, (
+            "offline-sample step must NOT pass secrets.GEMINI_API_KEY. "
+            "offline-sample makes no API calls; injecting the key is a minimum-privilege violation."
+        )
+
+    def test_noop_step_also_has_no_gemini_api_key_present(
+        self, propose_noop_step: str
+    ) -> None:
+        """noop step must NOT inject GEMINI_API_KEY_PRESENT either.
+
+        GEMINI_API_KEY_PRESENT is only needed by the preflight step to signal
+        that the key is configured.  noop mode does not need any API key signal.
+        """
+        assert "GEMINI_API_KEY_PRESENT" not in propose_noop_step, (
+            "noop step must NOT pass GEMINI_API_KEY_PRESENT. "
+            "noop mode has no use for any API key signal."
+        )
+
+    def test_offline_sample_step_also_has_no_gemini_api_key_present(
+        self, propose_offline_sample_step: str
+    ) -> None:
+        """offline-sample step must NOT inject GEMINI_API_KEY_PRESENT either."""
+        assert "GEMINI_API_KEY_PRESENT" not in propose_offline_sample_step, (
+            "offline-sample step must NOT pass GEMINI_API_KEY_PRESENT. "
+            "offline-sample mode has no use for any API key signal."
+        )
+
+
+class TestPreflightStepUsesBooleanSignal:
+    """Verify the preflight step uses GEMINI_API_KEY_PRESENT boolean, NOT raw key.
+
+    The preflight step verifies readiness without calling the Gemini API.
+    It only needs to know WHETHER the key is configured, not its value.
+    Passing GEMINI_API_KEY_PRESENT=true/false keeps the raw secret out of
+    this step while still allowing run_gemini_paid_credit_preflight() to
+    check key presence.
+    """
+
+    def test_preflight_step_has_no_raw_gemini_api_key(
+        self, propose_preflight_step: str
+    ) -> None:
+        """Preflight step must NOT assign secrets.GEMINI_API_KEY as a raw env var.
+
+        The raw key value must be withheld from the preflight step because
+        preflight never calls the Gemini API.  The YAML expression
+        `secrets.GEMINI_API_KEY != '' && 'true' || 'false'` is permitted — it
+        uses the secret only in a boolean comparison, never passing the raw value
+        as an environment variable.  Only the direct assignment pattern
+        `GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}` is forbidden.
+        """
+        # The forbidden pattern is a direct assignment of the raw key value.
+        # The permitted pattern is a boolean expression that compares the key.
+        assert "GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}" not in propose_preflight_step, (
+            "Preflight step must NOT assign 'GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}'. "
+            "Preflight never calls the Gemini API; only the boolean existence "
+            "signal GEMINI_API_KEY_PRESENT is needed."
+        )
+
+    def test_preflight_step_has_gemini_api_key_present_signal(
+        self, propose_preflight_step: str
+    ) -> None:
+        """Preflight step must inject GEMINI_API_KEY_PRESENT as a boolean signal.
+
+        run_gemini_paid_credit_preflight() checks GEMINI_API_KEY_PRESENT to
+        determine whether the API key is configured, without receiving its value.
+        """
+        assert "GEMINI_API_KEY_PRESENT" in propose_preflight_step, (
+            "Preflight step must pass GEMINI_API_KEY_PRESENT boolean signal. "
+            "run_gemini_paid_credit_preflight() uses this to confirm key presence "
+            "without receiving the raw secret value."
+        )
+
+    def test_preflight_step_gemini_api_key_present_is_boolean_expression(
+        self, propose_preflight_step: str
+    ) -> None:
+        """GEMINI_API_KEY_PRESENT must be set via a GitHub expression that yields 'true'/'false'.
+
+        The pattern `secrets.GEMINI_API_KEY != '' && 'true' || 'false'` evaluates
+        to the string 'true' when the secret is set, 'false' when it is not —
+        without exposing the actual key value.
+        """
+        # Check for the key presence check expression pattern
+        assert (
+            "secrets.GEMINI_API_KEY != ''" in propose_preflight_step
+            or "secrets.GEMINI_API_KEY != \"\"" in propose_preflight_step
+        ), (
+            "GEMINI_API_KEY_PRESENT must be set using a GitHub expression that checks "
+            "secrets.GEMINI_API_KEY != '' to produce a 'true'/'false' boolean signal, "
+            "rather than passing the raw key value."
+        )
+
+
+class TestApiModeStepsHaveRawApiKey:
+    """Verify live-model and gemini-paid-credit steps DO receive GEMINI_API_KEY.
+
+    These modes call the Gemini API and therefore need the raw key.
+    """
+
+    def test_live_model_step_has_gemini_api_key(
+        self, propose_live_model_step: str
+    ) -> None:
+        """live-model step must inject secrets.GEMINI_API_KEY.
+
+        live-model mode calls _propose_via_live_model which requires the API key.
+        """
+        assert "secrets.GEMINI_API_KEY" in propose_live_model_step, (
+            "live-model step must pass secrets.GEMINI_API_KEY. "
+            "The Gemini API call requires the raw key to be present."
+        )
+
+    def test_paid_credit_step_has_gemini_api_key(
+        self, propose_paid_credit_step: str
+    ) -> None:
+        """gemini-paid-credit step must inject secrets.GEMINI_API_KEY.
+
+        gemini-paid-credit mode calls _propose_via_gemini_paid_credit which
+        requires the API key.
+        """
+        assert "secrets.GEMINI_API_KEY" in propose_paid_credit_step, (
+            "gemini-paid-credit step must pass secrets.GEMINI_API_KEY. "
+            "The Gemini API call requires the raw key to be present."
+        )
+
+
+class TestModeStepsHaveCorrectIfConditions:
+    """Verify each mode step has the correct if: condition to restrict execution.
+
+    Without if: conditions, all mode steps would run for every mode, resulting
+    in multiple propose attempts per job run.
+    """
+
+    def test_noop_step_if_condition(self, propose_noop_step: str) -> None:
+        """noop step must only run when effective_mode == 'noop'."""
+        assert "effective_mode == 'noop'" in propose_noop_step or \
+               'effective_mode == "noop"' in propose_noop_step, (
+            "noop step must have if: condition checking effective_mode == 'noop'."
+        )
+
+    def test_offline_sample_step_if_condition(
+        self, propose_offline_sample_step: str
+    ) -> None:
+        """offline-sample step must only run when effective_mode == 'offline-sample'."""
+        assert "effective_mode == 'offline-sample'" in propose_offline_sample_step or \
+               'effective_mode == "offline-sample"' in propose_offline_sample_step, (
+            "offline-sample step must have if: condition for effective_mode == 'offline-sample'."
+        )
+
+    def test_preflight_step_if_condition(self, propose_preflight_step: str) -> None:
+        """preflight step must only run when effective_mode == 'gemini-paid-credit-preflight'."""
+        assert (
+            "effective_mode == 'gemini-paid-credit-preflight'" in propose_preflight_step
+            or 'effective_mode == "gemini-paid-credit-preflight"' in propose_preflight_step
+        ), (
+            "preflight step must have if: condition for "
+            "effective_mode == 'gemini-paid-credit-preflight'."
+        )
+
+    def test_live_model_step_if_condition(self, propose_live_model_step: str) -> None:
+        """live-model step must only run when effective_mode == 'live-model'."""
+        assert "effective_mode == 'live-model'" in propose_live_model_step or \
+               'effective_mode == "live-model"' in propose_live_model_step, (
+            "live-model step must have if: condition for effective_mode == 'live-model'."
+        )
+
+    def test_paid_credit_step_if_condition(self, propose_paid_credit_step: str) -> None:
+        """gemini-paid-credit step must only run when mode == 'gemini-paid-credit'."""
+        assert (
+            "effective_mode == 'gemini-paid-credit'" in propose_paid_credit_step
+            or 'effective_mode == "gemini-paid-credit"' in propose_paid_credit_step
+        ), (
+            "gemini-paid-credit step must have if: condition for "
+            "effective_mode == 'gemini-paid-credit'."
+        )
+
+
+class TestAggregateStepStructure:
+    """Verify the Aggregate propose outputs step (id: propose) has the correct structure.
+
+    The aggregate step reads the exit code written by the mode step and emits
+    all four job outputs (patch_exists, ledger_changed, propose_exit_code,
+    propose_failed) unconditionally.
+    """
+
+    def test_aggregate_step_has_id_propose(self, propose_aggregate_step: str) -> None:
+        """Aggregate step must have id: propose.
+
+        Downstream steps reference the propose step outputs via
+        steps.propose.outputs.*, which requires id: propose on this step.
+        """
+        assert "id: propose" in propose_aggregate_step, (
+            "Aggregate step must have 'id: propose' so downstream steps can "
+            "reference steps.propose.outputs.patch_exists, ledger_changed, etc."
+        )
+
+    def test_aggregate_step_reads_exit_code_from_file(
+        self, propose_aggregate_step: str
+    ) -> None:
+        """Aggregate step must read propose_exit_code from the file written by mode steps."""
+        assert "propose_exit_code" in propose_aggregate_step, (
+            "Aggregate step must read .cyber_immunizer/propose_exit_code "
+            "written by the mode-specific step."
+        )
+
+    def test_aggregate_step_has_fallback_for_missing_exit_code_file(
+        self, propose_aggregate_step: str
+    ) -> None:
+        """Aggregate step must have a fallback default when the exit code file is absent."""
+        # The fallback should set PROPOSE_EXIT=1 if the file doesn't exist
+        assert "PROPOSE_EXIT=1" in propose_aggregate_step, (
+            "Aggregate step must fall back to PROPOSE_EXIT=1 when the exit code "
+            "file is absent (unexpected — no mode step ran)."
+        )
+
+    def test_aggregate_step_sets_all_four_outputs(
+        self, propose_aggregate_step: str
+    ) -> None:
+        """Aggregate step must set all four job outputs."""
+        for output_name in ("patch_exists", "ledger_changed", "propose_exit_code", "propose_failed"):
+            assert output_name in propose_aggregate_step, (
+                f"Aggregate step must set '{output_name}' in GITHUB_OUTPUT."
+            )
+
+    def test_aggregate_step_has_no_gemini_api_key(
+        self, propose_aggregate_step: str
+    ) -> None:
+        """Aggregate step must NOT inject GEMINI_API_KEY.
+
+        The aggregate step only reads the exit code and computes outputs —
+        it never calls any API.  Injecting a key here would violate minimum-privilege.
+        """
+        assert "secrets.GEMINI_API_KEY" not in propose_aggregate_step, (
+            "Aggregate step must NOT pass secrets.GEMINI_API_KEY. "
+            "This step only reads exit code and computes outputs."
+        )
+
+
+class TestModeStepsWriteExitCodeToFile:
+    """Verify each mode step writes its exit code to .cyber_immunizer/propose_exit_code."""
+
+    def test_noop_step_writes_exit_code(self, propose_noop_step: str) -> None:
+        """noop step must write PROPOSE_EXIT to .cyber_immunizer/propose_exit_code."""
+        assert "propose_exit_code" in propose_noop_step, (
+            "noop step must write its exit code to .cyber_immunizer/propose_exit_code "
+            "so the Aggregate step can read it."
+        )
+
+    def test_offline_sample_step_writes_exit_code(
+        self, propose_offline_sample_step: str
+    ) -> None:
+        """offline-sample step must write PROPOSE_EXIT to propose_exit_code file."""
+        assert "propose_exit_code" in propose_offline_sample_step, (
+            "offline-sample step must write its exit code to the propose_exit_code file."
+        )
+
+    def test_preflight_step_writes_exit_code(self, propose_preflight_step: str) -> None:
+        """preflight step must write PROPOSE_EXIT to propose_exit_code file."""
+        assert "propose_exit_code" in propose_preflight_step, (
+            "preflight step must write its exit code to the propose_exit_code file."
+        )
+
+    def test_live_model_step_writes_exit_code(self, propose_live_model_step: str) -> None:
+        """live-model step must write PROPOSE_EXIT to propose_exit_code file."""
+        assert "propose_exit_code" in propose_live_model_step, (
+            "live-model step must write its exit code to the propose_exit_code file."
+        )
+
+    def test_paid_credit_step_writes_exit_code(self, propose_paid_credit_step: str) -> None:
+        """gemini-paid-credit step must write PROPOSE_EXIT to propose_exit_code file."""
+        assert "propose_exit_code" in propose_paid_credit_step, (
+            "gemini-paid-credit step must write its exit code to the propose_exit_code file."
+        )
+
+
+class TestModeStepsUseSetPlusE:
+    """Verify all mode-specific steps use set +e to capture exit codes without aborting."""
+
+    def test_noop_step_uses_set_plus_e(self, propose_noop_step: str) -> None:
+        """noop step must use set +e."""
+        assert "set +e" in propose_noop_step
+
+    def test_offline_sample_step_uses_set_plus_e(
+        self, propose_offline_sample_step: str
+    ) -> None:
+        """offline-sample step must use set +e."""
+        assert "set +e" in propose_offline_sample_step
+
+    def test_preflight_step_uses_set_plus_e(self, propose_preflight_step: str) -> None:
+        """preflight step must use set +e."""
+        assert "set +e" in propose_preflight_step
+
+    def test_live_model_step_uses_set_plus_e(self, propose_live_model_step: str) -> None:
+        """live-model step must use set +e."""
+        assert "set +e" in propose_live_model_step
+
+    def test_paid_credit_step_uses_set_plus_e(self, propose_paid_credit_step: str) -> None:
+        """gemini-paid-credit step must use set +e."""
+        assert "set +e" in propose_paid_credit_step
+
+
+class TestStepLevelSecretScopingRegressionGuards:
+    """Regression guards ensuring PR-D minimum-privilege invariants remain intact."""
+
+    def test_no_job_level_gemini_api_key_env_block(
+        self, propose_section: str
+    ) -> None:
+        """The propose job must NOT have a job-level env block with GEMINI_API_KEY.
+
+        After PR-D, GEMINI_API_KEY is injected at step level only (live-model
+        and gemini-paid-credit steps).  A job-level env block would reintroduce
+        the minimum-privilege violation that PR-D fixes.
+        """
+        # A job-level env: block would appear BEFORE the first step (i.e., before
+        # 'steps:').  We check that GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        # does not appear in the job preamble (before 'steps:').
+        steps_pos = propose_section.find("    steps:")
+        if steps_pos == -1:
+            steps_pos = propose_section.find("steps:")
+        preamble = propose_section[:steps_pos] if steps_pos != -1 else ""
+        assert "GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}" not in preamble, (
+            "GEMINI_API_KEY must NOT appear in a job-level env: block in the propose job. "
+            "PR-D requires step-level scoping only."
+        )
+
+    def test_gemini_api_key_absent_from_non_api_steps_in_propose(
+        self, propose_noop_step: str, propose_offline_sample_step: str
+    ) -> None:
+        """noop and offline-sample steps must not have secrets.GEMINI_API_KEY.
+
+        Regression guard: verifies PR-D minimum-privilege is not reverted.
+        """
+        assert "secrets.GEMINI_API_KEY" not in propose_noop_step, (
+            "REGRESSION: secrets.GEMINI_API_KEY appeared in noop step."
+        )
+        assert "secrets.GEMINI_API_KEY" not in propose_offline_sample_step, (
+            "REGRESSION: secrets.GEMINI_API_KEY appeared in offline-sample step."
+        )
+
+    def test_gemini_api_key_present_only_in_api_steps(
+        self, propose_live_model_step: str, propose_paid_credit_step: str
+    ) -> None:
+        """live-model and gemini-paid-credit steps must retain secrets.GEMINI_API_KEY.
+
+        Regression guard: verifies API steps were not accidentally stripped of
+        the key they need.
+        """
+        assert "secrets.GEMINI_API_KEY" in propose_live_model_step, (
+            "REGRESSION: secrets.GEMINI_API_KEY was removed from live-model step."
+        )
+        assert "secrets.GEMINI_API_KEY" in propose_paid_credit_step, (
+            "REGRESSION: secrets.GEMINI_API_KEY was removed from gemini-paid-credit step."
+        )

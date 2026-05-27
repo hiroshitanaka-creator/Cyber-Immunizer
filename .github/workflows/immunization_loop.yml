@@ -39,17 +39,20 @@ jobs:
   # -----------------------------------------------------------------------
   # Job 1: PROPOSE
   # Runs the mutation proposer (noop / offline sample / live model / paid).
-  # Has read-only permissions and may receive GEMINI_API_KEY.
+  # Has read-only permissions.  GEMINI_API_KEY is scoped at step level
+  # (minimum privilege — PR-D):
+  #   noop, offline-sample           — no API key injected
+  #   gemini-paid-credit-preflight   — GEMINI_API_KEY_PRESENT boolean only
+  #   live-model, gemini-paid-credit — raw GEMINI_API_KEY
+  # GEMINI_API_KEY is intentionally absent from ALL other jobs.
   # Does NOT execute candidate code.
-  # GEMINI_API_KEY is scoped to this job only; absent from ALL other jobs.
   #
-  # The "Propose mutation patch" step uses set +e so that a non-zero exit
-  # from propose_mutation.py does NOT immediately abort the step.  This
-  # allows ledger_changed detection and artifact upload to run even when
-  # patch generation fails (e.g., schema validation rejects the LLM output
-  # after the API call already updated the ledger).  The propose failure is
-  # surfaced by the finalize-propose-status job AFTER persist-ledger
-  # completes, keeping the budget cap fail-closed.
+  # Each mode step uses set +e to capture exit code without aborting, then
+  # writes the exit code to .cyber_immunizer/propose_exit_code.  The
+  # "Aggregate propose outputs" step (id: propose) reads that file and emits
+  # all job outputs unconditionally so ledger_changed detection and artifact
+  # upload always run.  The finalize-propose-status job surfaces failures
+  # after persist-ledger completes, keeping the budget cap fail-closed.
   # -----------------------------------------------------------------------
   propose:
     name: Propose Mutation
@@ -102,44 +105,73 @@ jobs:
             echo "checksum=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Propose mutation patch
-        id: propose
-        env:
-          # GEMINI_API_KEY is only present in the propose job.
-          # It is intentionally absent from ALL other jobs.
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          EFFECTIVE_MODE: ${{ steps.mode.outputs.effective_mode }}
+      # --- Step-level secret scoping (PR-D: minimum-privilege) ---
+      # Each mode step writes its propose_mutation.py exit code to
+      # .cyber_immunizer/propose_exit_code.  The Aggregate step (id: propose)
+      # reads that file and emits all four job outputs unconditionally.
+
+      - name: Propose mutation patch — noop
+        if: steps.mode.outputs.effective_mode == 'noop'
         run: |
-          # set +e: disable automatic exit on non-zero.
-          # This is intentional — propose_mutation.py may fail AFTER the API
-          # call has already updated the ledger.  We must not exit here;
-          # instead we capture the exit code and let ledger_changed detection
-          # and artifact upload run unconditionally.  The finalize-propose-status
-          # job will surface the failure once persist-ledger is complete.
+          # set +e: propose_mutation.py exit code is captured explicitly.
           set +e
-          if [ "$EFFECTIVE_MODE" = "noop" ]; then
-            python scripts/propose_mutation.py --noop --json
-            PROPOSE_EXIT=$?
-          elif [ "$EFFECTIVE_MODE" = "offline-sample" ]; then
-            python scripts/propose_mutation.py --offline-sample --json
-            PROPOSE_EXIT=$?
-          elif [ "$EFFECTIVE_MODE" = "live-model" ]; then
-            python scripts/propose_mutation.py --live-model --allow-live-model --json
-            PROPOSE_EXIT=$?
-          elif [ "$EFFECTIVE_MODE" = "gemini-paid-credit" ]; then
-            python scripts/propose_mutation.py --gemini-paid-credit --allow-live-model --json
-            PROPOSE_EXIT=$?
-          elif [ "$EFFECTIVE_MODE" = "gemini-paid-credit-preflight" ]; then
-            # Preflight: verify readiness without calling the Gemini API.
-            # No API call is made; no patch is generated; ledger is not written.
-            # GEMINI_API_KEY is present in this job (for existence check only).
-            python scripts/propose_mutation.py --gemini-paid-credit-preflight --json
-            PROPOSE_EXIT=$?
+          python scripts/propose_mutation.py --noop --json
+          PROPOSE_EXIT=$?
+          echo "$PROPOSE_EXIT" > .cyber_immunizer/propose_exit_code
+
+      - name: Propose mutation patch — offline-sample
+        if: steps.mode.outputs.effective_mode == 'offline-sample'
+        run: |
+          set +e
+          python scripts/propose_mutation.py --offline-sample --json
+          PROPOSE_EXIT=$?
+          echo "$PROPOSE_EXIT" > .cyber_immunizer/propose_exit_code
+
+      - name: Propose mutation patch — gemini-paid-credit-preflight
+        if: steps.mode.outputs.effective_mode == 'gemini-paid-credit-preflight'
+        env:
+          # Only a boolean existence signal is passed — the raw key value is
+          # intentionally withheld.  run_gemini_paid_credit_preflight() accepts
+          # GEMINI_API_KEY_PRESENT=true as proof the key is configured in
+          # GitHub Secrets, without exposing the secret to a step that never
+          # calls the Gemini API.
+          GEMINI_API_KEY_PRESENT: ${{ secrets.GEMINI_API_KEY != '' && 'true' || 'false' }}
+        run: |
+          set +e
+          python scripts/propose_mutation.py --gemini-paid-credit-preflight --json
+          PROPOSE_EXIT=$?
+          echo "$PROPOSE_EXIT" > .cyber_immunizer/propose_exit_code
+
+      - name: Propose mutation patch — live-model
+        if: steps.mode.outputs.effective_mode == 'live-model'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set +e
+          python scripts/propose_mutation.py --live-model --allow-live-model --json
+          PROPOSE_EXIT=$?
+          echo "$PROPOSE_EXIT" > .cyber_immunizer/propose_exit_code
+
+      - name: Propose mutation patch — gemini-paid-credit
+        if: steps.mode.outputs.effective_mode == 'gemini-paid-credit'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set +e
+          python scripts/propose_mutation.py --gemini-paid-credit --allow-live-model --json
+          PROPOSE_EXIT=$?
+          echo "$PROPOSE_EXIT" > .cyber_immunizer/propose_exit_code
+
+      - name: Aggregate propose outputs
+        id: propose
+        run: |
+          # Read the exit code written by the mode step above.
+          # Default to 1 if the file is absent (unexpected — no mode step ran).
+          if [ -f ".cyber_immunizer/propose_exit_code" ]; then
+            PROPOSE_EXIT=$(cat .cyber_immunizer/propose_exit_code)
           else
-            echo "Unknown mode: $EFFECTIVE_MODE" >&2
             PROPOSE_EXIT=1
           fi
-          set -e
 
           # patch_exists — checked even when propose fails
           if [ -f ".cyber_immunizer/mutation_patch.json" ]; then
