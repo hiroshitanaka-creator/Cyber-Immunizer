@@ -40,7 +40,6 @@ _CHECKPOINT = _PROJECT_ROOT / "docs" / "PHASE_2_COMPLETION_CHECKPOINT.md"
 _README = _PROJECT_ROOT / "README.md"
 _PHASE2_PLAN = _PROJECT_ROOT / "docs" / "PHASE_2_PLAN.md"
 _API_RUNBOOK = _PROJECT_ROOT / "docs" / "API_ACTIVATION_RUNBOOK.md"
-_WORKFLOW = _PROJECT_ROOT / ".github" / "workflows" / "immunization_loop.yml"
 
 
 # ---------------------------------------------------------------------------
@@ -1618,172 +1617,198 @@ class TestCritical1PrePhase3HardeningPR:
                     f"as '| Covered |'. Got: {line!r}"
                 )
 
-
 # ---------------------------------------------------------------------------
-# 12. Workflow-level enforcement of promote_approved gate — Critical #1
+# 12. Critical #1 recorded correctly in checkpoint — docs-only verification
 #
-#     These tests inspect immunization_loop.yml using TEXT/REGEX (no YAML
-#     parser required — consistent with tests/test_workflow.py) and assert
-#     that the promote job is gated on an explicit Human Owner approval input.
+#     PR #29 is PR-A: Phase 2 completion checkpoint hardening.
+#     It does NOT implement Critical #1 (promote_approved gate in workflow).
+#     It MUST NOT contain xfail workflow-enforcement tests that silently
+#     accept an unresolved Critical issue.
 #
-#     ALL tests in this class are marked xfail(strict=True) because
-#     Critical #1 has NOT been fixed yet.  They will XFAIL now (CI passes)
-#     and become XPASS once the dedicated pre-Phase-3 hardening PR adds the
-#     gate (strict=True makes XPASS → CI failure, signalling that the
-#     xfail markers must be removed).
-#
-#     What the hardening PR must add to immunization_loop.yml:
-#       on.workflow_dispatch.inputs.promote_approved:
-#         required: false
-#         default: 'false'
-#         type: choice
-#         options: ['false', 'true']
-#       jobs.promote.if must include:
-#         github.event_name == 'workflow_dispatch'
-#         github.event.inputs.promote_approved == 'true'
+#     These tests verify only that docs/PHASE_2_COMPLETION_CHECKPOINT.md
+#     correctly DOCUMENTS Critical #1 as unresolved:
+#       - explicitly named as "Critical #1"
+#       - promote approval rows marked "Not enforced" in Traceability Matrix
+#       - separated into "Documented but Not Yet Workflow-Enforced" section
+#       - Known Phase 3 Blockers contains Critical #1 description
+#       - dedicated pre-Phase-3 hardening PR required before Phase 3 activation PR
+#       - Phase 3 must not start until Critical #1 is fixed
 # ---------------------------------------------------------------------------
 
 
-def _extract_workflow_dispatch_inputs_block(wf_text: str) -> str:
-    """Return the text of the workflow_dispatch inputs block (text-based, no YAML parser).
+class TestCritical1DocumentedAsUnresolved:
+    """Verify that PHASE_2_COMPLETION_CHECKPOINT.md correctly records Critical #1
+    as an unresolved blocker requiring a dedicated pre-Phase-3 hardening PR.
 
-    Extracts from 'workflow_dispatch:' up to the next same-level trigger key
-    (e.g. 'schedule:') so callers can do simple substring checks.
-    Returns empty string if not found.
+    PR-A (PR #29) is a checkpoint hardening PR only — it does NOT implement
+    the promote_approved gate.  These are plain passing tests that verify the
+    documentation accurately reflects the unresolved state.  No xfail.
     """
-    match = re.search(
-        r"(  workflow_dispatch:.*?)(?=\n  \w)",
-        wf_text,
-        re.DOTALL,
-    )
-    return match.group(1) if match else ""
-
-
-def _extract_promote_job_block(wf_text: str) -> str:
-    """Return the text of the promote job block (text-based, no YAML parser).
-
-    Extracts from '  promote:' up to the next same-level job key.
-    Returns empty string if not found.
-    """
-    match = re.search(
-        r"(  promote:.*?)(?=\n  [a-zA-Z][\w-]+:\n|\Z)",
-        wf_text,
-        re.DOTALL,
-    )
-    return match.group(1) if match else ""
-
-
-class TestWorkflowPromoteApprovedGateEnforced:
-    """Inspect immunization_loop.yml (text/regex, no YAML parser) for promote_approved gate.
-
-    Text-based inspection is consistent with tests/test_workflow.py, which
-    explicitly avoids a YAML parser dependency for robustness.
-
-    All tests are xfail(strict=True).  They currently FAIL because Critical #1
-    has not been fixed (the gate does not exist in the workflow).  Once the
-    dedicated pre-Phase-3 hardening PR adds the gate:
-      - Tests will PASS  →  XPASS  →  CI fails (strict=True)
-      - Developer must remove xfail markers to acknowledge the fix
-
-    This design makes the unsafe state VISIBLE: CI only stays green because
-    the failure is EXPECTED.  Adding the gate without removing the markers
-    would break CI, forcing an explicit acknowledgement of the fix.
-    """
-
-    pytestmark = pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Critical #1: promote_approved gate not yet added to immunization_loop.yml. "
-            "Fix required in dedicated pre-Phase-3 hardening PR before any Phase 3 "
-            "activation PR is opened or merged."
-        ),
-    )
 
     @pytest.fixture(autouse=True)
     def _load(self) -> None:
-        assert _WORKFLOW.exists(), f"Workflow file not found: {_WORKFLOW}"
-        wf_text = _WORKFLOW.read_text(encoding="utf-8")
-        self._wd_inputs_block: str = _extract_workflow_dispatch_inputs_block(wf_text)
-        self._promote_block: str = _extract_promote_job_block(wf_text)
+        assert _CHECKPOINT.exists()
+        self.content = _CHECKPOINT.read_text(encoding="utf-8")
 
-    def test_workflow_dispatch_has_promote_approved_input(self) -> None:
-        """workflow_dispatch inputs must include a 'promote_approved:' key.
-
-        Without this input, there is no way for Human Owner to explicitly
-        approve promotion at workflow_dispatch invocation time.
-        """
-        assert "promote_approved:" in self._wd_inputs_block, (
-            "immunization_loop.yml workflow_dispatch inputs must include "
-            "'promote_approved:' (required: false, default: 'false', type: choice). "
-            "Critical #1: this input is currently absent. "
-            f"workflow_dispatch block: {self._wd_inputs_block!r}"
+    def test_checkpoint_names_critical1(self) -> None:
+        """PHASE_2_COMPLETION_CHECKPOINT.md must explicitly name 'Critical #1'."""
+        assert "Critical #1" in self.content, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must name 'Critical #1' "
+            "(promote_approved gate not yet in immunization_loop.yml)"
         )
 
-    def test_promote_approved_input_defaults_to_false_not_true(self) -> None:
-        """promote_approved input must have 'default: false' (or 'false'), NOT 'true'.
+    def test_promote_human_owner_row_is_not_enforced_not_covered(self) -> None:
+        """Traceability Matrix row for 'promote requires Human Owner approval' must
+        be 'Not enforced', NOT 'Covered'."""
+        for line in self.content.splitlines():
+            if (
+                "promote requires human owner approval" in line.lower()
+                and line.strip().startswith("|")
+            ):
+                assert "| Covered |" not in line, (
+                    "Traceability Matrix row 'promote requires Human Owner approval' "
+                    "must NOT be '| Covered |' — Critical #1 means it is not yet "
+                    f"workflow-enforced. Got: {line!r}"
+                )
+                assert "Not enforced" in line or "Not yet" in line or "blocked" in line.lower(), (
+                    "Traceability Matrix row 'promote requires Human Owner approval' "
+                    f"must say 'Not enforced' or 'blocked'. Got: {line!r}"
+                )
 
-        A default of 'true' would silently enable promotion on every
-        workflow_dispatch invocation without explicit Human Owner intent.
-        """
-        # Extract the promote_approved sub-block within the inputs section
-        pa_match = re.search(
-            r"promote_approved:.*?(?=\n      \w|\Z)",
-            self._wd_inputs_block,
-            re.DOTALL,
+    def test_promote_gpt_audit_gate_row_is_not_enforced_not_covered(self) -> None:
+        """Traceability Matrix row for 'promote requires GPT Audit Gate APPROVE' must
+        be 'Not enforced', NOT 'Covered'."""
+        for line in self.content.splitlines():
+            if (
+                "promote requires gpt audit gate" in line.lower()
+                and line.strip().startswith("|")
+            ):
+                assert "| Covered |" not in line, (
+                    "Traceability Matrix row 'promote requires GPT Audit Gate APPROVE' "
+                    "must NOT be '| Covered |' — Critical #1 means it is not yet "
+                    f"workflow-enforced. Got: {line!r}"
+                )
+                assert "Not enforced" in line or "Not yet" in line or "blocked" in line.lower(), (
+                    "Traceability Matrix row 'promote requires GPT Audit Gate APPROVE' "
+                    f"must say 'Not enforced' or 'blocked'. Got: {line!r}"
+                )
+
+    def test_documented_not_enforced_section_has_promote_approval(self) -> None:
+        """'Documented but Not Yet Workflow-Enforced Invariants' subsection must
+        contain promote approval items."""
+        not_enforced = _extract_section(self.content, "Documented but Not Yet Workflow-Enforced")
+        assert not_enforced, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must have a "
+            "'Documented but Not Yet Workflow-Enforced Invariants' subsection"
         )
-        assert pa_match is not None, (
-            "'promote_approved:' not found in workflow_dispatch inputs block. "
-            "Critical #1: this input is currently absent."
+        section_lower = not_enforced.lower()
+        assert "promote requires human owner approval" in section_lower, (
+            "'Documented but Not Yet Workflow-Enforced' subsection must list "
+            "'promote requires Human Owner approval'"
         )
-        pa_block = pa_match.group(0).lower()
+        assert "promote requires gpt audit gate" in section_lower, (
+            "'Documented but Not Yet Workflow-Enforced' subsection must list "
+            "'promote requires GPT Audit Gate APPROVE'"
+        )
+
+    def test_known_phase3_blockers_contains_critical1(self) -> None:
+        """Known Phase 3 Blockers section must contain Critical #1."""
+        blockers = _extract_section(self.content, "Known Phase 3 Blockers")
+        assert blockers, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must have a 'Known Phase 3 Blockers' section"
+        )
+        assert "Critical #1" in blockers, (
+            "Known Phase 3 Blockers must contain 'Critical #1'"
+        )
+
+    def test_critical1_requires_dedicated_pre_phase3_hardening_pr_in_blockers(self) -> None:
+        """Known Phase 3 Blockers must state Critical #1 must be fixed in a
+        dedicated pre-Phase-3 hardening PR before any Phase 3 activation PR."""
+        content_lower = self.content.lower()
         assert (
-            "default: 'false'" in pa_block
-            or 'default: "false"' in pa_block
-            or "default: false" in pa_block
+            "dedicated pre-phase-3 hardening pr" in content_lower
         ), (
-            "promote_approved input must specify 'default: false' (or 'false'). "
-            f"promote_approved block: {pa_block!r}. "
-            "Critical #1: this input is currently absent (no default found)."
+            "PHASE_2_COMPLETION_CHECKPOINT.md must state Critical #1 must be fixed in a "
+            "'dedicated pre-Phase-3 hardening PR'"
         )
         assert (
-            "default: 'true'" not in pa_block
-            and 'default: "true"' not in pa_block
-            and "default: true" not in pa_block
+            "before any phase 3 activation pr" in content_lower
         ), (
-            "promote_approved input must NOT default to 'true'. "
-            "A default of 'true' enables promotion without explicit Human Owner approval."
+            "PHASE_2_COMPLETION_CHECKPOINT.md must state the hardening PR must complete "
+            "'before any Phase 3 activation PR is opened or merged'"
         )
 
-    def test_promote_job_if_requires_promote_approved_true(self) -> None:
-        """promote job 'if' condition must gate on promote_approved == 'true'.
-
-        Without this check, the promote job can execute whenever the adoption
-        gate passes, regardless of Human Owner intent.
-        """
+    def test_critical1_must_not_be_deferred_into_phase3_activation_pr(self) -> None:
+        """Checkpoint must explicitly state blockers must NOT be deferred into
+        the Phase 3 activation PR."""
+        content_lower = self.content.lower()
         assert (
-            "inputs.promote_approved == 'true'" in self._promote_block
-            or "inputs.promote_approved == \"true\"" in self._promote_block
+            "must not be deferred into the phase 3 activation pr" in content_lower
         ), (
-            "promote job 'if' condition must include "
-            "github.event.inputs.promote_approved == 'true'. "
-            "Critical #1: this gate is currently absent. "
-            f"promote block if section: {self._promote_block[:300]!r}"
+            "PHASE_2_COMPLETION_CHECKPOINT.md must state "
+            "'MUST NOT be deferred into the Phase 3 activation PR'"
         )
 
-    def test_promote_job_if_prevents_schedule_triggered_promotion(self) -> None:
-        """promote job 'if' must require workflow_dispatch event to prevent schedule promote.
-
-        The workflow has a daily schedule trigger (cron).  Without an explicit
-        event_name check, a schedule run where evaluation passes could trigger
-        the promote job, bypassing Human Owner approval entirely.
-        """
+    def test_phase3_must_not_start_until_critical1_is_fixed(self) -> None:
+        """Checkpoint must state Phase 3 must not start until Critical #1 is fixed."""
+        content_lower = self.content.lower()
         assert (
-            "github.event_name == 'workflow_dispatch'" in self._promote_block
-            or "github.event_name == \"workflow_dispatch\"" in self._promote_block
+            "phase 3 must not start until critical #1 is fixed" in content_lower
+            or (
+                "phase 3 must not start" in content_lower
+                and "critical #1" in content_lower
+            )
         ), (
-            "promote job 'if' condition must require "
-            "github.event_name == 'workflow_dispatch' to prevent schedule-triggered "
-            "promotion. "
-            "Critical #1: this guard is currently absent. "
-            f"promote block if section: {self._promote_block[:300]!r}"
+            "PHASE_2_COMPLETION_CHECKPOINT.md must state "
+            "'Phase 3 must not start until Critical #1 is fixed'"
         )
+
+    def test_phase3_activation_pr_may_proceed_only_after_gate_enforced_and_audited(self) -> None:
+        """Checkpoint must state Phase 3 activation PR may proceed only after
+        the promote gate is already enforced and audited."""
+        content_lower = self.content.lower()
+        assert (
+            "already enforced and audited" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must state the promote gate must be "
+            "'already enforced and audited' before Phase 3 activation PR"
+        )
+
+    # --- Regression guards: forbidden phrases ---
+
+    def test_rejects_promote_approval_covered_in_matrix(self) -> None:
+        """No Traceability Matrix row may mark promote approval as '| Covered |'."""
+        for line in self.content.splitlines():
+            line_lower = line.lower()
+            if (
+                "promote requires human owner approval" in line_lower
+                and line.strip().startswith("|")
+            ):
+                assert "| covered |" not in line_lower, (
+                    f"Traceability Matrix must NOT mark 'promote requires Human Owner approval' "
+                    f"as '| Covered |'. Got: {line!r}"
+                )
+            if (
+                "promote requires gpt audit gate" in line_lower
+                and line.strip().startswith("|")
+            ):
+                assert "| covered |" not in line_lower, (
+                    f"Traceability Matrix must NOT mark 'promote requires GPT Audit Gate APPROVE' "
+                    f"as '| Covered |'. Got: {line!r}"
+                )
+
+    def test_rejects_must_be_fixed_in_the_phase3_activation_pr(self) -> None:
+        """Reject 'must be fixed in the Phase 3 activation PR' — implies deferral."""
+        assert "must be fixed in the phase 3 activation pr" not in self.content.lower(), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must NOT say "
+            "'must be fixed in the Phase 3 activation PR'. "
+            "Blockers must be fixed BEFORE the Phase 3 activation PR."
+        )
+
+    def test_rejects_phase3_activation_pr_must_add_promote_gate(self) -> None:
+        """Reject 'Phase 3 activation PR must add promote_approved gate'."""
+        assert "phase 3 activation pr must add" not in self.content.lower(), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must NOT say "
+            "'Phase 3 activation PR must add promote_approved gate'."
+        )
+
