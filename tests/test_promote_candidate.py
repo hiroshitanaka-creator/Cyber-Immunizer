@@ -7,13 +7,16 @@ never mutated during the test suite.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import math
 import shutil
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import pytest
 
-from scripts.promote_candidate import promote_candidate
+from scripts.promote_candidate import _validate_fitness_schema, promote_candidate
 
 _PROJECT_ROOT = Path(__file__).parent.parent
 _REAL_DETECTOR = _PROJECT_ROOT / "core" / "detector.py"
@@ -898,3 +901,389 @@ class TestPromoteSuccess:
             readme_path=tmp_path / "README.md",
         )
         assert exit_code2 != 0, "Second promotion with worse score should be refused"
+
+
+# ---------------------------------------------------------------------------
+# PR-E: fitness schema bool hardening (#12)
+# ---------------------------------------------------------------------------
+
+def _make_valid_fitness() -> dict:
+    """Return a minimal valid fitness dict for direct schema unit tests."""
+    return {
+        "syntax_ok": True,
+        "ast_policy_ok": True,
+        "contract_ok": True,
+        "passed_adoption_gate": True,
+        "score": 1.0,
+        "tp_rate": 1.0,
+        "fp_rate": 0.0,
+        "fn_rate": 0.0,
+        "exception_count": 0,
+        "rejection_reasons": [],
+    }
+
+
+class TestFitnessSchemaBoolHardening:
+    """PR-E: fitness_report schema bool hardening (backlog #12).
+
+    Python's ``bool`` is a subclass of ``int``, so ``isinstance(True, int)``
+    returns ``True``.  The previous ``isinstance``-based type check therefore
+    allowed ``score: true`` and similar corrupt fitness reports to pass
+    schema validation.
+
+    This test class verifies that the hardened ``_validate_fitness_schema``
+    rejects:
+    - bool values in numeric fields (score, tp_rate, fp_rate, fn_rate, exception_count)
+    - NaN and ±Infinity in any numeric field
+    - rate field values outside [0.0, 1.0]
+    - exception_count < 0 or of type float
+
+    And that it still accepts:
+    - valid int/float values for numeric fields
+    - rate values in [0.0, 1.0]
+    - exception_count 0 or positive int
+    - ``bool`` values in genuine boolean fields (passed_adoption_gate, etc.)
+    """
+
+    # ------------------------------------------------------------------
+    # 1–7  Bool rejection in numeric fields
+    # ------------------------------------------------------------------
+
+    def test_schema_rejects_bool_score_true(self):
+        """score=True must be rejected (bool is not a valid numeric field value)."""
+        fitness = _make_valid_fitness()
+        fitness["score"] = True
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for score=True"
+        assert any("score" in e for e in errors), f"Error must mention 'score': {errors}"
+
+    def test_schema_rejects_bool_score_false(self):
+        """score=False must be rejected."""
+        fitness = _make_valid_fitness()
+        fitness["score"] = False
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for score=False"
+        assert any("score" in e for e in errors), f"Error must mention 'score': {errors}"
+
+    def test_schema_rejects_bool_tp_rate_true(self):
+        """tp_rate=True must be rejected."""
+        fitness = _make_valid_fitness()
+        fitness["tp_rate"] = True
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for tp_rate=True"
+        assert any("tp_rate" in e for e in errors), f"Error must mention 'tp_rate': {errors}"
+
+    def test_schema_rejects_bool_fp_rate_false(self):
+        """fp_rate=False must be rejected."""
+        fitness = _make_valid_fitness()
+        fitness["fp_rate"] = False
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for fp_rate=False"
+        assert any("fp_rate" in e for e in errors), f"Error must mention 'fp_rate': {errors}"
+
+    def test_schema_rejects_bool_fn_rate_true(self):
+        """fn_rate=True must be rejected."""
+        fitness = _make_valid_fitness()
+        fitness["fn_rate"] = True
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for fn_rate=True"
+        assert any("fn_rate" in e for e in errors), f"Error must mention 'fn_rate': {errors}"
+
+    def test_schema_rejects_bool_exception_count_true(self):
+        """exception_count=True must be rejected."""
+        fitness = _make_valid_fitness()
+        fitness["exception_count"] = True
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for exception_count=True"
+        assert any("exception_count" in e for e in errors), (
+            f"Error must mention 'exception_count': {errors}"
+        )
+
+    def test_schema_rejects_bool_exception_count_false(self):
+        """exception_count=False must be rejected."""
+        fitness = _make_valid_fitness()
+        fitness["exception_count"] = False
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for exception_count=False"
+        assert any("exception_count" in e for e in errors), (
+            f"Error must mention 'exception_count': {errors}"
+        )
+
+    # ------------------------------------------------------------------
+    # 8–11  NaN / Infinity rejection
+    # ------------------------------------------------------------------
+
+    def test_schema_rejects_nan_score(self):
+        """score=NaN must be rejected (not finite)."""
+        fitness = _make_valid_fitness()
+        fitness["score"] = float("nan")
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for score=NaN"
+        assert any("score" in e for e in errors), f"Error must mention 'score': {errors}"
+
+    def test_schema_rejects_infinity_score(self):
+        """score=Infinity must be rejected (not finite)."""
+        fitness = _make_valid_fitness()
+        fitness["score"] = float("inf")
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for score=Infinity"
+        assert any("score" in e for e in errors), f"Error must mention 'score': {errors}"
+
+    def test_schema_rejects_nan_tp_rate(self):
+        """tp_rate=NaN must be rejected."""
+        fitness = _make_valid_fitness()
+        fitness["tp_rate"] = float("nan")
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for tp_rate=NaN"
+        assert any("tp_rate" in e for e in errors), f"Error must mention 'tp_rate': {errors}"
+
+    def test_schema_rejects_infinity_fp_rate(self):
+        """fp_rate=Infinity must be rejected."""
+        fitness = _make_valid_fitness()
+        fitness["fp_rate"] = float("inf")
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for fp_rate=Infinity"
+        assert any("fp_rate" in e for e in errors), f"Error must mention 'fp_rate': {errors}"
+
+    # ------------------------------------------------------------------
+    # 12–13  Rate fields out of [0.0, 1.0]
+    # ------------------------------------------------------------------
+
+    def test_schema_rejects_tp_rate_below_zero(self):
+        """tp_rate=-0.1 must be rejected (below 0.0)."""
+        fitness = _make_valid_fitness()
+        fitness["tp_rate"] = -0.1
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for tp_rate=-0.1"
+        assert any("tp_rate" in e for e in errors), f"Error must mention 'tp_rate': {errors}"
+
+    def test_schema_rejects_fp_rate_above_one(self):
+        """fp_rate=1.1 must be rejected (above 1.0)."""
+        fitness = _make_valid_fitness()
+        fitness["fp_rate"] = 1.1
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for fp_rate=1.1"
+        assert any("fp_rate" in e for e in errors), f"Error must mention 'fp_rate': {errors}"
+
+    # ------------------------------------------------------------------
+    # 14–15  exception_count violations
+    # ------------------------------------------------------------------
+
+    def test_schema_rejects_negative_exception_count(self):
+        """exception_count=-1 must be rejected (must be >= 0)."""
+        fitness = _make_valid_fitness()
+        fitness["exception_count"] = -1
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for exception_count=-1"
+        assert any("exception_count" in e for e in errors), (
+            f"Error must mention 'exception_count': {errors}"
+        )
+
+    def test_schema_rejects_float_exception_count(self):
+        """exception_count=0.0 must be rejected (float, not int)."""
+        fitness = _make_valid_fitness()
+        fitness["exception_count"] = 0.0
+        errors = _validate_fitness_schema(fitness)
+        assert errors, "Expected schema error for exception_count=0.0"
+        assert any("exception_count" in e for e in errors), (
+            f"Error must mention 'exception_count': {errors}"
+        )
+
+    # ------------------------------------------------------------------
+    # 16–18  Valid values must pass
+    # ------------------------------------------------------------------
+
+    def test_schema_accepts_valid_int_float_score(self):
+        """Valid int and float score values must produce no schema errors."""
+        for v in (0, 1, -1, 0.0, 1.5, -999.9, 0.001):
+            fitness = _make_valid_fitness()
+            fitness["score"] = v
+            errors = _validate_fitness_schema(fitness)
+            assert not errors, f"score={v!r} should be valid, got errors: {errors}"
+
+    def test_schema_accepts_valid_rate_fields(self):
+        """Valid tp_rate/fp_rate/fn_rate in [0.0, 1.0] must produce no errors."""
+        for v in (0, 1, 0.0, 0.5, 1.0, 0.999):
+            for field in ("tp_rate", "fp_rate", "fn_rate"):
+                fitness = _make_valid_fitness()
+                fitness[field] = v
+                errors = _validate_fitness_schema(fitness)
+                assert not errors, (
+                    f"{field}={v!r} should be valid, got errors: {errors}"
+                )
+
+    def test_schema_accepts_valid_exception_count(self):
+        """exception_count=0 and =1 (strict int) must produce no schema errors."""
+        for v in (0, 1, 5, 100):
+            fitness = _make_valid_fitness()
+            fitness["exception_count"] = v
+            errors = _validate_fitness_schema(fitness)
+            assert not errors, (
+                f"exception_count={v!r} should be valid, got errors: {errors}"
+            )
+
+    # ------------------------------------------------------------------
+    # 19  Genuine boolean field must NOT be broken
+    # ------------------------------------------------------------------
+
+    def test_schema_accepts_bool_passed_adoption_gate(self):
+        """passed_adoption_gate=True is a genuine bool field and must be accepted."""
+        fitness = _make_valid_fitness()
+        fitness["passed_adoption_gate"] = True
+        errors = _validate_fitness_schema(fitness)
+        assert not errors, (
+            f"passed_adoption_gate=True (genuine bool field) should be valid, "
+            f"got errors: {errors}"
+        )
+
+    def test_schema_accepts_bool_syntax_ok_and_ast_policy_ok(self):
+        """syntax_ok=True and ast_policy_ok=True are genuine bool fields."""
+        fitness = _make_valid_fitness()
+        fitness["syntax_ok"] = True
+        fitness["ast_policy_ok"] = True
+        errors = _validate_fitness_schema(fitness)
+        assert not errors, (
+            f"syntax_ok/ast_policy_ok=True should be valid, got errors: {errors}"
+        )
+
+    # ------------------------------------------------------------------
+    # 20  End-to-end: invalid schema refuses promote, no side effects
+    # ------------------------------------------------------------------
+
+    def test_promote_refuses_bool_score_no_side_effects(self, tmp_path):
+        """score=True in fitness report: promote must refuse and leave all files unchanged.
+
+        Specifically verifies:
+        - exit code is non-zero
+        - JSON error output is machine-readable and contains 'score'
+        - core/detector.py is not modified (via real hash check)
+        - genome.json is not modified
+        - evolution_history.json is not modified
+        - README.md is not modified
+        """
+        candidate = _copy_real_candidate(tmp_path)
+        source = candidate.read_text(encoding="utf-8")
+        h = hashlib.sha256(source.encode()).hexdigest()
+
+        # Build a fitness report with score=True (bool-as-number)
+        report_data = {
+            "candidate_hash": h,
+            "fitness_report": {
+                "syntax_ok": True,
+                "ast_policy_ok": True,
+                "contract_ok": True,
+                "passed_adoption_gate": True,
+                "score": True,          # ← bool in numeric field
+                "tp_rate": 1.0,
+                "fp_rate": 0.0,
+                "fn_rate": 0.0,
+                "exception_count": 0,
+                "rejection_reasons": [],
+            },
+        }
+        report = tmp_path / "bool_score_report.json"
+        report.write_text(json.dumps(report_data))
+
+        genome = _make_isolated_genome(tmp_path, best_score=-1e9)
+        history = _make_isolated_history(tmp_path)
+        readme = _make_isolated_readme(tmp_path)
+        detector_out = _make_isolated_detector_out(tmp_path)
+        original_genome = genome.read_text(encoding="utf-8")
+        original_history = history.read_text(encoding="utf-8")
+        original_readme = readme.read_text(encoding="utf-8")
+        original_real_detector_hash = _real_detector_hash()
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            exit_code = promote_candidate(
+                candidate, report, as_json=True,
+                detector_path=detector_out, genome_path=genome,
+                history_path=history, readme_path=readme,
+            )
+        output = buf.getvalue()
+
+        # Exit code must be non-zero
+        assert exit_code != 0, "Must refuse when score=True (bool-as-number)"
+
+        # JSON error output must be machine-readable and mention 'score'
+        error_data = json.loads(output)
+        assert error_data["success"] is False
+        assert "error" in error_data
+        assert "score" in error_data["error"], (
+            f"Error message must mention field 'score', got: {error_data['error']!r}"
+        )
+
+        # No side effects: detector_out must not have been written
+        assert not detector_out.exists(), (
+            "promote must not write detector when schema is invalid"
+        )
+        # genome.json must be unchanged
+        assert genome.read_text(encoding="utf-8") == original_genome, (
+            "promote must not modify genome.json when schema is invalid"
+        )
+        # evolution_history.json must be unchanged
+        assert history.read_text(encoding="utf-8") == original_history, (
+            "promote must not modify evolution_history.json when schema is invalid"
+        )
+        # README must be unchanged
+        assert readme.read_text(encoding="utf-8") == original_readme, (
+            "promote must not modify README when schema is invalid"
+        )
+        # Real core/detector.py must be unchanged
+        assert _real_detector_hash() == original_real_detector_hash, (
+            "core/detector.py must not be modified when schema is invalid"
+        )
+
+    def test_json_output_contains_field_name_for_bool_fields(self, tmp_path):
+        """JSON mode error output must name the offending field for each bool violation."""
+        bool_field_cases = [
+            ("score", True),
+            ("tp_rate", True),
+            ("fp_rate", False),
+            ("fn_rate", True),
+            ("exception_count", True),
+        ]
+        for field, bool_val in bool_field_cases:
+            candidate = _copy_real_candidate(tmp_path)
+            source = candidate.read_text(encoding="utf-8")
+            h = hashlib.sha256(source.encode()).hexdigest()
+
+            fitness_data = {
+                "syntax_ok": True,
+                "ast_policy_ok": True,
+                "contract_ok": True,
+                "passed_adoption_gate": True,
+                "score": 999.0,
+                "tp_rate": 1.0,
+                "fp_rate": 0.0,
+                "fn_rate": 0.0,
+                "exception_count": 0,
+                "rejection_reasons": [],
+            }
+            fitness_data[field] = bool_val
+
+            report_data = {"candidate_hash": h, "fitness_report": fitness_data}
+            report = tmp_path / f"report_bool_{field}.json"
+            report.write_text(json.dumps(report_data))
+
+            genome = _make_isolated_genome(tmp_path, best_score=-1e9)
+            history = _make_isolated_history(tmp_path)
+            readme = _make_isolated_readme(tmp_path)
+            detector_out = _make_isolated_detector_out(tmp_path)
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                exit_code = promote_candidate(
+                    candidate, report, as_json=True,
+                    detector_path=detector_out, genome_path=genome,
+                    history_path=history, readme_path=readme,
+                )
+            output = buf.getvalue()
+
+            assert exit_code != 0, f"Must refuse for {field}={bool_val!r}"
+            error_data = json.loads(output)
+            assert error_data["success"] is False
+            assert field in error_data["error"], (
+                f"Error must mention field name {field!r} for {field}={bool_val!r}, "
+                f"got: {error_data['error']!r}"
+            )
