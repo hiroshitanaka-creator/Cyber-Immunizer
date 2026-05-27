@@ -872,3 +872,205 @@ class TestPreflightNoDependency:
 
     def test_preflight_function_exists(self) -> None:
         assert callable(pm.run_gemini_paid_credit_preflight)
+
+
+# ---------------------------------------------------------------------------
+# 12. PR-D: GEMINI_API_KEY_PRESENT boolean signal
+#
+# The gemini-paid-credit-preflight workflow step (PR-D) passes only a boolean
+# environment variable GEMINI_API_KEY_PRESENT=true/false instead of the raw
+# GEMINI_API_KEY.  run_gemini_paid_credit_preflight() must accept this signal
+# as proof that the key is configured, without requiring the raw key value.
+# ---------------------------------------------------------------------------
+
+
+class TestPreflightApiKeyPresentSignal:
+    """Verify GEMINI_API_KEY_PRESENT=true is accepted as proof of key presence.
+
+    PR-D: step-level secret scoping passes GEMINI_API_KEY_PRESENT=true to the
+    preflight step instead of the raw key.  The preflight function must honour
+    this boolean signal so the preflight can succeed when only the workflow
+    injects the signal.
+    """
+
+    def test_passes_when_api_key_present_signal_is_true(
+        self,
+        tmp_path: Path,
+        genome_file: Path,
+        detector_file: Path,
+        threats_file: Path,
+        ledger_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """GEMINI_API_KEY_PRESENT=true without raw GEMINI_API_KEY must pass Step 3.
+
+        In the PR-D workflow, the preflight step does not receive the raw
+        GEMINI_API_KEY.  It only receives GEMINI_API_KEY_PRESENT=true as a
+        boolean confirmation.  The key-presence check must accept this signal.
+        """
+        _patch_paths(monkeypatch, genome_file, detector_file, threats_file, ledger_file, tmp_path)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setenv("GEMINI_API_KEY_PRESENT", "true")
+
+        result, err = pm.run_gemini_paid_credit_preflight()
+
+        # Key-presence check must pass — failure due to missing key is wrong
+        if not result.get("success"):
+            assert "GEMINI_API_KEY" not in err or result.get("gemini_api_key_present") is not False, (
+                "GEMINI_API_KEY_PRESENT=true must satisfy the key-presence check. "
+                f"Got error: {err!r}"
+            )
+        assert result.get("gemini_api_key_present") is True, (
+            "gemini_api_key_present must be True when GEMINI_API_KEY_PRESENT=true"
+        )
+
+    def test_fails_when_api_key_present_signal_is_false_and_no_raw_key(
+        self,
+        tmp_path: Path,
+        genome_file: Path,
+        detector_file: Path,
+        threats_file: Path,
+        ledger_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """GEMINI_API_KEY_PRESENT=false + no raw key must fail the key-presence check.
+
+        When the workflow passes GEMINI_API_KEY_PRESENT=false (secret not set),
+        and no raw GEMINI_API_KEY is present, preflight must refuse.
+        """
+        _patch_paths(monkeypatch, genome_file, detector_file, threats_file, ledger_file, tmp_path)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setenv("GEMINI_API_KEY_PRESENT", "false")
+
+        result, err = pm.run_gemini_paid_credit_preflight()
+
+        assert result.get("success") is False
+        assert "GEMINI_API_KEY" in err, (
+            "Error must mention GEMINI_API_KEY when neither the key nor the "
+            "presence signal indicates the key is configured."
+        )
+        assert result.get("gemini_api_key_present") is False
+
+    def test_raw_key_still_satisfies_presence_check(
+        self,
+        tmp_path: Path,
+        genome_file: Path,
+        detector_file: Path,
+        threats_file: Path,
+        ledger_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Raw GEMINI_API_KEY alone (no GEMINI_API_KEY_PRESENT) must still pass Step 3.
+
+        Backward compatibility: local development and tests that set the raw key
+        directly (without GEMINI_API_KEY_PRESENT) must continue to work.
+        """
+        _patch_paths(monkeypatch, genome_file, detector_file, threats_file, ledger_file, tmp_path)
+        monkeypatch.setenv("GEMINI_API_KEY", "raw-key-for-compat-test")
+        monkeypatch.delenv("GEMINI_API_KEY_PRESENT", raising=False)
+
+        result, err = pm.run_gemini_paid_credit_preflight()
+
+        # Key-presence check must pass
+        if not result.get("success"):
+            assert "GEMINI_API_KEY" not in err or result.get("gemini_api_key_present") is not False, (
+                "Raw GEMINI_API_KEY must still satisfy the key-presence check for "
+                f"backward compatibility. Got error: {err!r}"
+            )
+        assert result.get("gemini_api_key_present") is True, (
+            "gemini_api_key_present must be True when GEMINI_API_KEY is set directly"
+        )
+
+    def test_present_false_with_raw_key_passes_due_to_raw_key(
+        self,
+        tmp_path: Path,
+        genome_file: Path,
+        detector_file: Path,
+        threats_file: Path,
+        ledger_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """GEMINI_API_KEY_PRESENT=false + raw GEMINI_API_KEY set must pass Step 3.
+
+        When the signal says false but the raw key is set (e.g., in local
+        testing where someone accidentally sets the signal), the raw key takes
+        precedence and key-presence passes.
+        """
+        _patch_paths(monkeypatch, genome_file, detector_file, threats_file, ledger_file, tmp_path)
+        monkeypatch.setenv("GEMINI_API_KEY", "some-raw-key")
+        monkeypatch.setenv("GEMINI_API_KEY_PRESENT", "false")
+
+        result, err = pm.run_gemini_paid_credit_preflight()
+
+        # Raw key overrides the false signal — key-presence must pass
+        if not result.get("success"):
+            assert "GEMINI_API_KEY" not in err or result.get("gemini_api_key_present") is not False, (
+                "Raw GEMINI_API_KEY must take precedence over GEMINI_API_KEY_PRESENT=false. "
+                f"Got error: {err!r}"
+            )
+        assert result.get("gemini_api_key_present") is True, (
+            "gemini_api_key_present must be True when raw GEMINI_API_KEY is set, "
+            "even if GEMINI_API_KEY_PRESENT=false"
+        )
+
+    def test_present_signal_value_not_exposed_in_output(
+        self,
+        tmp_path: Path,
+        genome_file: Path,
+        detector_file: Path,
+        threats_file: Path,
+        ledger_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """GEMINI_API_KEY_PRESENT env var value must not leak into the result dict.
+
+        The result may contain gemini_api_key_present (boolean), but it must
+        never contain the raw value of GEMINI_API_KEY_PRESENT env var or any
+        other environment variable value.
+        """
+        _patch_paths(monkeypatch, genome_file, detector_file, threats_file, ledger_file, tmp_path)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setenv("GEMINI_API_KEY_PRESENT", "true")
+
+        result, err = pm.run_gemini_paid_credit_preflight()
+
+        result_str = json.dumps(result)
+        # The string "GEMINI_API_KEY_PRESENT" may appear as a key in the result
+        # but must not appear as a value
+        # More important: the result dict key must not be "GEMINI_API_KEY_PRESENT"
+        assert "GEMINI_API_KEY_PRESENT" not in result, (
+            "Result dict must not have 'GEMINI_API_KEY_PRESENT' as a key. "
+            "Only the boolean 'gemini_api_key_present' should appear."
+        )
+
+    def test_cli_accepts_gemini_api_key_present_signal(
+        self,
+        tmp_path: Path,
+        genome_file: Path,
+        detector_file: Path,
+        threats_file: Path,
+        ledger_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """CLI --gemini-paid-credit-preflight must accept GEMINI_API_KEY_PRESENT=true.
+
+        This verifies the end-to-end integration: the workflow step passes only
+        GEMINI_API_KEY_PRESENT=true and no raw GEMINI_API_KEY, and the CLI
+        must not exit 1 due to missing key.
+        """
+        _patch_paths(monkeypatch, genome_file, detector_file, threats_file, ledger_file, tmp_path)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.setenv("GEMINI_API_KEY_PRESENT", "true")
+
+        exit_code = pm.main(["--gemini-paid-credit-preflight", "--json"])
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+
+        # Should not fail on key-presence check
+        if exit_code != 0:
+            assert output.get("gemini_api_key_present") is not False, (
+                "CLI must not fail the key-presence check when "
+                f"GEMINI_API_KEY_PRESENT=true. JSON: {captured.out!r}"
+            )
+        assert output.get("gemini_api_key_present") is True

@@ -746,7 +746,14 @@ def run_gemini_paid_credit_preflight() -> tuple[dict, str]:
                 "api_call_performed": False, "error": err}, err
 
     # --- Step 3: GEMINI_API_KEY existence (value NEVER logged) ---
-    api_key_present = bool(os.environ.get("GEMINI_API_KEY", ""))
+    # Accept either the raw key (local / live-model / gemini-paid-credit steps)
+    # or the boolean signal GEMINI_API_KEY_PRESENT=true injected by the
+    # gemini-paid-credit-preflight workflow step (PR-D: step-level secret
+    # scoping — the raw key is intentionally withheld from the preflight step).
+    api_key_present = (
+        os.environ.get("GEMINI_API_KEY_PRESENT") == "true"
+        or bool(os.environ.get("GEMINI_API_KEY", ""))
+    )
     if not api_key_present:
         err = (
             "GEMINI_API_KEY environment variable is not set. "
