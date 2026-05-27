@@ -31,7 +31,6 @@ import sys
 from pathlib import Path
 
 import pytest
-import yaml
 
 _PROJECT_ROOT = Path(__file__).parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
@@ -1503,8 +1502,9 @@ class TestCritical1PrePhase3HardeningPR:
 # ---------------------------------------------------------------------------
 # 12. Workflow-level enforcement of promote_approved gate — Critical #1
 #
-#     These tests PARSE immunization_loop.yml and assert that the promote
-#     job is gated on an explicit Human Owner approval input.
+#     These tests inspect immunization_loop.yml using TEXT/REGEX (no YAML
+#     parser required — consistent with tests/test_workflow.py) and assert
+#     that the promote job is gated on an explicit Human Owner approval input.
 #
 #     ALL tests in this class are marked xfail(strict=True) because
 #     Critical #1 has NOT been fixed yet.  They will XFAIL now (CI passes)
@@ -1524,18 +1524,40 @@ class TestCritical1PrePhase3HardeningPR:
 # ---------------------------------------------------------------------------
 
 
-def _load_workflow() -> dict:
-    """Parse immunization_loop.yml with PyYAML.
+def _extract_workflow_dispatch_inputs_block(wf_text: str) -> str:
+    """Return the text of the workflow_dispatch inputs block (text-based, no YAML parser).
 
-    Note: PyYAML (YAML 1.1) parses the bare key 'on' as boolean True.
-    Callers must access workflow_dispatch triggers via wf[True], not wf['on'].
+    Extracts from 'workflow_dispatch:' up to the next same-level trigger key
+    (e.g. 'schedule:') so callers can do simple substring checks.
+    Returns empty string if not found.
     """
-    assert _WORKFLOW.exists(), f"Workflow file not found: {_WORKFLOW}"
-    return yaml.safe_load(_WORKFLOW.read_text(encoding="utf-8"))
+    match = re.search(
+        r"(  workflow_dispatch:.*?)(?=\n  \w)",
+        wf_text,
+        re.DOTALL,
+    )
+    return match.group(1) if match else ""
+
+
+def _extract_promote_job_block(wf_text: str) -> str:
+    """Return the text of the promote job block (text-based, no YAML parser).
+
+    Extracts from '  promote:' up to the next same-level job key.
+    Returns empty string if not found.
+    """
+    match = re.search(
+        r"(  promote:.*?)(?=\n  [a-zA-Z][\w-]+:\n|\Z)",
+        wf_text,
+        re.DOTALL,
+    )
+    return match.group(1) if match else ""
 
 
 class TestWorkflowPromoteApprovedGateEnforced:
-    """Parse immunization_loop.yml and assert promote_approved gate is enforced.
+    """Inspect immunization_loop.yml (text/regex, no YAML parser) for promote_approved gate.
+
+    Text-based inspection is consistent with tests/test_workflow.py, which
+    explicitly avoids a YAML parser dependency for robustness.
 
     All tests are xfail(strict=True).  They currently FAIL because Critical #1
     has not been fixed (the gate does not exist in the workflow).  Once the
@@ -1559,39 +1581,57 @@ class TestWorkflowPromoteApprovedGateEnforced:
 
     @pytest.fixture(autouse=True)
     def _load(self) -> None:
-        wf = _load_workflow()
-        # PyYAML 1.1 parses the YAML key 'on' as boolean True
-        triggers = wf.get(True, {})
-        wd = (triggers.get("workflow_dispatch") or {})
-        self._wd_inputs: dict = (wd.get("inputs") or {})
-        self._promote_if: str = str(
-            (wf.get("jobs") or {}).get("promote", {}).get("if", "")
-        )
+        assert _WORKFLOW.exists(), f"Workflow file not found: {_WORKFLOW}"
+        wf_text = _WORKFLOW.read_text(encoding="utf-8")
+        self._wd_inputs_block: str = _extract_workflow_dispatch_inputs_block(wf_text)
+        self._promote_block: str = _extract_promote_job_block(wf_text)
 
     def test_workflow_dispatch_has_promote_approved_input(self) -> None:
-        """workflow_dispatch.inputs must include a 'promote_approved' key.
+        """workflow_dispatch inputs must include a 'promote_approved:' key.
 
         Without this input, there is no way for Human Owner to explicitly
         approve promotion at workflow_dispatch invocation time.
         """
-        assert "promote_approved" in self._wd_inputs, (
+        assert "promote_approved:" in self._wd_inputs_block, (
             "immunization_loop.yml workflow_dispatch inputs must include "
-            "'promote_approved' (required: false, default: 'false', type: choice). "
-            "Critical #1: this input is currently absent."
+            "'promote_approved:' (required: false, default: 'false', type: choice). "
+            "Critical #1: this input is currently absent. "
+            f"workflow_dispatch block: {self._wd_inputs_block!r}"
         )
 
     def test_promote_approved_input_defaults_to_false_not_true(self) -> None:
-        """promote_approved input must default to 'false', NOT 'true'.
+        """promote_approved input must have 'default: false' (or 'false'), NOT 'true'.
 
         A default of 'true' would silently enable promotion on every
         workflow_dispatch invocation without explicit Human Owner intent.
         """
-        pa = self._wd_inputs.get("promote_approved") or {}
-        default = str(pa.get("default", "MISSING")).lower()
-        assert default == "false", (
-            f"promote_approved input 'default' must be 'false', got {default!r}. "
-            "A default of 'true' allows promotion without explicit Human Owner approval. "
-            "Critical #1: this input is currently absent (default is MISSING)."
+        # Extract the promote_approved sub-block within the inputs section
+        pa_match = re.search(
+            r"promote_approved:.*?(?=\n      \w|\Z)",
+            self._wd_inputs_block,
+            re.DOTALL,
+        )
+        assert pa_match is not None, (
+            "'promote_approved:' not found in workflow_dispatch inputs block. "
+            "Critical #1: this input is currently absent."
+        )
+        pa_block = pa_match.group(0).lower()
+        assert (
+            "default: 'false'" in pa_block
+            or 'default: "false"' in pa_block
+            or "default: false" in pa_block
+        ), (
+            "promote_approved input must specify 'default: false' (or 'false'). "
+            f"promote_approved block: {pa_block!r}. "
+            "Critical #1: this input is currently absent (no default found)."
+        )
+        assert (
+            "default: 'true'" not in pa_block
+            and 'default: "true"' not in pa_block
+            and "default: true" not in pa_block
+        ), (
+            "promote_approved input must NOT default to 'true'. "
+            "A default of 'true' enables promotion without explicit Human Owner approval."
         )
 
     def test_promote_job_if_requires_promote_approved_true(self) -> None:
@@ -1600,15 +1640,14 @@ class TestWorkflowPromoteApprovedGateEnforced:
         Without this check, the promote job can execute whenever the adoption
         gate passes, regardless of Human Owner intent.
         """
-        promote_if_lower = self._promote_if.lower()
         assert (
-            "inputs.promote_approved == 'true'" in promote_if_lower
-            or "inputs.promote_approved == \"true\"" in promote_if_lower
+            "inputs.promote_approved == 'true'" in self._promote_block
+            or "inputs.promote_approved == \"true\"" in self._promote_block
         ), (
             "promote job 'if' condition must include "
             "github.event.inputs.promote_approved == 'true'. "
-            f"Current 'if': {self._promote_if!r}. "
-            "Critical #1: this gate is currently absent."
+            "Critical #1: this gate is currently absent. "
+            f"promote block if section: {self._promote_block[:300]!r}"
         )
 
     def test_promote_job_if_prevents_schedule_triggered_promotion(self) -> None:
@@ -1618,14 +1657,13 @@ class TestWorkflowPromoteApprovedGateEnforced:
         event_name check, a schedule run where evaluation passes could trigger
         the promote job, bypassing Human Owner approval entirely.
         """
-        promote_if_lower = self._promote_if.lower()
         assert (
-            "github.event_name == 'workflow_dispatch'" in promote_if_lower
-            or "github.event_name == \"workflow_dispatch\"" in promote_if_lower
+            "github.event_name == 'workflow_dispatch'" in self._promote_block
+            or "github.event_name == \"workflow_dispatch\"" in self._promote_block
         ), (
             "promote job 'if' condition must require "
             "github.event_name == 'workflow_dispatch' to prevent schedule-triggered "
             "promotion. "
-            f"Current 'if': {self._promote_if!r}. "
-            "Critical #1: this guard is currently absent."
+            "Critical #1: this guard is currently absent. "
+            f"promote block if section: {self._promote_block[:300]!r}"
         )
