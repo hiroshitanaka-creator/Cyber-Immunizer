@@ -1069,6 +1069,51 @@ class TestPromoteApprovedInputExists:
             "promote_approved options must include 'true'."
         )
 
+    def test_promote_approved_options_are_exactly_false_and_true(
+        self, workflow_dispatch_inputs_section: str
+    ) -> None:
+        """promote_approved options must be exactly ["false", "true"] — no other values.
+
+        Extra options (e.g. "maybe", "auto", "skip") would widen the gate beyond
+        the two-value safe/unsafe boundary expected by the Human Owner approval design.
+        This test parses the YAML options list under promote_approved and verifies
+        only the two canonical values are present.
+        """
+        match = re.search(
+            r"promote_approved:(.*?)(?=\n      [a-zA-Z]|\Z)",
+            workflow_dispatch_inputs_section,
+            re.DOTALL,
+        )
+        assert match is not None, (
+            "Could not find 'promote_approved:' input block in workflow_dispatch inputs."
+        )
+        block = match.group(1)
+
+        # Extract the options sub-block (lines after "options:")
+        options_match = re.search(
+            r"options:(.*?)(?=\n        [a-zA-Z]|\n      [a-zA-Z]|\Z)",
+            block,
+            re.DOTALL,
+        )
+        assert options_match is not None, (
+            "promote_approved block must contain an 'options:' list."
+        )
+        options_block = options_match.group(1)
+
+        # Collect all option values listed under options:
+        # Each option line looks like:  - "false"  or  - "true"
+        found_options = re.findall(r'-\s*["\'](\w+)["\']', options_block)
+
+        assert set(found_options) == {"false", "true"}, (
+            f"promote_approved options must be exactly ['false', 'true']. "
+            f"Found: {found_options!r}. "
+            "Extra or missing options would break the two-value Human Owner gate."
+        )
+        assert len(found_options) == 2, (
+            f"promote_approved options must have exactly 2 entries ('false' and 'true'). "
+            f"Found {len(found_options)}: {found_options!r}"
+        )
+
 
 class TestPromoteJobIfConditionHumanOwnerGate:
     """Verify the promote job if condition enforces Human Owner approval gate."""

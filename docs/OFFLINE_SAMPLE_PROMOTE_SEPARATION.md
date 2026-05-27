@@ -208,6 +208,7 @@ Phase 2-D では未実装。
 
 Phase 2-Dでは以下を実施しない。
 
+- workflow変更（.github/workflows は変更しない）
 - promote_candidate.py変更
 - propose_mutation.py変更
 - apply_mutation.py変更
@@ -226,10 +227,13 @@ Phase 2-Dでは以下を実施しない。
 
 ---
 
-## Workflow enforcement status (Critical #1 fix)
+## Workflow enforcement status (Critical #1 fix — Phase 2-D完了後の追記)
 
-> このセクションは Phase 2-D 設計文書に対する Critical #1 修正の記録です。
-> Phase 2-D は design-only でしたが、Critical #1 fix PR で workflow 施行が実装されました。
+> **このセクションは Phase 2-D 設計文書への追記です。**
+> Phase 2-D 自体は design-only であり、workflow変更は行っていません（Non-goals に記載のとおり）。
+> Phase 2-D 完了後の pre-Phase-3 hardening PR（Critical #1 fix PR）によって、
+> 本文書が設計・仕様として定義した promote 安全境界がワークフロー上で施行されました。
+> Critical #1 fix PR で `promote_approved` gate が `.github/workflows/immunization_loop.yml` に追加されています。
 
 以下のPromote安全境界が `.github/workflows/immunization_loop.yml` で実施されています（Critical #1 fix後）:
 
