@@ -953,3 +953,403 @@ class TestCommitPromotedChangesShellQuoting:
             "Found 'needs.persist-ledger.result' (dot notation) in the workflow. "
             "Use needs['persist-ledger'].result (bracket notation) instead."
         )
+
+
+# ---------------------------------------------------------------------------
+# 15. Critical #1: Human Owner promote_approved gate
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def workflow_dispatch_inputs_section(workflow_content: str) -> str:
+    """Extract the workflow_dispatch inputs section from the workflow."""
+    match = re.search(
+        r"workflow_dispatch:\s*\n\s*inputs:(.*?)(?=\n  schedule:|\Z)",
+        workflow_content,
+        re.DOTALL,
+    )
+    assert match is not None, (
+        "Could not find 'workflow_dispatch: inputs:' section in workflow."
+    )
+    return match.group(1)
+
+
+class TestPromoteApprovedInputExists:
+    """Verify the promote_approved workflow_dispatch input is present and correct."""
+
+    def test_promote_approved_input_exists(
+        self, workflow_dispatch_inputs_section: str
+    ) -> None:
+        """workflow_dispatch inputs must include promote_approved.
+
+        Human Owner approval gate requires a promote_approved input so the
+        promote job can be gated on explicit Human Owner selection.
+        """
+        assert "promote_approved" in workflow_dispatch_inputs_section, (
+            "workflow_dispatch inputs must include 'promote_approved'. "
+            "The promote job must require Human Owner explicit approval."
+        )
+
+    def test_promote_approved_default_is_false(
+        self, workflow_dispatch_inputs_section: str
+    ) -> None:
+        """promote_approved input must default to 'false'.
+
+        Defaulting to 'false' ensures the promote job is never triggered
+        accidentally without explicit Human Owner decision.
+        """
+        # Extract the promote_approved sub-section
+        match = re.search(
+            r"promote_approved:(.*?)(?=\n      [a-zA-Z]|\Z)",
+            workflow_dispatch_inputs_section,
+            re.DOTALL,
+        )
+        assert match is not None, (
+            "Could not find 'promote_approved:' input block in workflow_dispatch inputs."
+        )
+        block = match.group(1)
+        assert 'default: "false"' in block or "default: 'false'" in block, (
+            "promote_approved input must have default: \"false\". "
+            "Defaulting to 'true' would allow promote without Human Owner approval."
+        )
+
+    def test_promote_approved_default_is_not_true(
+        self, workflow_dispatch_inputs_section: str
+    ) -> None:
+        """promote_approved input must NOT default to 'true'.
+
+        A default of 'true' would allow the promote job to run without explicit
+        Human Owner approval on every workflow_dispatch run.
+        """
+        match = re.search(
+            r"promote_approved:(.*?)(?=\n      [a-zA-Z]|\Z)",
+            workflow_dispatch_inputs_section,
+            re.DOTALL,
+        )
+        assert match is not None, (
+            "Could not find 'promote_approved:' input block in workflow_dispatch inputs."
+        )
+        block = match.group(1)
+        assert 'default: "true"' not in block and "default: 'true'" not in block, (
+            "promote_approved input must NOT have default: \"true\". "
+            "The default must be 'false' to require explicit Human Owner approval."
+        )
+
+    def test_promote_approved_options_include_false(
+        self, workflow_dispatch_inputs_section: str
+    ) -> None:
+        """promote_approved options must include 'false'."""
+        match = re.search(
+            r"promote_approved:(.*?)(?=\n      [a-zA-Z]|\Z)",
+            workflow_dispatch_inputs_section,
+            re.DOTALL,
+        )
+        assert match is not None, (
+            "Could not find 'promote_approved:' input block in workflow_dispatch inputs."
+        )
+        block = match.group(1)
+        assert '"false"' in block or "'false'" in block, (
+            "promote_approved options must include 'false'."
+        )
+
+    def test_promote_approved_options_include_true(
+        self, workflow_dispatch_inputs_section: str
+    ) -> None:
+        """promote_approved options must include 'true'."""
+        match = re.search(
+            r"promote_approved:(.*?)(?=\n      [a-zA-Z]|\Z)",
+            workflow_dispatch_inputs_section,
+            re.DOTALL,
+        )
+        assert match is not None, (
+            "Could not find 'promote_approved:' input block in workflow_dispatch inputs."
+        )
+        block = match.group(1)
+        assert '"true"' in block or "'true'" in block, (
+            "promote_approved options must include 'true'."
+        )
+
+
+class TestPromoteJobIfConditionHumanOwnerGate:
+    """Verify the promote job if condition enforces Human Owner approval gate."""
+
+    def test_promote_if_requires_workflow_dispatch(
+        self, promote_section: str
+    ) -> None:
+        """promote job if condition must require github.event_name == 'workflow_dispatch'.
+
+        This prevents schedule runs from ever triggering the promote job,
+        even if all other conditions are met.
+        """
+        assert "github.event_name == 'workflow_dispatch'" in promote_section, (
+            "promote job if condition must include "
+            "github.event_name == 'workflow_dispatch'. "
+            "This prevents schedule runs from promoting candidates."
+        )
+
+    def test_promote_if_requires_promote_approved_true(
+        self, promote_section: str
+    ) -> None:
+        """promote job if condition must require promote_approved == 'true'.
+
+        Without this gate, the promote job can run without Human Owner approval.
+        """
+        assert "github.event.inputs.promote_approved == 'true'" in promote_section, (
+            "promote job if condition must include "
+            "github.event.inputs.promote_approved == 'true'. "
+            "Human Owner must explicitly set promote_approved=true to allow promotion."
+        )
+
+    def test_promote_if_still_requires_passed_adoption_gate(
+        self, promote_section: str
+    ) -> None:
+        """promote job if condition must still require passed_adoption_gate == 'true'.
+
+        The promote_approved gate is additive — it does not replace the existing
+        adoption gate check.
+        """
+        assert "needs.evaluate.outputs.passed_adoption_gate == 'true'" in promote_section, (
+            "promote job if condition must still include "
+            "needs.evaluate.outputs.passed_adoption_gate == 'true'. "
+            "The adoption gate must remain in addition to the Human Owner gate."
+        )
+
+    def test_promote_if_still_requires_propose_not_failed(
+        self, promote_section: str
+    ) -> None:
+        """promote job if condition must still require propose_failed != 'true'."""
+        assert "needs.propose.outputs.propose_failed != 'true'" in promote_section, (
+            "promote job if condition must still include "
+            "needs.propose.outputs.propose_failed != 'true'."
+        )
+
+    def test_promote_if_uses_bracket_notation_for_persist_ledger(
+        self, promote_section: str
+    ) -> None:
+        """promote job if condition must use bracket notation for persist-ledger.
+
+        needs['persist-ledger'].result is required; needs.persist-ledger.result
+        is invalid GitHub Actions syntax for hyphenated job IDs.
+        """
+        assert "needs['persist-ledger'].result" in promote_section, (
+            "promote job if condition must use needs['persist-ledger'].result "
+            "(bracket notation) for the hyphenated 'persist-ledger' job ID."
+        )
+
+    def test_promote_if_allows_persist_ledger_success_or_skipped(
+        self, promote_section: str
+    ) -> None:
+        """promote if condition must allow persist-ledger result of success or skipped."""
+        assert (
+            "needs['persist-ledger'].result == 'success'" in promote_section
+            or "needs['persist-ledger'].result == 'skipped'" in promote_section
+        ), (
+            "promote job if condition must allow persist-ledger result of "
+            "'success' or 'skipped'."
+        )
+
+    def test_no_dot_notation_persist_ledger_in_promote(
+        self, promote_section: str
+    ) -> None:
+        """promote job must NOT reference persist-ledger via dot notation.
+
+        needs.persist-ledger.result is invalid inside ${{ }} GitHub Actions expressions.
+        """
+        assert "needs.persist-ledger.result" not in promote_section, (
+            "Found needs.persist-ledger.result (dot notation) in promote job. "
+            "Use needs['persist-ledger'].result (bracket notation) instead."
+        )
+
+
+class TestScheduleCannotPromote:
+    """Verify that schedule runs cannot trigger the promote job."""
+
+    def test_promote_requires_workflow_dispatch_blocking_schedule(
+        self, promote_section: str
+    ) -> None:
+        """promote job requires github.event_name == 'workflow_dispatch', blocking schedule.
+
+        Schedule runs set github.event_name to 'schedule', which does not match
+        'workflow_dispatch', so the promote job is skipped on all scheduled runs.
+        """
+        assert "github.event_name == 'workflow_dispatch'" in promote_section, (
+            "promote job must require github.event_name == 'workflow_dispatch' "
+            "to ensure scheduled runs can never promote candidates."
+        )
+
+    def test_schedule_comment_indicates_noop(self, workflow_content: str) -> None:
+        """Schedule comment must indicate schedule runs are noop.
+
+        This verifies the existing noop-on-schedule design is preserved and not
+        broken by the promote_approved gate changes.
+        """
+        assert "schedule" in workflow_content and "noop" in workflow_content, (
+            "Workflow must document that scheduled runs default to noop mode."
+        )
+
+
+class TestOfflineSampleAloneCannotPromote:
+    """Verify offline-sample success alone is insufficient to trigger promote."""
+
+    def test_promote_approved_false_blocks_promote_even_if_gate_passed(
+        self, promote_section: str
+    ) -> None:
+        """promote job must check promote_approved == 'true', so promote_approved=false blocks.
+
+        Even if evaluate.outputs.passed_adoption_gate == 'true' (offline-sample succeeded),
+        the promote job is skipped when promote_approved=false (the default).
+        This test verifies the condition exists; the logic guarantees the skip.
+        """
+        assert "github.event.inputs.promote_approved == 'true'" in promote_section, (
+            "promote job must check promote_approved == 'true'. "
+            "offline-sample success alone (adoption gate passed) must not trigger promote. "
+            "Human Owner must explicitly set promote_approved=true."
+        )
+
+
+class TestPromoteJobSecretBoundary:
+    """Verify promote job does not receive disallowed secrets or files."""
+
+    def test_promote_job_has_no_gemini_api_key(self, promote_section: str) -> None:
+        """promote job must NOT pass GEMINI_API_KEY.
+
+        Write permissions and model API secrets must never appear in the same job.
+        """
+        assert "secrets.GEMINI_API_KEY" not in promote_section, (
+            "promote job must NOT pass secrets.GEMINI_API_KEY. "
+            "Write permissions and model API secrets must be in separate jobs."
+        )
+
+    def test_promote_job_does_not_git_add_api_usage_ledger(
+        self, promote_section: str
+    ) -> None:
+        """promote job must NOT git add data/api_usage_ledger.json.
+
+        Ledger persistence is the responsibility of the persist-ledger job only.
+        """
+        assert "api_usage_ledger.json" not in promote_section, (
+            "promote job must NOT git add data/api_usage_ledger.json. "
+            "Ledger is committed exclusively by the persist-ledger job."
+        )
+
+
+class TestNormalCINotAffected:
+    """Verify normal CI workflow is not affected by the promote_approved gate changes."""
+
+    def test_ci_workflow_exists(self) -> None:
+        """The ci.yml workflow file must still exist."""
+        ci_path = _PROJECT_ROOT / ".github" / "workflows" / "ci.yml"
+        assert ci_path.exists(), (
+            "The ci.yml workflow file must exist. "
+            "Normal CI must not be affected by the promote_approved gate changes."
+        )
+
+    def test_ci_workflow_does_not_have_promote_approved(self) -> None:
+        """The ci.yml workflow must NOT have promote_approved input.
+
+        The promote_approved gate is specific to the immunization_loop.yml workflow.
+        Normal CI must not be changed by this implementation.
+        """
+        ci_path = _PROJECT_ROOT / ".github" / "workflows" / "ci.yml"
+        if ci_path.exists():
+            ci_content = ci_path.read_text(encoding="utf-8")
+            assert "promote_approved" not in ci_content, (
+                "ci.yml must NOT contain 'promote_approved'. "
+                "Normal CI workflow must not be affected by the Human Owner gate changes."
+            )
+
+    def test_ci_workflow_does_not_have_contents_write(self) -> None:
+        """ci.yml must NOT gain contents: write permission."""
+        ci_path = _PROJECT_ROOT / ".github" / "workflows" / "ci.yml"
+        if ci_path.exists():
+            ci_content = ci_path.read_text(encoding="utf-8")
+            assert "contents: write" not in ci_content, (
+                "ci.yml must NOT have 'contents: write'. "
+                "Normal CI must remain read-only."
+            )
+
+
+class TestRegressionGuardPromoteApproved:
+    """Regression guards: ensure forbidden patterns are absent after the change."""
+
+    def test_promote_approved_default_not_true_regression(
+        self, workflow_dispatch_inputs_section: str
+    ) -> None:
+        """Regression guard: promote_approved must never default to true."""
+        # Extract promote_approved block
+        match = re.search(
+            r"promote_approved:(.*?)(?=\n      [a-zA-Z]|\Z)",
+            workflow_dispatch_inputs_section,
+            re.DOTALL,
+        )
+        if match:
+            block = match.group(1)
+            assert 'default: "true"' not in block, (
+                "REGRESSION: promote_approved default must not be 'true'."
+            )
+            assert "default: 'true'" not in block, (
+                "REGRESSION: promote_approved default must not be 'true'."
+            )
+
+    def test_promote_approved_input_present_regression(
+        self, workflow_content: str
+    ) -> None:
+        """Regression guard: promote_approved input must exist."""
+        assert "promote_approved" in workflow_content, (
+            "REGRESSION: promote_approved input is missing from workflow. "
+            "This gate is required to prevent unauthorized promotion."
+        )
+
+    def test_promote_job_checks_promote_approved_regression(
+        self, promote_section: str
+    ) -> None:
+        """Regression guard: promote job must reference promote_approved."""
+        assert "promote_approved" in promote_section, (
+            "REGRESSION: promote job does not reference promote_approved. "
+            "Human Owner gate is not enforced."
+        )
+
+    def test_promote_job_checks_workflow_dispatch_regression(
+        self, promote_section: str
+    ) -> None:
+        """Regression guard: promote job must require workflow_dispatch."""
+        assert "workflow_dispatch" in promote_section, (
+            "REGRESSION: promote job does not require workflow_dispatch. "
+            "Schedule runs may be able to trigger promote."
+        )
+
+    def test_schedule_cannot_promote_regression(self, promote_section: str) -> None:
+        """Regression guard: schedule must not be able to trigger promote."""
+        # The promote job must have github.event_name == 'workflow_dispatch'
+        # which prevents schedule (event_name == 'schedule') from promoting.
+        assert "github.event_name == 'workflow_dispatch'" in promote_section, (
+            "REGRESSION: promote job does not block schedule runs. "
+            "Schedule must never be able to trigger promote."
+        )
+
+    def test_promote_job_no_gemini_api_key_regression(
+        self, promote_section: str
+    ) -> None:
+        """Regression guard: promote job must not receive GEMINI_API_KEY."""
+        assert "secrets.GEMINI_API_KEY" not in promote_section, (
+            "REGRESSION: promote job now passes GEMINI_API_KEY. "
+            "Write permissions and model API secrets must remain separated."
+        )
+
+    def test_promote_job_no_api_usage_ledger_regression(
+        self, promote_section: str
+    ) -> None:
+        """Regression guard: promote job must not handle api_usage_ledger.json."""
+        assert "api_usage_ledger.json" not in promote_section, (
+            "REGRESSION: promote job now references api_usage_ledger.json. "
+            "Ledger must be handled exclusively by persist-ledger job."
+        )
+
+    def test_no_dot_notation_persist_ledger_regression(
+        self, workflow_content: str
+    ) -> None:
+        """Regression guard: needs.persist-ledger.result dot notation must not appear."""
+        assert "needs.persist-ledger.result" not in workflow_content, (
+            "REGRESSION: needs.persist-ledger.result (dot notation) found in workflow. "
+            "Use needs['persist-ledger'].result (bracket notation) instead."
+        )

@@ -14,6 +14,14 @@ on:
           - live-model
           - gemini-paid-credit
           - gemini-paid-credit-preflight
+      promote_approved:
+        description: "Human Owner explicit approval for promote job"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
   schedule:
     # Scheduled runs always use noop to avoid unintended API calls.
     # Trigger a manual workflow_dispatch with mode=offline-sample,
@@ -394,6 +402,8 @@ jobs:
     needs: [propose, persist-ledger, evaluate]
     if: >
       always() &&
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.promote_approved == 'true' &&
       needs.evaluate.outputs.passed_adoption_gate == 'true' &&
       needs.propose.outputs.propose_failed != 'true' &&
       (needs['persist-ledger'].result == 'success' || needs['persist-ledger'].result == 'skipped')
