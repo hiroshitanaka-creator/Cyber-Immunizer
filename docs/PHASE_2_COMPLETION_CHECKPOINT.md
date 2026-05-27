@@ -145,7 +145,10 @@ The following requirements are documented in source documents and tests but are 
 
 ### Known Phase 3 Blockers
 
-The following workflow enforcement gaps must be resolved before Phase 3 activation. They do NOT block Phase 2 completion (Phase 2 is docs/tests only), but they MUST be fixed in the Phase 3 activation PR.
+The following workflow enforcement gaps must be resolved before any Phase 3 activation PR is opened or merged.
+They do NOT block Phase 2 completion because Phase 2 is docs/tests only.
+They MUST NOT be deferred into the Phase 3 activation PR.
+Each blocker must be fixed in a dedicated pre-Phase-3 hardening PR and audited independently.
 
 | ID | Description | Impact | Required Action |
 |---|---|---|---|
@@ -259,6 +262,9 @@ To prevent PR-target confusion in automated and manual review prompts:
 - Human Owner or GPT Audit Gate must verify the review prompt target before posting any automated review comment.
 - Review prompts for Phase 3 must not reference Phase 2 PR numbers or Phase 2 scope.
 - Review prompts for Phase 2 must not reference Phase 3 activation steps.
+- Review prompt scope must match the current PR objective.
+- A review prompt that focuses on a future implementation PR while reviewing a checkpoint PR is invalid.
+- For checkpoint hardening PRs, Codex review must cover: Traceability Matrix accuracy, Residual Risk completeness, Go / No-Go template fields, GitHub Secrets boundary statements, invariant tests, and blocker wording in Known Phase 3 Blockers.
 
 This rule applies to Codex review requests, GPT Audit Gate prompts, and any automated review tooling.
 

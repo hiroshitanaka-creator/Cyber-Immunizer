@@ -1087,6 +1087,61 @@ class TestReviewPromptHygiene:
             "the review prompt target"
         )
 
+    def test_review_prompt_scope_must_match_pr_objective(self) -> None:
+        """Checkpoint must state that review prompt scope must match the current PR objective."""
+        content_lower = self.content.lower()
+        assert (
+            "review prompt scope must match the current pr objective" in content_lower
+            or "scope must match the current pr" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must state "
+            "'Review prompt scope must match the current PR objective'"
+        )
+
+    def test_rejects_review_prompt_focused_on_future_pr(self) -> None:
+        """Checkpoint must state that a review prompt focusing on a future PR while reviewing
+        a checkpoint PR is invalid."""
+        content_lower = self.content.lower()
+        assert (
+            "future implementation pr while reviewing a checkpoint pr is invalid" in content_lower
+            or (
+                "future implementation pr" in content_lower
+                and "checkpoint pr" in content_lower
+            )
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must state "
+            "'A review prompt that focuses on a future implementation PR while reviewing "
+            "a checkpoint PR is invalid'"
+        )
+
+    def test_checkpoint_hardening_review_scope_documented(self) -> None:
+        """For checkpoint hardening PRs, required Codex review scope must be documented."""
+        content_lower = self.content.lower()
+        assert (
+            "checkpoint hardening" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must document 'checkpoint hardening' "
+            "as a Codex review scope item"
+        )
+        assert (
+            "traceability matrix" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md review prompt hygiene must reference "
+            "'Traceability Matrix' as a required checkpoint hardening review item"
+        )
+        assert (
+            "residual risk" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md review prompt hygiene must reference "
+            "'Residual Risk' as a required checkpoint hardening review item"
+        )
+        assert (
+            "go / no-go" in content_lower or "go/no-go" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md review prompt hygiene must reference "
+            "'Go / No-Go' as a required checkpoint hardening review item"
+        )
+
 
 # ---------------------------------------------------------------------------
 # 8. Phase 2 complete does not mean Phase 3 started (checkpoint-level)
@@ -1455,6 +1510,40 @@ class TestCritical1PrePhase3HardeningPR:
 
     # --- Negative: forbidden phrases ---
 
+    def test_known_phase3_blockers_intro_says_before_any_activation_pr(self) -> None:
+        """Known Phase 3 Blockers intro must state blockers must be resolved
+        before any Phase 3 activation PR is opened or merged."""
+        content_lower = self.content.lower()
+        assert (
+            "before any phase 3 activation pr is opened or merged" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md Known Phase 3 Blockers intro must state "
+            "'before any Phase 3 activation PR is opened or merged'"
+        )
+
+    def test_known_phase3_blockers_intro_says_must_not_be_deferred(self) -> None:
+        """Known Phase 3 Blockers intro must state blockers must NOT be deferred
+        into the Phase 3 activation PR."""
+        content_lower = self.content.lower()
+        assert (
+            "must not be deferred into the phase 3 activation pr" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md Known Phase 3 Blockers intro must state "
+            "'MUST NOT be deferred into the Phase 3 activation PR'"
+        )
+
+    def test_known_phase3_blockers_intro_says_each_blocker_dedicated_hardening_pr(self) -> None:
+        """Known Phase 3 Blockers intro must state each blocker must be fixed
+        in a dedicated pre-Phase-3 hardening PR and audited independently."""
+        content_lower = self.content.lower()
+        assert (
+            "each blocker must be fixed in a dedicated pre-phase-3 hardening pr" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md Known Phase 3 Blockers intro must state "
+            "'Each blocker must be fixed in a dedicated pre-Phase-3 hardening PR and "
+            "audited independently'"
+        )
+
     def test_rejects_phase3_activation_pr_must_add_promote_gate(self) -> None:
         """Reject 'Phase 3 activation PR must add promote_approved gate'.
 
@@ -1466,6 +1555,37 @@ class TestCritical1PrePhase3HardeningPR:
             "PHASE_2_COMPLETION_CHECKPOINT.md must NOT say "
             "'Phase 3 activation PR must add promote_approved gate'. "
             "Critical #1 must be fixed in a dedicated pre-Phase-3 hardening PR."
+        )
+
+    def test_rejects_must_be_fixed_in_the_phase3_activation_pr(self) -> None:
+        """Reject 'must be fixed in the Phase 3 activation PR'.
+
+        This phrasing implies the fix can happen inside the Phase 3 activation PR,
+        which contradicts the requirement that blockers are fixed BEFORE it.
+        """
+        content_lower = self.content.lower()
+        assert "must be fixed in the phase 3 activation pr" not in content_lower, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must NOT say "
+            "'must be fixed in the Phase 3 activation PR'. "
+            "Blockers must be fixed BEFORE the Phase 3 activation PR in a dedicated hardening PR."
+        )
+
+    def test_rejects_fixed_in_the_phase3_activation_pr(self) -> None:
+        """Reject 'fixed in the Phase 3 activation PR' (broader rejection)."""
+        content_lower = self.content.lower()
+        assert "fixed in the phase 3 activation pr" not in content_lower, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must NOT contain 'fixed in the Phase 3 activation PR'. "
+            "Blockers must be fixed BEFORE the Phase 3 activation PR."
+        )
+
+    def test_rejects_deferred_into_the_phase3_activation_pr(self) -> None:
+        """Reject 'deferred into the Phase 3 activation PR' as an affirmative statement."""
+        # The only valid use is in negation: 'must NOT be deferred into the Phase 3 activation PR'
+        # Reject the bare affirmative form
+        content_lower = self.content.lower()
+        assert "they must be deferred into the phase 3 activation pr" not in content_lower, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must NOT say "
+            "'they must be deferred into the Phase 3 activation PR'."
         )
 
     def test_rejects_critical1_will_be_fixed_during_phase3_activation(self) -> None:
