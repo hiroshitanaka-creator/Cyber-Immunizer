@@ -689,6 +689,107 @@ class TestPromoteHistoryFailClosed:
         assert isinstance(error_data["error"], str)
         assert len(error_data["error"]) > 0
 
+    # ------------------------------------------------------------------ #
+    # 11. Invalid UTF-8 bytes in evolution_history.json (Codex P2 fix)
+    # ------------------------------------------------------------------ #
+
+    def test_refuses_invalid_utf8_evolution_history(self, tmp_path):
+        """evolution_history.json containing invalid UTF-8 bytes must refuse promote."""
+        history = tmp_path / "evolution_history.json"
+        # Write raw bytes that are not valid UTF-8
+        history.write_bytes(b"\xff\xfe[invalid utf-8 content]")
+
+        exit_code, _, _ = self._run_promote_with_history(tmp_path, history)
+        assert exit_code != 0, "Must refuse when evolution_history.json has invalid UTF-8"
+
+    def test_invalid_utf8_history_json_output_is_machine_readable(self, tmp_path):
+        """--json mode must produce machine-readable JSON (not a traceback) for invalid UTF-8."""
+        import io
+        from contextlib import redirect_stdout
+
+        history = tmp_path / "evolution_history.json"
+        history.write_bytes(b"\x80\x81\x82 not valid utf-8")
+
+        candidate, report, genome, detector_out, readme = self._make_test_environment(tmp_path)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            exit_code = promote_candidate(
+                candidate, report, as_json=True,
+                detector_path=detector_out, genome_path=genome,
+                history_path=history, readme_path=readme,
+            )
+        assert exit_code != 0
+        output = buf.getvalue().strip()
+        # Must be parseable JSON — not a Python traceback
+        error_data = json.loads(output)
+        assert error_data["success"] is False
+        assert "error" in error_data
+        assert isinstance(error_data["error"], str)
+        assert len(error_data["error"]) > 0
+        # Must mention the encoding problem
+        msg = error_data["error"].lower()
+        assert (
+            "utf-8" in msg
+            or "utf8" in msg
+            or "encoding" in msg
+            or "evolution_history" in msg
+            or "fail-closed" in msg
+        ), f"Error must mention UTF-8/encoding/evolution_history, got: {error_data['error']!r}"
+
+    def test_invalid_utf8_history_not_overwritten(self, tmp_path):
+        """Invalid-UTF-8 evolution_history.json must NOT be overwritten on failure."""
+        history = tmp_path / "evolution_history.json"
+        original_bytes = b"\xff\xfe[invalid utf-8]"
+        history.write_bytes(original_bytes)
+
+        self._run_promote_with_history(tmp_path, history)
+
+        assert history.read_bytes() == original_bytes, (
+            "promote must not overwrite evolution_history.json with invalid UTF-8"
+        )
+
+    def test_invalid_utf8_history_does_not_touch_detector(self, tmp_path):
+        """When history has invalid UTF-8, the detector output must not be written."""
+        history = tmp_path / "evolution_history.json"
+        history.write_bytes(b"\xff\xfe invalid utf-8")
+
+        _, _, detector_out = self._run_promote_with_history(tmp_path, history)
+
+        assert not detector_out.exists(), (
+            "promote must not write to the detector path when history has invalid UTF-8"
+        )
+
+    def test_invalid_utf8_history_does_not_touch_genome(self, tmp_path):
+        """When history has invalid UTF-8, genome.json must not be modified."""
+        history = tmp_path / "evolution_history.json"
+        history.write_bytes(b"\xff\xfe invalid utf-8")
+
+        candidate, report, genome, detector_out, readme = self._make_test_environment(tmp_path)
+        original_genome = genome.read_text(encoding="utf-8")
+
+        promote_candidate(
+            candidate, report, as_json=True,
+            detector_path=detector_out, genome_path=genome,
+            history_path=history, readme_path=readme,
+        )
+
+        assert genome.read_text(encoding="utf-8") == original_genome, (
+            "promote must not modify genome.json when evolution_history has invalid UTF-8"
+        )
+
+    def test_invalid_utf8_history_does_not_touch_real_detector(self, tmp_path):
+        """The real core/detector.py must be unchanged when history has invalid UTF-8."""
+        original_hash = _real_detector_hash()
+
+        history = tmp_path / "evolution_history.json"
+        history.write_bytes(b"\xff\xfe invalid utf-8")
+
+        self._run_promote_with_history(tmp_path, history)
+
+        assert _real_detector_hash() == original_hash, (
+            "core/detector.py must not be modified when history has invalid UTF-8"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Success tests

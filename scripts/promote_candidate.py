@@ -92,6 +92,13 @@ def _load_history_strict(path: Path) -> tuple[list | None, str]:
         )
     try:
         raw = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        return None, (
+            f"evolution_history.json contains invalid UTF-8 bytes: {exc} — "
+            "promote is fail-closed: evolution_history with encoding errors must not "
+            "be overwritten or re-initialized automatically. "
+            "Inspect and repair history manually."
+        )
     except OSError as exc:
         return None, (
             f"evolution_history.json is unreadable: {exc} — "
