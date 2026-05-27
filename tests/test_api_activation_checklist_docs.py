@@ -136,19 +136,100 @@ class TestApiActivationChecklistSections(_ChecklistFixture):
 
 class TestApiActivationChecklistSafetyBoundaries(_ChecklistFixture):
     def test_states_no_api_key_registration_in_phase2e(self) -> None:
-        """Checklist must state that GEMINI_API_KEY registration is not done in Phase 2-E."""
+        """Checklist must state GEMINI_API_KEY is not present in repository files.
+
+        Requires explicit precision distinguishing 'repository files' state from
+        'GitHub Secrets' state.  Neither 'not registered' alone nor 'registration'
+        alone (e.g. in a Non-goals bullet) is accepted as sufficient positive evidence:
+        both phrases conflate repository file state with GitHub Secrets state.
+
+        Permitted phrases:
+          - "not present in repository files"
+          - "not stored in repository files"
+          - "not used by phase 2 workflows"
+          - "does not inspect, modify, or rely on github secrets"
+          - "github secrets state is not asserted"
+          - "github secrets state" (with other context)
+          - "repository filesには存在しない"
+          - "phase 2 workflowsでは使用しない"
+
+        Forbidden phrases (checked via negative assertions below):
+          - "not registered in repository"
+          - "github secrets are empty"
+          - "this pr verified github secrets"
+          - "absent from github secrets"
+        """
         content_lower = self.content.lower()
-        # Must mention GEMINI_API_KEY and indicate it's not registered
         assert "GEMINI_API_KEY" in self.content, (
             "Checklist must mention GEMINI_API_KEY"
         )
+
+        # Must use explicit precise language about repository files / workflow usage
+        has_precise_statement = (
+            "not present in repository files" in content_lower
+            or "not stored in repository files" in content_lower
+            or "not used by phase 2 workflows" in content_lower
+            or "does not inspect, modify, or rely on github secrets" in content_lower
+            or "github secrets state is not asserted" in content_lower
+            or "github secrets state" in content_lower
+            or (
+                "not present" in content_lower
+                and "repository files" in content_lower
+            )
+            or "repository filesには存在しない" in self.content
+            or "phase 2 workflowsでは使用しない" in self.content
+        )
+        assert has_precise_statement, (
+            "Checklist must explicitly state GEMINI_API_KEY is not present in "
+            "repository files and/or that GitHub Secrets state is not asserted. "
+            "Use 'not present in repository files', 'not used by Phase 2 workflows', "
+            "'GitHub Secrets state is not asserted', or equivalent precise language. "
+            "Neither 'not registered' alone nor 'registration' alone is sufficient: "
+            "these phrases conflate repository file state with GitHub Secrets state."
+        )
+
+        # Must NOT use ambiguous 'not registered in repository' phrasing
+        assert "not registered in repository" not in content_lower, (
+            "Checklist must NOT use 'not registered in repository' — "
+            "use 'not present in repository files' instead"
+        )
+
+        # Must NOT claim to have verified GitHub Secrets state from repository
+        assert "github secrets are empty" not in content_lower, (
+            "Checklist must NOT claim 'GitHub Secrets are empty'"
+        )
+        assert "this pr verified github secrets" not in content_lower, (
+            "Checklist must NOT claim 'This PR verified GitHub Secrets'"
+        )
+        assert "absent from github secrets" not in content_lower, (
+            "Checklist must NOT use 'absent from GitHub Secrets'"
+        )
+
+    def test_github_secrets_state_not_asserted_by_pr(self) -> None:
+        """Checklist must state that GitHub Secrets state is not asserted by repository files.
+
+        This test enforces the separation between what the PR can verify
+        (repository files) and what only the Human Owner can verify (GitHub Secrets).
+        """
+        content_lower = self.content.lower()
         assert (
-            "not registered" in content_lower
-            or "未登録" in self.content
-            or "登録を行わない" in self.content
-            or "registration" in content_lower
+            "github secrets state" in content_lower
+            or "not asserted by repository files" in content_lower
+            or "human owner controlled" in content_lower
+            or (
+                "github secrets" in content_lower
+                and (
+                    "human owner" in content_lower
+                    and (
+                        "controlled" in content_lower
+                        or "verified" in content_lower
+                        or "外部で確認" in self.content
+                    )
+                )
+            )
         ), (
-            "Checklist must state that GEMINI_API_KEY is not registered in Phase 2-E"
+            "Checklist must state that GitHub Secrets state is not asserted by "
+            "repository files and is controlled / verified by the Human Owner"
         )
 
     def test_states_no_live_model_enabled_true_in_phase2e(self) -> None:

@@ -677,7 +677,7 @@ python -m pytest -v
 | 状態 | 内容 |
 |---|---|
 | Phase 1 baseline is frozen | `docs/PHASE_1_BASELINE.md` にすべての完了範囲・Safety invariants・Exit criteria が記録されている |
-| API is intentionally not connected yet | `GEMINI_API_KEY` は未登録・`live_model_enabled=false` のまま |
+| API is intentionally not connected yet | `GEMINI_API_KEY` は repository files には存在しない（GitHub Secrets 状態は Human Owner が外部確認）・`live_model_enabled=false` のまま |
 | Phase 3 (API activation) starts only after Human Owner decides | GEMINI_API_KEY 登録・`live_model_enabled=true`・実 Gemini API call は Phase 3 以降。Human Owner の明示的決定が必要 |
 
 > ⚠️ **CI テスト・noop・offline-sample・preflight は Phase 1 の範囲で動作確認済みです。**  
@@ -695,7 +695,7 @@ python -m pytest -v
 |---|---|
 | **現在のフェーズ** | Phase 2: API未接続運用強化 |
 | **API接続状態** | 未接続（`live_model_enabled=false` を維持） |
-| **GEMINI_API_KEY** | 未登録（Phase 3 以降で Human Owner の判断のもと登録） |
+| **GEMINI_API_KEY** | repository files には存在しない（GitHub Secrets への登録は Phase 3 で Human Owner が実施） |
 | **API接続予定** | Phase 3 以降（Human Owner の明示的決定が必要） |
 
 Phase 2 の計画・実施内容・禁止事項の詳細は **[`docs/PHASE_2_PLAN.md`](docs/PHASE_2_PLAN.md)** を参照してください。

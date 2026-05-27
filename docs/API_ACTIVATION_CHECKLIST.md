@@ -10,10 +10,13 @@
 
 - Phase 3 で実 Gemini API 接続を開始する前に、Human Owner が確認すべき条件を固定する
 - Phase 2-E では API 接続を行わない
-- Phase 2-E では GEMINI_API_KEY 登録を行わない
+- Phase 2-E では GEMINI_API_KEY を repository files に保存しない
+- Phase 2-E では GEMINI_API_KEY を Phase 2 workflows で使用しない
 - Phase 2-E では live_model_enabled=true にしない
 - Phase 2-E では Gemini API call を行わない
 - Human Owner の明示的判断なしに Phase 3 へ進まない
+- このPRは GitHub Secrets の状態を検証しない（GitHub Secrets 状態は Human Owner が外部で確認する）
+- Before Phase 3, Human Owner must confirm GEMINI_API_KEY is stored only in GitHub Secrets
 
 ---
 
@@ -23,7 +26,9 @@
 |---|---|
 | Current phase | Phase 2-E — API activation checklist hardening |
 | API connection | Not connected |
-| GEMINI_API_KEY | Not registered in repository |
+| GEMINI_API_KEY in repository files | Not present |
+| GEMINI_API_KEY used by Phase 2 workflows | No |
+| GitHub Secrets state | Not asserted by repository files; Human Owner controlled |
 | live_model_enabled | false |
 | Gemini API calls | Not executed |
 | Phase 3 | Not started |
@@ -152,6 +157,20 @@ Preview steps (Phase 2-E does not execute these):
 - Codex review has unresolved valid findings
 - API call succeeds but ledger persistence fails
 - `ledger_changed=true` but persist-ledger is not success
+
+---
+
+## Verification limitations
+
+以下の事項は、このPR / repository files からは検証できません。Human Owner が外部で確認する必要があります。
+
+- PR diff can verify repository files, not GitHub Secrets contents
+- GitHub Secrets state cannot be verified from repository files
+- Google Cloud Billing settings cannot be verified from repository files
+- Human Owner must verify GitHub Secrets and Billing before Phase 3
+- GPT Audit Gate and Codex review reduce but do not eliminate review blind spots
+- This PR does not inspect, modify, or rely on GitHub Secrets
+- GitHub Secrets state is controlled and verified by the Human Owner outside repository files
 
 ---
 
