@@ -140,11 +140,22 @@
 
 history が壊れている場合、promote / rollback / backtrack を進めてはならない。
 
-- historyファイルがJSONとして読めない場合: **BLOCK**（処理中断）
-- top-level が list でない場合: **BLOCK**
+- historyファイルが**存在しない**場合: **BLOCK**（promote拒否・処理中断）— 欠損historyを自動初期化・上書きしてはならない
+- historyファイルがJSONとして読めない場合 (**malformed JSON**): **BLOCK**（処理中断）— 破損historyを [] で上書きしてはならない
+- **top-level が list でない場合**（dict / null / string / number 等）: **BLOCK** — 不正構造のhistoryを上書きしてはならない
+- historyファイルが**読み取り不能**（権限エラー等）な場合: **BLOCK**
 - 必須フィールドが欠損している場合: 将来の自動処理はfail-closed
 - 不明な record type は安全側に倒す（BLOCK）
 - 不整合を検出した場合: Human Owner 確認が必要
+
+**promote が fail-closed になる場合の挙動**:
+
+- `promote_candidate.py` は evolution_history.json の読み込みに失敗した場合、promote を拒否すること
+- exit code は non-zero
+- JSON output mode では機械可読な error を返すこと
+- **破損・欠損・非list の evolution_history.json を [] で初期化・上書きしてはならない**
+- promote 失敗時に `core/detector.py` / `data/genome.json` / `data/evolution_history.json` / `README.md` を変更してはならない
+- promote 失敗理由に "evolution_history" / "fail-closed" / "malformed" / "missing" 等が含まれること
 
 ### 欠損フィールドの扱い
 

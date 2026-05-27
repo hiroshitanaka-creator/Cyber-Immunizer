@@ -360,6 +360,438 @@ class TestPromoteRefusal:
 
 
 # ---------------------------------------------------------------------------
+# Fail-closed evolution_history tests
+# ---------------------------------------------------------------------------
+
+class TestPromoteHistoryFailClosed:
+    """Verify that promote_candidate refuses when evolution_history.json is
+    missing, malformed, or has an invalid top-level type.
+
+    None of these failures may cause evolution_history.json to be
+    overwritten with [] or any other content, nor may they allow
+    core/detector.py or data/genome.json to be modified.
+    """
+
+    # ------------------------------------------------------------------ #
+    # Helpers shared by history tests
+    # ------------------------------------------------------------------ #
+
+    def _make_test_environment(self, tmp_path: Path) -> tuple[Path, Path, Path, Path, Path]:
+        """Return (candidate, report, genome, detector_out, readme) paths."""
+        candidate = _copy_real_candidate(tmp_path)
+        report = _make_passing_report(tmp_path, candidate, score=999.0)
+        genome = _make_isolated_genome(tmp_path, best_score=-1e9)
+        detector_out = _make_isolated_detector_out(tmp_path)
+        readme = _make_isolated_readme(tmp_path)
+        return candidate, report, genome, detector_out, readme
+
+    def _run_promote_with_history(
+        self,
+        tmp_path: Path,
+        history_path: Path,
+    ) -> tuple[int, Path, Path]:
+        """Run promote using the provided history_path; return (exit_code, genome, detector_out)."""
+        candidate, report, genome, detector_out, readme = self._make_test_environment(tmp_path)
+        exit_code = promote_candidate(
+            candidate,
+            report,
+            as_json=True,
+            detector_path=detector_out,
+            genome_path=genome,
+            history_path=history_path,
+            readme_path=readme,
+        )
+        return exit_code, genome, detector_out
+
+    # ------------------------------------------------------------------ #
+    # 1. Malformed evolution_history.json
+    # ------------------------------------------------------------------ #
+
+    def test_refuses_malformed_evolution_history(self, tmp_path):
+        """Malformed JSON in evolution_history.json must refuse promote."""
+        history = tmp_path / "evolution_history.json"
+        history.write_text("{not valid json!!!", encoding="utf-8")
+
+        exit_code, _, _ = self._run_promote_with_history(tmp_path, history)
+        assert exit_code != 0, "Must refuse when evolution_history.json is malformed JSON"
+
+    def test_malformed_history_error_mentions_fail_closed(self, tmp_path):
+        """Refusal for malformed history must mention fail-closed in the error output."""
+        import io
+        from contextlib import redirect_stdout
+
+        history = tmp_path / "evolution_history.json"
+        history.write_text("{not valid json!!!", encoding="utf-8")
+
+        candidate, report, genome, detector_out, readme = self._make_test_environment(tmp_path)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            exit_code = promote_candidate(
+                candidate, report, as_json=True,
+                detector_path=detector_out, genome_path=genome,
+                history_path=history, readme_path=readme,
+            )
+        output = buf.getvalue()
+        assert exit_code != 0
+        # The JSON error output must be machine-readable and mention the problem
+        error_data = json.loads(output)
+        assert error_data["success"] is False
+        assert "evolution_history" in error_data["error"].lower() or \
+               "malformed" in error_data["error"].lower() or \
+               "fail-closed" in error_data["error"].lower(), (
+                   f"Error message should mention evolution_history/malformed/fail-closed, got: {error_data['error']}"
+               )
+
+    # ------------------------------------------------------------------ #
+    # 2. Missing evolution_history.json
+    # ------------------------------------------------------------------ #
+
+    def test_refuses_missing_evolution_history(self, tmp_path):
+        """Missing evolution_history.json must refuse promote."""
+        history = tmp_path / "evolution_history.json"
+        # Do NOT create the file
+
+        exit_code, _, _ = self._run_promote_with_history(tmp_path, history)
+        assert exit_code != 0, "Must refuse when evolution_history.json is missing"
+
+    def test_missing_history_error_mentions_missing(self, tmp_path):
+        """Refusal for missing history must mention the problem in JSON output."""
+        import io
+        from contextlib import redirect_stdout
+
+        history = tmp_path / "evolution_history.json"
+        # Do NOT create the file
+
+        candidate, report, genome, detector_out, readme = self._make_test_environment(tmp_path)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            exit_code = promote_candidate(
+                candidate, report, as_json=True,
+                detector_path=detector_out, genome_path=genome,
+                history_path=history, readme_path=readme,
+            )
+        output = buf.getvalue()
+        assert exit_code != 0
+        error_data = json.loads(output)
+        assert error_data["success"] is False
+        assert "evolution_history" in error_data["error"].lower() or \
+               "missing" in error_data["error"].lower() or \
+               "not found" in error_data["error"].lower(), (
+                   f"Error message should mention missing/not found, got: {error_data['error']}"
+               )
+
+    # ------------------------------------------------------------------ #
+    # 3 & 4. Top-level non-list values
+    # ------------------------------------------------------------------ #
+
+    def test_refuses_dict_evolution_history(self, tmp_path):
+        """Top-level JSON object (dict) in evolution_history.json must refuse."""
+        history = tmp_path / "evolution_history.json"
+        history.write_text('{"generation": 1}', encoding="utf-8")
+
+        exit_code, _, _ = self._run_promote_with_history(tmp_path, history)
+        assert exit_code != 0, "Must refuse when evolution_history.json is a top-level dict"
+
+    def test_refuses_null_evolution_history(self, tmp_path):
+        """Top-level JSON null in evolution_history.json must refuse."""
+        history = tmp_path / "evolution_history.json"
+        history.write_text("null", encoding="utf-8")
+
+        exit_code, _, _ = self._run_promote_with_history(tmp_path, history)
+        assert exit_code != 0, "Must refuse when evolution_history.json is top-level null"
+
+    def test_refuses_string_evolution_history(self, tmp_path):
+        """Top-level JSON string in evolution_history.json must refuse."""
+        history = tmp_path / "evolution_history.json"
+        history.write_text('"some string"', encoding="utf-8")
+
+        exit_code, _, _ = self._run_promote_with_history(tmp_path, history)
+        assert exit_code != 0, "Must refuse when evolution_history.json is top-level string"
+
+    def test_refuses_number_evolution_history(self, tmp_path):
+        """Top-level JSON number in evolution_history.json must refuse."""
+        history = tmp_path / "evolution_history.json"
+        history.write_text("42", encoding="utf-8")
+
+        exit_code, _, _ = self._run_promote_with_history(tmp_path, history)
+        assert exit_code != 0, "Must refuse when evolution_history.json is top-level number"
+
+    # ------------------------------------------------------------------ #
+    # 5. Failed promote must NOT overwrite history with []
+    # ------------------------------------------------------------------ #
+
+    def test_does_not_overwrite_history_on_malformed(self, tmp_path):
+        """Malformed evolution_history.json must NOT be overwritten with [] on failure."""
+        history = tmp_path / "evolution_history.json"
+        original_content = "{not valid json!!!"
+        history.write_text(original_content, encoding="utf-8")
+
+        self._run_promote_with_history(tmp_path, history)
+
+        # File must be unchanged
+        assert history.read_text(encoding="utf-8") == original_content, (
+            "promote must not overwrite evolution_history.json when it is malformed"
+        )
+
+    def test_does_not_overwrite_history_on_missing(self, tmp_path):
+        """Missing evolution_history.json must NOT be created/initialized on failure."""
+        history = tmp_path / "evolution_history.json"
+        # Do NOT create the file
+
+        self._run_promote_with_history(tmp_path, history)
+
+        assert not history.exists(), (
+            "promote must not create evolution_history.json when it was missing and promote failed"
+        )
+
+    def test_does_not_overwrite_history_on_non_list(self, tmp_path):
+        """Non-list evolution_history.json must NOT be overwritten on failure."""
+        history = tmp_path / "evolution_history.json"
+        original_content = '{"key": "value"}'
+        history.write_text(original_content, encoding="utf-8")
+
+        self._run_promote_with_history(tmp_path, history)
+
+        assert history.read_text(encoding="utf-8") == original_content, (
+            "promote must not overwrite evolution_history.json when it is a non-list"
+        )
+
+    # ------------------------------------------------------------------ #
+    # 6–8. Failed promote must NOT modify detector/genome/README
+    # ------------------------------------------------------------------ #
+
+    def test_does_not_touch_detector_on_history_failure(self, tmp_path):
+        """When history is invalid, core/detector.py must not be modified."""
+        history = tmp_path / "evolution_history.json"
+        history.write_text("null", encoding="utf-8")
+
+        _, _, detector_out = self._run_promote_with_history(tmp_path, history)
+
+        assert not detector_out.exists(), (
+            "promote must not write to the detector output path when history is invalid"
+        )
+
+    def test_does_not_touch_genome_on_history_failure(self, tmp_path):
+        """When history is invalid, genome.json must not be modified."""
+        history = tmp_path / "evolution_history.json"
+        history.write_text("null", encoding="utf-8")
+
+        candidate, report, genome, detector_out, readme = self._make_test_environment(tmp_path)
+        original_genome = genome.read_text(encoding="utf-8")
+
+        promote_candidate(
+            candidate, report, as_json=True,
+            detector_path=detector_out, genome_path=genome,
+            history_path=history, readme_path=readme,
+        )
+
+        assert genome.read_text(encoding="utf-8") == original_genome, (
+            "promote must not modify genome.json when evolution_history is invalid"
+        )
+
+    def test_real_detector_not_modified_on_history_failure(self, tmp_path):
+        """The real core/detector.py must not be modified when history is invalid."""
+        original_hash = _real_detector_hash()
+
+        history = tmp_path / "evolution_history.json"
+        history.write_text("null", encoding="utf-8")
+
+        self._run_promote_with_history(tmp_path, history)
+
+        new_hash = _real_detector_hash()
+        assert original_hash == new_hash, (
+            "core/detector.py must not be modified during a failed promotion due to invalid history"
+        )
+
+    # ------------------------------------------------------------------ #
+    # 9. Valid history still works (regression check)
+    # ------------------------------------------------------------------ #
+
+    def test_valid_history_allows_normal_promote(self, tmp_path):
+        """A valid evolution_history.json still allows a successful promotion."""
+        history = _make_isolated_history(tmp_path)  # writes []
+
+        exit_code, _, detector_out = self._run_promote_with_history(tmp_path, history)
+        assert exit_code == 0, "Normal promote must succeed with valid history"
+        assert detector_out.exists(), "Detector must be written on success"
+
+    def test_valid_non_empty_history_appends_entry(self, tmp_path):
+        """Promote appends to an existing non-empty history."""
+        history = tmp_path / "evolution_history.json"
+        existing_entry = {
+            "generation": 0,
+            "detector_hash": "abc123",
+            "score": 1.0,
+            "passed_adoption_gate": True,
+            "rejection_reasons": [],
+            "promoted_at": "2026-01-01T00:00:00Z",
+        }
+        history.write_text(json.dumps([existing_entry], indent=2), encoding="utf-8")
+
+        exit_code, _, _ = self._run_promote_with_history(tmp_path, history)
+        assert exit_code == 0, "Promote must succeed when history has existing valid entries"
+
+        loaded = json.loads(history.read_text(encoding="utf-8"))
+        assert len(loaded) == 2, "History must have 2 entries after promotion"
+        assert loaded[0] == existing_entry, "Existing entry must be preserved"
+        assert loaded[1]["generation"] == 1
+
+    # ------------------------------------------------------------------ #
+    # 10. JSON output mode — error is machine-readable
+    # ------------------------------------------------------------------ #
+
+    def test_json_output_on_missing_history(self, tmp_path):
+        """In JSON mode, missing history error must be machine-readable JSON."""
+        import io
+        from contextlib import redirect_stdout
+
+        history = tmp_path / "evolution_history.json"
+        # Do NOT create the file
+
+        candidate, report, genome, detector_out, readme = self._make_test_environment(tmp_path)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            exit_code = promote_candidate(
+                candidate, report, as_json=True,
+                detector_path=detector_out, genome_path=genome,
+                history_path=history, readme_path=readme,
+            )
+        assert exit_code != 0
+        output = buf.getvalue().strip()
+        # Must be parseable JSON
+        error_data = json.loads(output)
+        assert "success" in error_data
+        assert error_data["success"] is False
+        assert "error" in error_data
+        assert isinstance(error_data["error"], str)
+        assert len(error_data["error"]) > 0
+
+    def test_json_output_on_malformed_history(self, tmp_path):
+        """In JSON mode, malformed history error must be machine-readable JSON."""
+        import io
+        from contextlib import redirect_stdout
+
+        history = tmp_path / "evolution_history.json"
+        history.write_text("{broken", encoding="utf-8")
+
+        candidate, report, genome, detector_out, readme = self._make_test_environment(tmp_path)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            exit_code = promote_candidate(
+                candidate, report, as_json=True,
+                detector_path=detector_out, genome_path=genome,
+                history_path=history, readme_path=readme,
+            )
+        assert exit_code != 0
+        output = buf.getvalue().strip()
+        error_data = json.loads(output)
+        assert error_data["success"] is False
+        assert isinstance(error_data["error"], str)
+        assert len(error_data["error"]) > 0
+
+    # ------------------------------------------------------------------ #
+    # 11. Invalid UTF-8 bytes in evolution_history.json (Codex P2 fix)
+    # ------------------------------------------------------------------ #
+
+    def test_refuses_invalid_utf8_evolution_history(self, tmp_path):
+        """evolution_history.json containing invalid UTF-8 bytes must refuse promote."""
+        history = tmp_path / "evolution_history.json"
+        # Write raw bytes that are not valid UTF-8
+        history.write_bytes(b"\xff\xfe[invalid utf-8 content]")
+
+        exit_code, _, _ = self._run_promote_with_history(tmp_path, history)
+        assert exit_code != 0, "Must refuse when evolution_history.json has invalid UTF-8"
+
+    def test_invalid_utf8_history_json_output_is_machine_readable(self, tmp_path):
+        """--json mode must produce machine-readable JSON (not a traceback) for invalid UTF-8."""
+        import io
+        from contextlib import redirect_stdout
+
+        history = tmp_path / "evolution_history.json"
+        history.write_bytes(b"\x80\x81\x82 not valid utf-8")
+
+        candidate, report, genome, detector_out, readme = self._make_test_environment(tmp_path)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            exit_code = promote_candidate(
+                candidate, report, as_json=True,
+                detector_path=detector_out, genome_path=genome,
+                history_path=history, readme_path=readme,
+            )
+        assert exit_code != 0
+        output = buf.getvalue().strip()
+        # Must be parseable JSON — not a Python traceback
+        error_data = json.loads(output)
+        assert error_data["success"] is False
+        assert "error" in error_data
+        assert isinstance(error_data["error"], str)
+        assert len(error_data["error"]) > 0
+        # Must mention the encoding problem
+        msg = error_data["error"].lower()
+        assert (
+            "utf-8" in msg
+            or "utf8" in msg
+            or "encoding" in msg
+            or "evolution_history" in msg
+            or "fail-closed" in msg
+        ), f"Error must mention UTF-8/encoding/evolution_history, got: {error_data['error']!r}"
+
+    def test_invalid_utf8_history_not_overwritten(self, tmp_path):
+        """Invalid-UTF-8 evolution_history.json must NOT be overwritten on failure."""
+        history = tmp_path / "evolution_history.json"
+        original_bytes = b"\xff\xfe[invalid utf-8]"
+        history.write_bytes(original_bytes)
+
+        self._run_promote_with_history(tmp_path, history)
+
+        assert history.read_bytes() == original_bytes, (
+            "promote must not overwrite evolution_history.json with invalid UTF-8"
+        )
+
+    def test_invalid_utf8_history_does_not_touch_detector(self, tmp_path):
+        """When history has invalid UTF-8, the detector output must not be written."""
+        history = tmp_path / "evolution_history.json"
+        history.write_bytes(b"\xff\xfe invalid utf-8")
+
+        _, _, detector_out = self._run_promote_with_history(tmp_path, history)
+
+        assert not detector_out.exists(), (
+            "promote must not write to the detector path when history has invalid UTF-8"
+        )
+
+    def test_invalid_utf8_history_does_not_touch_genome(self, tmp_path):
+        """When history has invalid UTF-8, genome.json must not be modified."""
+        history = tmp_path / "evolution_history.json"
+        history.write_bytes(b"\xff\xfe invalid utf-8")
+
+        candidate, report, genome, detector_out, readme = self._make_test_environment(tmp_path)
+        original_genome = genome.read_text(encoding="utf-8")
+
+        promote_candidate(
+            candidate, report, as_json=True,
+            detector_path=detector_out, genome_path=genome,
+            history_path=history, readme_path=readme,
+        )
+
+        assert genome.read_text(encoding="utf-8") == original_genome, (
+            "promote must not modify genome.json when evolution_history has invalid UTF-8"
+        )
+
+    def test_invalid_utf8_history_does_not_touch_real_detector(self, tmp_path):
+        """The real core/detector.py must be unchanged when history has invalid UTF-8."""
+        original_hash = _real_detector_hash()
+
+        history = tmp_path / "evolution_history.json"
+        history.write_bytes(b"\xff\xfe invalid utf-8")
+
+        self._run_promote_with_history(tmp_path, history)
+
+        assert _real_detector_hash() == original_hash, (
+            "core/detector.py must not be modified when history has invalid UTF-8"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Success tests
 # ---------------------------------------------------------------------------
 

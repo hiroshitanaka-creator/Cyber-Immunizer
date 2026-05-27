@@ -55,6 +55,12 @@ def load_ledger(path: Path) -> list[dict]:
 
     Returns an empty list if the file does not exist.
 
+    NOTE: This function is intentionally permissive about missing files so
+    that append_usage_record() can create the ledger on the first API call.
+    Use strict_load_ledger() for any path that enforces the budget cap before
+    a live API call — missing ledger means budget state is unknown, which is
+    a fail-closed condition.
+
     Raises:
         ValueError: if the file exists but contains malformed JSON or
                     its top-level structure is not a JSON array of objects.
@@ -77,6 +83,61 @@ def load_ledger(path: Path) -> list[dict]:
                 f"Ledger record [{i}] must be a JSON object "
                 f"(got {type(record).__name__}). "
                 "The file may be corrupted."
+            )
+    return data  # type: ignore[return-value]
+
+
+def strict_load_ledger(path: Path) -> list[dict]:
+    """Load the API usage ledger with fail-closed semantics for live API paths.
+
+    Unlike load_ledger(), this function treats a missing ledger as an error.
+    A missing ledger means past API spend is unknown, which makes any budget
+    cap fail-open.  All live API call paths and budget enforcement paths
+    MUST use this function rather than load_ledger().
+
+    Raises:
+        ValueError: if the file is missing, unreadable, contains malformed
+                    JSON, or its top-level structure is not a JSON array of
+                    objects.  Error messages always include "budget state
+                    unknown" so callers can surface a consistent diagnostic.
+    """
+    if not path.exists():
+        raise ValueError(
+            f"API usage ledger not found at {path} — "
+            "budget state unknown: cannot enforce budget cap without a ledger. "
+            "The ledger must exist before any live API call is attempted. "
+            "Refusing API call (fail-closed)."
+        )
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(
+            f"API usage ledger is unreadable: {exc} — "
+            "budget state unknown: cannot enforce budget cap without ledger access. "
+            "Refusing API call (fail-closed)."
+        ) from exc
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"API usage ledger contains malformed JSON: {exc} — "
+            "budget state unknown: cannot parse ledger to enforce budget cap. "
+            "Inspect and repair the ledger manually before any API call."
+        ) from exc
+    if not isinstance(data, list):
+        raise ValueError(
+            f"API usage ledger top-level value is {type(data).__name__!r}, "
+            "expected a JSON array — "
+            "budget state unknown: ledger structure is invalid; "
+            "cannot enforce budget cap. Inspect and repair the ledger manually."
+        )
+    for i, record in enumerate(data):
+        if not isinstance(record, dict):
+            raise ValueError(
+                f"API usage ledger record [{i}] must be a JSON object "
+                f"(got {type(record).__name__}) — "
+                "budget state unknown: ledger structure is invalid. "
+                "The file may be corrupted; inspect it manually."
             )
     return data  # type: ignore[return-value]
 

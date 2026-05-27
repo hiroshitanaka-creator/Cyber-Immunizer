@@ -519,6 +519,398 @@ class TestAppendUsageRecord:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# 11. strict_load_ledger — fail-closed for live API / budget enforcement paths
+# ---------------------------------------------------------------------------
+
+
+class TestStrictLoadLedger:
+    """Tests for budget.strict_load_ledger() which is used by all live API paths.
+
+    Unlike load_ledger(), strict_load_ledger() must raise ValueError for a
+    missing ledger file because a missing ledger means past spend is unknown
+    and the budget cap would be fail-open.
+    """
+
+    def test_raises_on_missing_file(self, tmp_path: Path) -> None:
+        """Missing ledger must raise ValueError (budget state unknown)."""
+        p = tmp_path / "nonexistent.json"
+        with pytest.raises(ValueError) as exc_info:
+            budget.strict_load_ledger(p)
+        assert "budget state unknown" in str(exc_info.value).lower() or \
+               "not found" in str(exc_info.value).lower() or \
+               "missing" in str(exc_info.value).lower()
+
+    def test_missing_error_mentions_budget_state_unknown(self, tmp_path: Path) -> None:
+        """Missing ledger error message must contain 'budget state unknown'."""
+        p = tmp_path / "nonexistent.json"
+        with pytest.raises(ValueError) as exc_info:
+            budget.strict_load_ledger(p)
+        assert "budget state unknown" in str(exc_info.value).lower()
+
+    def test_raises_on_malformed_json(self, tmp_path: Path) -> None:
+        """Malformed JSON must raise ValueError."""
+        p = tmp_path / "bad.json"
+        p.write_text("this is not json", encoding="utf-8")
+        with pytest.raises(ValueError) as exc_info:
+            budget.strict_load_ledger(p)
+        assert "budget state unknown" in str(exc_info.value).lower()
+
+    def test_raises_on_top_level_dict(self, tmp_path: Path) -> None:
+        """Top-level JSON object (dict) must raise ValueError."""
+        p = tmp_path / "obj.json"
+        p.write_text('{"key": "value"}', encoding="utf-8")
+        with pytest.raises(ValueError) as exc_info:
+            budget.strict_load_ledger(p)
+        assert "budget state unknown" in str(exc_info.value).lower()
+
+    def test_raises_on_top_level_null(self, tmp_path: Path) -> None:
+        """Top-level JSON null must raise ValueError."""
+        p = tmp_path / "null.json"
+        p.write_text("null", encoding="utf-8")
+        with pytest.raises(ValueError) as exc_info:
+            budget.strict_load_ledger(p)
+        assert "budget state unknown" in str(exc_info.value).lower()
+
+    def test_raises_on_top_level_string(self, tmp_path: Path) -> None:
+        """Top-level JSON string must raise ValueError."""
+        p = tmp_path / "str.json"
+        p.write_text('"some string"', encoding="utf-8")
+        with pytest.raises(ValueError) as exc_info:
+            budget.strict_load_ledger(p)
+        assert "budget state unknown" in str(exc_info.value).lower()
+
+    def test_raises_on_top_level_number(self, tmp_path: Path) -> None:
+        """Top-level JSON number must raise ValueError."""
+        p = tmp_path / "num.json"
+        p.write_text("42", encoding="utf-8")
+        with pytest.raises(ValueError) as exc_info:
+            budget.strict_load_ledger(p)
+        assert "budget state unknown" in str(exc_info.value).lower()
+
+    def test_missing_is_not_treated_as_empty(self, tmp_path: Path) -> None:
+        """Missing ledger must NOT be silently treated as an empty ledger []."""
+        p = tmp_path / "nonexistent.json"
+        # strict_load_ledger must raise, not return []
+        raised = False
+        try:
+            result = budget.strict_load_ledger(p)
+        except ValueError:
+            raised = True
+        assert raised, (
+            "strict_load_ledger must raise ValueError for a missing ledger, "
+            "not return [] or any empty list"
+        )
+
+    def test_returns_valid_list(self, tmp_path: Path) -> None:
+        """Valid ledger file must be returned as a list without raising."""
+        records = [_make_record("2026-05", "2026-05-01", cost=0.01)]
+        p = tmp_path / "ledger.json"
+        p.write_text(json.dumps(records), encoding="utf-8")
+        loaded = budget.strict_load_ledger(p)
+        assert isinstance(loaded, list)
+        assert len(loaded) == 1
+        assert loaded[0]["estimated_cost_usd"] == 0.01
+
+    def test_returns_empty_list_for_empty_array(self, tmp_path: Path) -> None:
+        """An empty JSON array [] is valid and must be returned as []."""
+        p = tmp_path / "empty.json"
+        p.write_text("[]", encoding="utf-8")
+        loaded = budget.strict_load_ledger(p)
+        assert loaded == []
+
+    def test_load_ledger_still_allows_missing(self, tmp_path: Path) -> None:
+        """Original load_ledger() must still return [] for a missing file (not broken)."""
+        p = tmp_path / "nonexistent.json"
+        result = budget.load_ledger(p)
+        assert result == [], (
+            "load_ledger() must still return [] for missing files "
+            "(used by append_usage_record to create the first ledger entry)"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 12. live API path uses strict_load_ledger (integration smoke tests)
+# ---------------------------------------------------------------------------
+
+
+class TestLiveBudgetPathFailsClosed:
+    """Verify that the live API budget enforcement path (propose_mutation.py)
+    refuses when the ledger is missing or malformed.
+
+    These tests import propose_mutation and verify that missing/malformed ledger
+    causes a refusal before any API call would be attempted.
+    """
+
+    @pytest.fixture()
+    def live_paid_genome(self) -> dict:
+        return {
+            "project": "Test",
+            "generation": 1,
+            "best_score": -1000000.0,
+            "max_model_requests_per_run": 1,
+            "model_provider": "gemini",
+            "api_mode": "gemini_paid_credit",
+            "model_name": "gemini-2.0-flash",
+            "fallback_model_name": "gemini-2.0-flash-lite",
+            "live_model_enabled": True,
+            "require_paid_tier": True,
+            "free_tier_only": False,
+            "monthly_api_budget_usd": 10.0,
+            "daily_api_budget_usd": 0.25,
+            "max_prompt_chars": 12000,
+            "max_output_tokens": 2048,
+            "temperature": 0.2,
+            "allow_google_search_grounding": False,
+            "allow_code_execution_tool": False,
+            "allow_url_context": False,
+            "send_repository_full_text": False,
+            "send_raw_payloads": False,
+            "send_secrets": False,
+        }
+
+    def _minimal_detector(self, tmp_path: Path) -> Path:
+        code = '''\
+from core.types import Request, DetectionResult
+
+
+def inspect_request(request: Request) -> DetectionResult:
+    # === MUTATION_START ===
+    return DetectionResult(
+        blocked=False,
+        reason="no suspicious indicator matched",
+        confidence=0.0,
+        matched_signals=(),
+    )
+    # === MUTATION_END ===
+'''
+        p = tmp_path / "detector.py"
+        p.write_text(code, encoding="utf-8")
+        return p
+
+    def test_missing_ledger_refuses_budget_check(
+        self, tmp_path: Path, live_paid_genome: dict, monkeypatch: "pytest.MonkeyPatch"
+    ) -> None:
+        """Missing api_usage_ledger.json must cause the live paid path to refuse.
+
+        A missing ledger means past spend is unknown; the budget cap must fail-closed.
+        """
+        import scripts.propose_mutation as pm
+
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(live_paid_genome), encoding="utf-8")
+        detector_path = self._minimal_detector(tmp_path)
+        threats_path = tmp_path / "active_threats.json"
+        threats_path.write_text('[{"id": "T-001"}]', encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        # Deliberately do NOT create the ledger file
+        missing_ledger = tmp_path / "api_usage_ledger.json"
+
+        monkeypatch.setattr(pm, "_GENOME_PATH", genome_path)
+        monkeypatch.setattr(pm, "_DETECTOR_PATH", detector_path)
+        monkeypatch.setattr(pm, "_THREATS_PATH", threats_path)
+        monkeypatch.setattr(pm, "_LEDGER_PATH", missing_ledger)
+        monkeypatch.setattr(pm, "_OUT_DIR", out_dir)
+        monkeypatch.setattr(pm, "_OUT_PATCH", out_dir / "mutation_patch.json")
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-test")
+
+        patch_result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert patch_result is None, "Must refuse when ledger is missing"
+        assert err, "Must produce an error message"
+        assert "budget state unknown" in err.lower() or "not usable" in err.lower() or \
+               "not found" in err.lower() or "missing" in err.lower(), (
+                   f"Error must mention ledger problem, got: {err}"
+               )
+
+    def test_malformed_ledger_refuses_budget_check(
+        self, tmp_path: Path, live_paid_genome: dict, monkeypatch: "pytest.MonkeyPatch"
+    ) -> None:
+        """Malformed api_usage_ledger.json must cause the live paid path to refuse."""
+        import scripts.propose_mutation as pm
+
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(live_paid_genome), encoding="utf-8")
+        detector_path = self._minimal_detector(tmp_path)
+        threats_path = tmp_path / "active_threats.json"
+        threats_path.write_text('[{"id": "T-001"}]', encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        bad_ledger = tmp_path / "api_usage_ledger.json"
+        bad_ledger.write_text("{INVALID JSON!!!", encoding="utf-8")
+
+        monkeypatch.setattr(pm, "_GENOME_PATH", genome_path)
+        monkeypatch.setattr(pm, "_DETECTOR_PATH", detector_path)
+        monkeypatch.setattr(pm, "_THREATS_PATH", threats_path)
+        monkeypatch.setattr(pm, "_LEDGER_PATH", bad_ledger)
+        monkeypatch.setattr(pm, "_OUT_DIR", out_dir)
+        monkeypatch.setattr(pm, "_OUT_PATCH", out_dir / "mutation_patch.json")
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-test")
+
+        patch_result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert patch_result is None, "Must refuse when ledger is malformed"
+        assert err, "Must produce an error message"
+
+    def test_non_list_ledger_refuses_budget_check(
+        self, tmp_path: Path, live_paid_genome: dict, monkeypatch: "pytest.MonkeyPatch"
+    ) -> None:
+        """Non-list api_usage_ledger.json (e.g. dict) must cause the live path to refuse."""
+        import scripts.propose_mutation as pm
+
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(live_paid_genome), encoding="utf-8")
+        detector_path = self._minimal_detector(tmp_path)
+        threats_path = tmp_path / "active_threats.json"
+        threats_path.write_text('[{"id": "T-001"}]', encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        dict_ledger = tmp_path / "api_usage_ledger.json"
+        dict_ledger.write_text('{"this": "is a dict not a list"}', encoding="utf-8")
+
+        monkeypatch.setattr(pm, "_GENOME_PATH", genome_path)
+        monkeypatch.setattr(pm, "_DETECTOR_PATH", detector_path)
+        monkeypatch.setattr(pm, "_THREATS_PATH", threats_path)
+        monkeypatch.setattr(pm, "_LEDGER_PATH", dict_ledger)
+        monkeypatch.setattr(pm, "_OUT_DIR", out_dir)
+        monkeypatch.setattr(pm, "_OUT_PATCH", out_dir / "mutation_patch.json")
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-test")
+
+        patch_result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert patch_result is None, "Must refuse when ledger is non-list"
+        assert err, "Must produce an error message"
+
+    def test_missing_ledger_not_treated_as_empty(
+        self, tmp_path: Path, live_paid_genome: dict, monkeypatch: "pytest.MonkeyPatch"
+    ) -> None:
+        """Missing ledger must NOT be treated as [] (zero spend) in the budget check."""
+        import scripts.propose_mutation as pm
+
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(live_paid_genome), encoding="utf-8")
+        detector_path = self._minimal_detector(tmp_path)
+        threats_path = tmp_path / "active_threats.json"
+        threats_path.write_text('[{"id": "T-001"}]', encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        missing_ledger = tmp_path / "api_usage_ledger.json"
+        # DO NOT create the file
+
+        monkeypatch.setattr(pm, "_GENOME_PATH", genome_path)
+        monkeypatch.setattr(pm, "_DETECTOR_PATH", detector_path)
+        monkeypatch.setattr(pm, "_THREATS_PATH", threats_path)
+        monkeypatch.setattr(pm, "_LEDGER_PATH", missing_ledger)
+        monkeypatch.setattr(pm, "_OUT_DIR", out_dir)
+        monkeypatch.setattr(pm, "_OUT_PATCH", out_dir / "mutation_patch.json")
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-test")
+
+        patch_result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        # If missing ledger were treated as [] the call would proceed to budget check
+        # and potentially (if budget ok) to an API call.  We want it to fail
+        # immediately with a ledger error.
+        assert patch_result is None
+        # Error message must NOT be purely about budget — it must mention the ledger
+        assert err
+        # Should not be a budget overflow error (which would imply ledger was treated as [])
+        assert "ledger" in err.lower() or "budget state unknown" in err.lower() or \
+               "not usable" in err.lower() or "not found" in err.lower()
+
+
+# ---------------------------------------------------------------------------
+# 13. noop/offline-sample non-API paths not broken
+# ---------------------------------------------------------------------------
+
+
+class TestNonApiPathsNotBroken:
+    """Verify that noop and offline-sample paths are not affected by strict ledger logic.
+
+    These paths do not perform API calls and must continue to work even when
+    the ledger file is missing or malformed.
+    """
+
+    def test_noop_mode_ignores_ledger(self, tmp_path: Path, monkeypatch: "pytest.MonkeyPatch") -> None:
+        """noop mode must succeed regardless of ledger state.
+
+        noop is a CLI-only mode (via main()); it exits 0 without touching ledger.
+        """
+        import scripts.propose_mutation as pm
+
+        genome = {"project": "Test", "generation": 1, "best_score": -1.0}
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+        missing_ledger = tmp_path / "api_usage_ledger.json"
+        # DO NOT create the ledger
+
+        monkeypatch.setattr(pm, "_GENOME_PATH", genome_path)
+        monkeypatch.setattr(pm, "_LEDGER_PATH", missing_ledger)
+
+        # noop is handled in main(), not in propose_mutation() directly
+        exit_code = pm.main(["--noop"])
+        assert exit_code == 0, "noop mode must exit 0 regardless of ledger state"
+
+    def test_offline_sample_ignores_missing_ledger(
+        self, tmp_path: Path, monkeypatch: "pytest.MonkeyPatch"
+    ) -> None:
+        """offline-sample mode must succeed even when ledger is missing."""
+        import scripts.propose_mutation as pm
+
+        minimal_detector = '''\
+from core.types import Request, DetectionResult
+
+
+def inspect_request(request: Request) -> DetectionResult:
+    # === MUTATION_START ===
+    return DetectionResult(
+        blocked=False,
+        reason="no suspicious indicator matched",
+        confidence=0.0,
+        matched_signals=(),
+    )
+    # === MUTATION_END ===
+'''
+        genome = {
+            "project": "Test",
+            "generation": 1,
+            "best_score": -1.0,
+            "max_prompt_chars": 12000,
+            "max_output_tokens": 2048,
+        }
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+        detector_path = tmp_path / "detector.py"
+        detector_path.write_text(minimal_detector, encoding="utf-8")
+        threats_path = tmp_path / "active_threats.json"
+        threats_path.write_text('[{"id": "T-001"}]', encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        missing_ledger = tmp_path / "api_usage_ledger.json"
+        # DO NOT create the ledger
+
+        monkeypatch.setattr(pm, "_GENOME_PATH", genome_path)
+        monkeypatch.setattr(pm, "_DETECTOR_PATH", detector_path)
+        monkeypatch.setattr(pm, "_THREATS_PATH", threats_path)
+        monkeypatch.setattr(pm, "_LEDGER_PATH", missing_ledger)
+        monkeypatch.setattr(pm, "_OUT_DIR", out_dir)
+        monkeypatch.setattr(pm, "_OUT_PATCH", out_dir / "mutation_patch.json")
+
+        patch_result, err = pm.propose_mutation(offline_sample=True)
+        # offline-sample must produce a patch (not None) — it does not use the ledger
+        assert err == "", f"offline-sample should not error, got: {err}"
+        assert patch_result is not None, "offline-sample must produce a patch regardless of ledger state"
+
+
+# ---------------------------------------------------------------------------
+# Date keys (moved from original position to after new test classes)
+# ---------------------------------------------------------------------------
+
+
 class TestDateKeys:
     def test_current_month_key_format(self) -> None:
         """current_month_key returns 'YYYY-MM'."""

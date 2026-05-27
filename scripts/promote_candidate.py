@@ -70,6 +70,58 @@ def _refuse(reason: str, as_json: bool) -> int:
     return 1
 
 
+def _load_history_strict(path: Path) -> tuple[list | None, str]:
+    """Load evolution_history.json with fail-closed semantics.
+
+    Promote is refused (fail-closed) if the history file is:
+      - missing (FileNotFoundError)
+      - unreadable (OSError)
+      - malformed JSON (json.JSONDecodeError)
+      - top-level value is not a list (e.g. dict, null, string, number)
+
+    Returns:
+        (history_list, "")  on success
+        (None, error_reason)  on any failure — caller must refuse promotion
+    """
+    if not path.exists():
+        return None, (
+            f"evolution_history.json not found at {path} — "
+            "promote is fail-closed: missing evolution_history cannot be initialized "
+            "automatically. Inspect the repository and restore or bootstrap history "
+            "before promoting."
+        )
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        return None, (
+            f"evolution_history.json contains invalid UTF-8 bytes: {exc} — "
+            "promote is fail-closed: evolution_history with encoding errors must not "
+            "be overwritten or re-initialized automatically. "
+            "Inspect and repair history manually."
+        )
+    except OSError as exc:
+        return None, (
+            f"evolution_history.json is unreadable: {exc} — "
+            "promote is fail-closed: cannot append to unreadable history."
+        )
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return None, (
+            f"evolution_history.json contains malformed JSON: {exc} — "
+            "promote is fail-closed: malformed history must not be overwritten or "
+            "re-initialized automatically. Inspect and repair history manually."
+        )
+    if not isinstance(data, list):
+        return None, (
+            f"evolution_history.json top-level value is {type(data).__name__!r}, "
+            "expected a list — "
+            "promote is fail-closed: invalid history structure must not be overwritten. "
+            "Inspect and repair history manually."
+        )
+    return data, ""
+
+
 def _validate_fitness_schema(fitness: dict) -> list[str]:
     """Return a list of schema violations in the fitness_report object."""
     errors: list[str] = []
@@ -208,6 +260,16 @@ def promote_candidate(
             as_json,
         )
 
+    # --- 11.5. Pre-load evolution_history BEFORE any mutations (fail-closed) ---
+    # Load and validate history NOW, before copying the candidate or updating
+    # genome.json.  If the history file is missing, malformed, or non-list,
+    # refuse immediately — we must never overwrite or re-initialize a broken
+    # audit trail.  This check happens BEFORE any irreversible mutations so
+    # that a broken history causes a clean refusal rather than a partial write.
+    history, history_err = _load_history_strict(history_path)
+    if history_err:
+        return _refuse(history_err, as_json)
+
     # --- 12. Copy candidate to detector_path ---
     shutil.copy2(str(candidate_path), str(detector_path))
 
@@ -220,10 +282,11 @@ def promote_candidate(
     genome_path.write_text(json.dumps(genome_data, indent=2) + "\n", encoding="utf-8")
 
     # --- 14. Append to evolution_history.json ---
-    try:
-        history = json.loads(history_path.read_text(encoding="utf-8"))
-    except Exception:
-        history = []
+    # history was validated and loaded at step 11.5 (before any mutations).
+    # We append a new entry and write it back.  If the file changed between
+    # step 11.5 and here that would be a concurrent-modification issue; the
+    # existing record is kept as-is from the pre-validation load.
+    assert history is not None  # guaranteed by step 11.5 check above
 
     history_entry = {
         "generation": new_generation,
