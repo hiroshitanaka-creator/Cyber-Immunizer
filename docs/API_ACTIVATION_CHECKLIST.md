@@ -17,6 +17,32 @@
 
 ---
 
+## Canonical GEMINI_API_KEY terminology
+
+The following terms are used consistently throughout this repository to
+describe secret scoping.  Use these definitions when reviewing or writing
+workflow changes to verify that minimum-privilege is preserved.
+
+| Term | Definition |
+|---|---|
+| `GEMINI_API_KEY` | The GitHub Secret name.  Also the environment variable name when the secret is injected into a step's `env:` block. |
+| raw `GEMINI_API_KEY` | The actual secret value — `${{ secrets.GEMINI_API_KEY }}` — injected as `GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}` at **step-level** env.  Must never appear at job-level or workflow-level env. |
+| `GEMINI_API_KEY_PRESENT` | A non-secret boolean existence signal derived as `${{ secrets.GEMINI_API_KEY != '' && 'true' \|\| 'false' }}`.  The preflight step receives this signal instead of raw `GEMINI_API_KEY`. |
+| step-level env | The `env:` block inside an individual workflow step (`- name: …`).  The **only** permitted scope for raw `GEMINI_API_KEY`. |
+| job-level env | The `env:` block under a job definition, before `steps:`.  Raw `GEMINI_API_KEY` must **never** appear here. |
+| workflow-level env | The top-level `env:` block of the workflow file.  Raw `GEMINI_API_KEY` must **never** appear here. |
+| GitHub Secret configuration for GEMINI_API_KEY | Storing the key value in the repository's GitHub Secrets settings.  This is a **Phase 3** action and must not be performed in Phase 2. |
+
+**Preflight rule**: the `gemini-paid-credit-preflight` step does not receive raw
+`GEMINI_API_KEY`.  It receives only `GEMINI_API_KEY_PRESENT` (boolean signal) to
+confirm the key is configured in GitHub Secrets without exposing the actual value.
+
+**Minimum-privilege rule**: raw `GEMINI_API_KEY` must only be injected at
+step-level env, in mode-specific steps (`live-model`, `gemini-paid-credit`) that
+are gated by a mode-matching `if:` condition.
+
+---
+
 ## Current phase status
 
 | Field | Value |
