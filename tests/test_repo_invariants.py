@@ -25,6 +25,7 @@ Implementation notes:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -933,96 +934,85 @@ def _collect_tracked_files() -> list[Path]:
         pytest.fail(f"Could not enumerate tracked files via git ls-files: {exc}")
 
 
+def _scan_for_pattern(
+    tracked_files: list[Path],
+    pattern: re.Pattern[str],
+    label: str,
+) -> list[str]:
+    """Scan tracked files for a secret pattern; return redacted hit summaries.
+
+    The match value is NEVER included in the returned strings — only the
+    file path, character offset, label, and a 12-char SHA-256 prefix of
+    the matched bytes are recorded.  This prevents secret values from
+    appearing in GitHub Actions logs if a raw key is ever accidentally
+    committed.
+
+    Return format per hit:
+        "<rel_path>  offset=<n>  label=<label>  sha256_prefix=<12hex>"
+    """
+    hits: list[str] = []
+    for fp in tracked_files:
+        try:
+            text = fp.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for m in pattern.finditer(text):
+            digest = hashlib.sha256(m.group().encode()).hexdigest()[:12]
+            hits.append(
+                f"{fp.relative_to(_ROOT)}  offset={m.start()}"
+                f"  label={label}  sha256_prefix={digest}"
+            )
+    return hits
+
+
 class TestRepositorySecretLeakage:
-    """No raw secret values must appear in any git-tracked file."""
+    """No raw secret values must appear in any git-tracked file.
+
+    Failure messages report file path, character offset, pattern label,
+    and a 12-char SHA-256 prefix of the matched bytes.  The matched value
+    itself is never included so that CI logs cannot re-expose a leaked secret.
+    """
 
     @pytest.fixture(scope="class")
     def tracked_files(self) -> list[Path]:
         return _collect_tracked_files()
 
-    def test_no_google_api_key_pattern(self, tracked_files: list[Path]) -> None:
-        """No file must contain an AIza... Google API key pattern."""
-        pattern, label = _RAW_SECRET_PATTERNS[0]
-        hits: list[str] = []
-        for fp in tracked_files:
-            try:
-                text = fp.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            for m in pattern.finditer(text):
-                hits.append(f"{fp.relative_to(_ROOT)}:{m.start()}: {m.group()!r}")
+    def _assert_no_pattern(
+        self,
+        tracked_files: list[Path],
+        pattern_index: int,
+    ) -> None:
+        pattern, label = _RAW_SECRET_PATTERNS[pattern_index]
+        hits = _scan_for_pattern(tracked_files, pattern, label)
         assert len(hits) == 0, (
-            f"Found {label} pattern(s) in tracked files:\n"
+            f"Found {label} pattern(s) in tracked files "
+            f"({len(hits)} hit(s); secret values redacted):\n"
             + "\n".join(hits[:10])
         )
+
+    def test_no_google_api_key_pattern(self, tracked_files: list[Path]) -> None:
+        """No file must contain an AIza... Google API key pattern."""
+        self._assert_no_pattern(tracked_files, 0)
 
     def test_no_openai_key_pattern(self, tracked_files: list[Path]) -> None:
         """No file must contain an sk-... OpenAI key pattern."""
-        pattern, label = _RAW_SECRET_PATTERNS[1]
-        hits: list[str] = []
-        for fp in tracked_files:
-            try:
-                text = fp.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            for m in pattern.finditer(text):
-                hits.append(f"{fp.relative_to(_ROOT)}:{m.start()}: {m.group()!r}")
-        assert len(hits) == 0, (
-            f"Found {label} pattern(s) in tracked files:\n"
-            + "\n".join(hits[:10])
-        )
+        self._assert_no_pattern(tracked_files, 1)
 
     def test_no_github_pat_ghp_pattern(self, tracked_files: list[Path]) -> None:
         """No file must contain a ghp_... GitHub PAT pattern."""
-        pattern, label = _RAW_SECRET_PATTERNS[2]
-        hits: list[str] = []
-        for fp in tracked_files:
-            try:
-                text = fp.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            for m in pattern.finditer(text):
-                hits.append(f"{fp.relative_to(_ROOT)}:{m.start()}: {m.group()!r}")
-        assert len(hits) == 0, (
-            f"Found {label} pattern(s) in tracked files:\n"
-            + "\n".join(hits[:10])
-        )
+        self._assert_no_pattern(tracked_files, 2)
 
     def test_no_github_pat_github_pat_pattern(
         self, tracked_files: list[Path]
     ) -> None:
         """No file must contain a github_pat_... GitHub PAT pattern."""
-        pattern, label = _RAW_SECRET_PATTERNS[3]
-        hits: list[str] = []
-        for fp in tracked_files:
-            try:
-                text = fp.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            for m in pattern.finditer(text):
-                hits.append(f"{fp.relative_to(_ROOT)}:{m.start()}: {m.group()!r}")
-        assert len(hits) == 0, (
-            f"Found {label} pattern(s) in tracked files:\n"
-            + "\n".join(hits[:10])
-        )
+        self._assert_no_pattern(tracked_files, 3)
 
     def test_no_pem_private_key_header(
         self, tracked_files: list[Path]
     ) -> None:
         """No file must contain a PEM private key header."""
-        pattern, label = _RAW_SECRET_PATTERNS[4]
-        hits: list[str] = []
-        for fp in tracked_files:
-            try:
-                text = fp.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                continue
-            for m in pattern.finditer(text):
-                hits.append(f"{fp.relative_to(_ROOT)}:{m.start()}: {m.group()!r}")
-        assert len(hits) == 0, (
-            f"Found {label} pattern(s) in tracked files:\n"
-            + "\n".join(hits[:10])
-        )
+        self._assert_no_pattern(tracked_files, 4)
 
     def test_gemini_api_key_string_itself_is_not_forbidden(
         self, tracked_files: list[Path]
