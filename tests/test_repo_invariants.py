@@ -792,20 +792,88 @@ class TestEvaluateJobReadOnly:
 
 
 class TestPromoteJobNoCandidateExecution:
-    """promote job has write permissions but must not execute candidate code."""
+    """promote job has write permissions but must not execute LLM-generated candidate code.
 
-    def test_promote_does_not_run_candidate_directly(
+    The key invariant (item 4): evaluate handles candidates; promote has write access;
+    their INTERSECTION — write-permission + candidate execution — is forbidden.
+
+    The current promote job legitimately:
+      - Downloads candidate-detector artifact (file copy, not execution)
+      - Passes candidate_detector.py as --candidate arg to promote_candidate.py
+        (AST-validated file promotion, not direct execution)
+      - Uses 'python -c' to read the generation number from genome.json (not candidate)
+
+    None of the tokens in _PROMOTE_FORBIDDEN appear in the current promote job.
+    They are fixed here so that future drift introducing mutation/evaluation tools
+    or inline code execution into the write-permission job is caught by CI.
+
+    Direct candidate execution (python invoked with candidate_detector on the same
+    shell line, outside an approved wrapper script) is checked separately with a
+    line-level regex that is immune to multi-line shell continuation.
+    """
+
+    # Tokens that must NEVER appear anywhere in the promote job section.
+    # Verified absent from the current promote job; would indicate dangerous drift.
+    _PROMOTE_FORBIDDEN: tuple[tuple[str, str], ...] = (
+        ("mutation-patch",
+         "mutation patch artifact must not be downloaded in write-permission promote job; "
+         "patch application belongs in the read-only evaluate job"),
+        ("apply_mutation.py",
+         "apply_mutation must not run in write-permission promote job; "
+         "mutation application belongs in the evaluate job"),
+        ("evaluate_candidate.py",
+         "evaluate_candidate must not run in write-permission promote job; "
+         "candidate evaluation belongs in the read-only evaluate job"),
+        ("pytest",
+         "test runner must not run in write-permission promote job; "
+         "running tests against candidate code here would execute LLM output "
+         "with write permissions"),
+        ("exec(",
+         "exec() call forbidden in write-permission promote job; "
+         "inline code execution could run LLM-generated content"),
+    )
+
+    def test_promote_job_has_no_candidate_artifact_or_execution_references(
         self, loop_workflow_text: str
     ) -> None:
-        """promote job must not execute candidate_detector.py directly as a script."""
+        """promote job must not contain mutation/evaluation tools or direct candidate execution.
+
+        Two complementary guards:
+
+        1. Token denylist: tokens that must never appear in the promote job section
+           (checked against non-comment content to avoid comment-only false positives).
+
+        2. Direct-execution guard: no single shell line may invoke python directly
+           against candidate_detector without an approved wrapper script on the same line.
+           Uses [^\n] matching (no re.DOTALL) so multi-line shell continuations
+           (promote_candidate.py on one line, --candidate path on the next) are safe.
+        """
         section = _job_section(loop_workflow_text, "promote")
-        # Candidate execution would look like: python candidate_detector.py
-        # or: python .cyber_immunizer/candidate_detector.py
-        assert not re.search(
-            r"python\s+.*candidate_detector\.py", section
-        ), (
-            "promote job must NOT execute candidate_detector.py directly. "
-            "Candidate execution happens only in the read-only evaluate job."
+        clean = _non_comment_content(section)
+        violations: list[str] = []
+
+        for token, reason in self._PROMOTE_FORBIDDEN:
+            if token in clean:
+                violations.append(f"  '{token}': {reason}")
+
+        for line in clean.splitlines():
+            stripped = line.strip()
+            if (
+                re.search(r"\bpython\b", stripped)
+                and "candidate_detector" in stripped
+                and "promote_candidate.py" not in stripped
+            ):
+                violations.append(
+                    "  direct candidate execution: python is invoked with "
+                    "candidate_detector on the same shell line without an approved "
+                    f"wrapper script (promote_candidate.py): {stripped!r}"
+                )
+
+        assert len(violations) == 0, (
+            "promote job contains forbidden token(s) or a direct candidate execution "
+            "reference that violates the write-permission / candidate-execution "
+            "separation invariant.  Candidate execution must stay in the read-only "
+            "evaluate job.\n" + "\n".join(violations)
         )
 
     def test_promote_does_not_commit_ledger(
