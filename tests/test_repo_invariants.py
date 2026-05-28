@@ -576,43 +576,92 @@ class TestPreflightStepBooleanSignalOnly:
         )
 
 
-class TestApiModeStepsHaveRawKey:
-    """live-model and gemini-paid-credit steps must have GEMINI_API_KEY env."""
+class TestApiKeyMinimumPrivilege:
+    """GEMINI_API_KEY must appear only where strictly necessary (minimum privilege).
 
-    def _get_step_text(self, loop_workflow_text: str, mode: str) -> str:
-        # Use a negative lookahead so 'gemini-paid-credit' does not match
-        # 'gemini-paid-credit-preflight' (which has an extra '-' after the mode name).
-        escaped = re.escape(mode)
-        m = re.search(
-            rf"(- name: Propose mutation patch — {escaped}(?!-).*?)"
-            r"(?=\n      - name:|\Z)",
-            loop_workflow_text,
-            re.DOTALL,
-        )
-        assert m is not None, (
-            f"Could not find 'Propose mutation patch — {mode}' step "
-            "(exact match, not preflight)."
-        )
-        return m.group(1)
+    The invariant is not 'the key must exist' but 'where it does exist it
+    must be restricted, gated, and never present at wrong scope levels'.
 
-    def test_live_model_step_has_raw_api_key(
+    Checks:
+      1. No raw GEMINI_API_KEY: at job-level or workflow-level env
+         (step-level scoping is the only permitted scope).
+      2. Any propose job step that carries GEMINI_API_KEY must be protected
+         by a mode-specific if: condition, ensuring the secret is only
+         injected when the matching mode is actually selected.
+      3. GEMINI_API_KEY_PRESENT (boolean signal) is permitted anywhere — it
+         carries no secret value.
+    """
+
+    def _propose_step_blocks(self, workflow_text: str) -> list[str]:
+        """Return individual step text blocks from the propose job."""
+        propose_section = _job_section(workflow_text, "propose")
+        # Steps are delimited by '      - name:' (6-space indent + dash).
+        # Split on that boundary, keeping each fragment that starts a step.
+        parts = re.split(r"\n      (?=- name:)", propose_section)
+        return [p for p in parts if p.strip().startswith("- name:")]
+
+    def _raw_key_lines(self, text: str) -> list[str]:
+        """Non-comment lines that assign raw GEMINI_API_KEY (not _PRESENT)."""
+        return [
+            line for line in text.splitlines()
+            if re.search(r"\bGEMINI_API_KEY\s*:", line)
+            and "GEMINI_API_KEY_PRESENT" not in line
+            and not line.lstrip().startswith("#")
+        ]
+
+    def test_no_raw_api_key_at_job_or_workflow_env_level(
         self, loop_workflow_text: str
     ) -> None:
-        """live-model step must inject GEMINI_API_KEY (raw secret)."""
-        step_text = self._get_step_text(loop_workflow_text, "live-model")
-        assert "GEMINI_API_KEY:" in step_text, (
-            "live-model step must inject GEMINI_API_KEY so the script can "
-            "authenticate with the Gemini API in live-model mode."
+        """GEMINI_API_KEY must not appear at job-level env (only step-level allowed).
+
+        A job-level env injects the secret into every step of the job,
+        violating minimum-privilege.  The secret must be confined to the
+        individual step that actually uses it.
+        """
+        violations: list[str] = []
+        for job_name in _all_job_names(loop_workflow_text):
+            section = _job_section(loop_workflow_text, job_name)
+            # Pre-steps region: everything before '    steps:' is job-level config.
+            steps_m = re.search(r"^    steps:", section, re.MULTILINE)
+            pre_steps = section[:steps_m.start()] if steps_m else section
+            for line in self._raw_key_lines(pre_steps):
+                violations.append(
+                    f"  job '{job_name}' has GEMINI_API_KEY at job-level env: {line!r}"
+                )
+        assert len(violations) == 0, (
+            "GEMINI_API_KEY must not appear at job-level env. "
+            "Job-level injection exposes the secret to every step in the job. "
+            "Use step-level env with a mode-specific if: condition.\n"
+            + "\n".join(violations)
         )
 
-    def test_gemini_paid_credit_step_has_raw_api_key(
+    def test_any_raw_key_step_is_mode_gated(
         self, loop_workflow_text: str
     ) -> None:
-        """gemini-paid-credit step must inject GEMINI_API_KEY (raw secret)."""
-        step_text = self._get_step_text(loop_workflow_text, "gemini-paid-credit")
-        assert "GEMINI_API_KEY:" in step_text, (
-            "gemini-paid-credit step must inject GEMINI_API_KEY so the script "
-            "can authenticate with the Gemini API."
+        """Every propose step that carries GEMINI_API_KEY must have an if: condition.
+
+        Without a mode-specific if: guard, the step and its injected secret
+        would execute on every workflow run regardless of the selected mode,
+        widening the exposure surface.
+        """
+        violations: list[str] = []
+        for step_text in self._propose_step_blocks(loop_workflow_text):
+            clean = _non_comment_content(step_text)
+            if not self._raw_key_lines(clean):
+                continue  # step has no raw key — nothing to check
+            # Extract the step name for a useful error message.
+            name_m = re.search(r"- name:\s*(.+)", step_text)
+            step_name = name_m.group(1).strip() if name_m else "(unknown)"
+            if "if:" not in clean:
+                violations.append(
+                    f"  step '{step_name}': carries GEMINI_API_KEY but has no "
+                    "if: condition — secret would be injected on every run"
+                )
+        assert len(violations) == 0, (
+            "Every propose step that injects raw GEMINI_API_KEY must be gated "
+            "by a mode-specific if: condition so the secret is only present "
+            "when the corresponding API mode is explicitly selected.\n"
+            + "\n".join(violations)
         )
 
 
