@@ -1272,13 +1272,22 @@ class TestGeminiApiKeyTerminology:
         )
 
     def test_no_obsolete_job_scoped_key_wording(self) -> None:
-        """No tracked doc or workflow file may contain obsolete phrasing that
-        implies raw GEMINI_API_KEY is acceptable at job-level scope.
+        """No source file may contain obsolete phrasing that implies raw
+        GEMINI_API_KEY is acceptable at job-level scope.
 
-        Patterns like 'GEMINI_API_KEY is scoped to this job' or
-        'GEMINI_API_KEY is configured at the job level env' contradict the
-        minimum-privilege rule defined in the canonical terminology section.
-        The correct wording is 'GEMINI_API_KEY is scoped at step level'.
+        Obsolete patterns guarded:
+          - 'GEMINI_API_KEY is scoped to this job'
+          - 'GEMINI_API_KEY is configured/set/injected/placed at job-level env'
+          - 'GEMINI_API_KEY must only be present in the propose CI job'
+
+        The correct wording is 'raw GEMINI_API_KEY is injected only at
+        step-level env in mode-specific propose job steps'.
+
+        Scan strategy:
+          search_roots — recursively scan docs/, .github/workflows/, scripts/
+          explicit_files — also check README.md directly
+          tests/ is intentionally excluded: the pattern strings in this test's
+          own docstring and regex literals would cause self-detection.
         """
         _OBSOLETE = [
             re.compile(
@@ -1295,27 +1304,43 @@ class TestGeminiApiKeyTerminology:
                 re.IGNORECASE,
             ),
         ]
-        search_dirs = [_DOCS, _WORKFLOWS, _ROOT / "scripts"]
+        search_roots = [
+            _DOCS,
+            _WORKFLOWS,
+            _ROOT / "scripts",
+        ]
+        explicit_files = [
+            _ROOT / "README.md",
+        ]
         _SKIP_SUFFIXES = {".pyc", ".pyo", ".so", ".dylib", ".exe"}
-        hits: list[str] = []
-        for d in search_dirs:
+
+        def _collect(d: Path) -> list[Path]:
             if not d.exists():
+                return []
+            return [
+                fp for fp in sorted(d.rglob("*"))
+                if fp.is_file()
+                and fp.suffix.lower() not in _SKIP_SUFFIXES
+                and "__pycache__" not in fp.parts
+            ]
+
+        candidates: list[Path] = []
+        for root in search_roots:
+            candidates.extend(_collect(root))
+        for ef in explicit_files:
+            if ef.is_file() and ef not in candidates:
+                candidates.append(ef)
+
+        hits: list[str] = []
+        for fp in candidates:
+            try:
+                text = fp.read_text(encoding="utf-8", errors="replace")
+            except OSError:
                 continue
-            for fp in sorted(d.rglob("*")):
-                if not fp.is_file():
-                    continue
-                if fp.suffix.lower() in _SKIP_SUFFIXES:
-                    continue
-                if "__pycache__" in fp.parts:
-                    continue
-                try:
-                    text = fp.read_text(encoding="utf-8", errors="replace")
-                except OSError:
-                    continue
-                for pat in _OBSOLETE:
-                    if pat.search(text):
-                        hits.append(str(fp.relative_to(_ROOT)))
-                        break
+            for pat in _OBSOLETE:
+                if pat.search(text):
+                    hits.append(str(fp.relative_to(_ROOT)))
+                    break
         assert len(hits) == 0, (
             "Found obsolete job-scoped GEMINI_API_KEY wording in:\n"
             + "\n".join(hits)
