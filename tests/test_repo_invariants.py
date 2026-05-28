@@ -1290,14 +1290,23 @@ class TestGeminiApiKeyTerminology:
                 r"at\s+(?:the\s+)?job[\s-]level\s+env",
                 re.IGNORECASE,
             ),
+            re.compile(
+                r"GEMINI_API_KEY\s+must\s+only\s+be\s+present\s+in\s+the\s+propose\s+CI\s+job",
+                re.IGNORECASE,
+            ),
         ]
-        search_dirs = [_DOCS, _WORKFLOWS]
+        search_dirs = [_DOCS, _WORKFLOWS, _ROOT / "scripts"]
+        _SKIP_SUFFIXES = {".pyc", ".pyo", ".so", ".dylib", ".exe"}
         hits: list[str] = []
         for d in search_dirs:
             if not d.exists():
                 continue
             for fp in sorted(d.rglob("*")):
                 if not fp.is_file():
+                    continue
+                if fp.suffix.lower() in _SKIP_SUFFIXES:
+                    continue
+                if "__pycache__" in fp.parts:
                     continue
                 try:
                     text = fp.read_text(encoding="utf-8", errors="replace")
