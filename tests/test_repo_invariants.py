@@ -14,12 +14,12 @@ Invariant groups:
   7. Repository secret leakage invariants (raw key patterns)
 
 Implementation notes:
-  - Python standard library + PyYAML (already a transitive dependency in the
-    environment; no new dependency added).
+  - Python standard library only (json, re, subprocess, pathlib).
+    No PyYAML or other third-party YAML parser is used.
   - json is used for genome.json.
-  - yaml.safe_load is used for structural YAML checks on the workflow.
-  - String / regex inspection is used for step-level secret-scoping checks
-    because YAML step blocks are easier to inspect textually.
+  - All workflow checks use string / regex inspection so no YAML parser
+    dependency is required.  The workflow file is well-structured enough
+    that targeted text extraction is both simpler and more stable.
   - GitHub Actions expression syntax is NOT semantically evaluated; only
     string-structural invariants are asserted.
 """
@@ -31,7 +31,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-import yaml
 
 # ---------------------------------------------------------------------------
 # Shared paths
@@ -78,15 +77,6 @@ def loop_workflow_text() -> str:
 
 
 @pytest.fixture(scope="module")
-def loop_workflow_yaml(loop_workflow_text: str) -> dict:
-    """Parse immunization_loop.yml with yaml.safe_load.
-
-    'on' is a YAML boolean, so PyYAML may return it as True; accept either.
-    """
-    return yaml.safe_load(loop_workflow_text)
-
-
-@pytest.fixture(scope="module")
 def ci_workflow_text() -> str:
     assert _CI_WORKFLOW_PATH.exists(), f"Missing: {_CI_WORKFLOW_PATH}"
     return _CI_WORKFLOW_PATH.read_text(encoding="utf-8")
@@ -109,6 +99,52 @@ def _job_section(workflow_text: str, job_name: str) -> str:
         "This job is a required safety boundary."
     )
     return m.group(1)
+
+
+def _all_job_names(workflow_text: str) -> list[str]:
+    """Return all job names defined under the 'jobs:' block."""
+    jobs_m = re.search(r"\njobs:\n(.*)", workflow_text, re.DOTALL)
+    if jobs_m is None:
+        return []
+    return re.findall(r"^  ([a-zA-Z][\w-]+):", jobs_m.group(1), re.MULTILINE)
+
+
+def _non_comment_content(text: str) -> str:
+    """Return text with comment-only lines removed."""
+    return "\n".join(
+        line for line in text.splitlines()
+        if not line.lstrip().startswith("#")
+    )
+
+
+def _workflow_dispatch_section(workflow_text: str) -> str:
+    """Extract the workflow_dispatch: ... block (under 'on:')."""
+    m = re.search(
+        r"(  workflow_dispatch:.*?)(?=\n  [a-zA-Z]|\Z)",
+        workflow_text,
+        re.DOTALL,
+    )
+    return m.group(1) if m else ""
+
+
+def _promote_if_condition(workflow_text: str) -> str:
+    """Return the if: value of the promote job as a single string.
+
+    The promote job uses a folded YAML scalar ('>') so the condition spans
+    multiple indented lines.  We collect all lines between 'if:' and the
+    next key at the same indentation level.
+    """
+    section = _job_section(workflow_text, "promote")
+    # Collect everything from 'if:' until the next key at 4-space indent.
+    m = re.search(
+        r"    if:[ >|\n]+(.*?)(?=\n    [a-zA-Z]|\Z)",
+        section,
+        re.DOTALL,
+    )
+    if m is None:
+        return ""
+    # Flatten multi-line folded scalar into a single string.
+    return " ".join(m.group(1).split())
 
 
 # ===========================================================================
@@ -362,66 +398,62 @@ class TestWorkflowExists:
 
 
 class TestWorkflowJobPermissions:
-    """Each job must have the correct permissions.contents value."""
+    """Each job must have the correct permissions.contents value.
 
-    def _get_job_permissions_contents(
-        self, loop_workflow_yaml: dict, job_name: str
-    ) -> str | None:
-        jobs = loop_workflow_yaml.get("jobs", {})
-        job = jobs.get(job_name, {})
-        perms = job.get("permissions", {})
-        if isinstance(perms, dict):
-            return perms.get("contents")
-        return perms  # string shorthand like 'read-all'
+    Checks are done by extracting each job's text section and scanning for
+    'contents: <value>' outside of comment lines — no YAML parser required.
+    """
 
-    def test_propose_job_contents_read(self, loop_workflow_yaml: dict) -> None:
+    def _job_has_permission(
+        self, loop_workflow_text: str, job_name: str, value: str
+    ) -> bool:
+        section = _job_section(loop_workflow_text, job_name)
+        return f"contents: {value}" in _non_comment_content(section)
+
+    def test_propose_job_contents_read(self, loop_workflow_text: str) -> None:
         """propose job must have contents: read — it must never write to the repo."""
-        val = self._get_job_permissions_contents(loop_workflow_yaml, "propose")
-        assert val == "read", (
-            f"propose job permissions.contents must be 'read'. Got: {val!r}. "
+        assert self._job_has_permission(loop_workflow_text, "propose", "read"), (
+            "propose job permissions must include 'contents: read'. "
             "The propose job must be read-only to prevent generated code from "
             "being committed without going through the promote gate."
         )
+        assert not self._job_has_permission(loop_workflow_text, "propose", "write"), (
+            "propose job must NOT have 'contents: write'."
+        )
 
-    def test_evaluate_job_contents_read(self, loop_workflow_yaml: dict) -> None:
+    def test_evaluate_job_contents_read(self, loop_workflow_text: str) -> None:
         """evaluate job must have contents: read — it must never write to the repo."""
-        val = self._get_job_permissions_contents(loop_workflow_yaml, "evaluate")
-        assert val == "read", (
-            f"evaluate job permissions.contents must be 'read'. Got: {val!r}. "
+        assert self._job_has_permission(loop_workflow_text, "evaluate", "read"), (
+            "evaluate job permissions must include 'contents: read'. "
             "The evaluate job runs generated candidate code; write permissions "
             "here would allow untrusted code to modify the repository."
         )
+        assert not self._job_has_permission(loop_workflow_text, "evaluate", "write"), (
+            "evaluate job must NOT have 'contents: write'."
+        )
 
     def test_finalize_propose_status_job_contents_none(
-        self, loop_workflow_yaml: dict
+        self, loop_workflow_text: str
     ) -> None:
         """finalize-propose-status job must have contents: none."""
-        val = self._get_job_permissions_contents(
-            loop_workflow_yaml, "finalize-propose-status"
-        )
-        assert val == "none", (
-            f"finalize-propose-status job permissions.contents must be 'none'. "
-            f"Got: {val!r}. This job only surfaces failure status and needs no "
-            "repository access at all."
+        assert self._job_has_permission(
+            loop_workflow_text, "finalize-propose-status", "none"
+        ), (
+            "finalize-propose-status job permissions must include 'contents: none'. "
+            "This job only surfaces failure status and needs no repository access."
         )
 
     def test_only_persist_ledger_and_promote_have_contents_write(
-        self, loop_workflow_yaml: dict
+        self, loop_workflow_text: str
     ) -> None:
         """Only persist-ledger and promote jobs may have contents: write."""
-        jobs = loop_workflow_yaml.get("jobs", {})
         allowed_write_jobs = {"persist-ledger", "promote"}
-        for job_name, job_def in jobs.items():
-            if not isinstance(job_def, dict):
-                continue
-            perms = job_def.get("permissions", {})
-            if isinstance(perms, dict):
-                contents_val = perms.get("contents")
-            else:
-                contents_val = perms
-            if contents_val == "write":
+        for job_name in _all_job_names(loop_workflow_text):
+            section = _job_section(loop_workflow_text, job_name)
+            has_write = "contents: write" in _non_comment_content(section)
+            if has_write:
                 assert job_name in allowed_write_jobs, (
-                    f"Job '{job_name}' has contents: write but is not in the "
+                    f"Job '{job_name}' has 'contents: write' but is not in the "
                     f"allowed set {allowed_write_jobs}. Only persist-ledger and "
                     "promote may have write permissions."
                 )
@@ -638,65 +670,73 @@ class TestOtherJobsHaveNoRawApiKey:
 # ===========================================================================
 
 class TestPromoteGate:
-    """Promote job must require explicit Human Owner approval via workflow_dispatch."""
+    """Promote job must require explicit Human Owner approval via workflow_dispatch.
 
-    def _promote_if_condition(self, loop_workflow_yaml: dict) -> str:
-        jobs = loop_workflow_yaml.get("jobs", {})
-        promote_job = jobs.get("promote", {})
-        if_val = promote_job.get("if", "")
-        return str(if_val)
+    All checks use text / regex inspection of the workflow file — no YAML parser.
+    """
 
     def test_workflow_dispatch_input_promote_approved_exists(
-        self, loop_workflow_yaml: dict
+        self, loop_workflow_text: str
     ) -> None:
         """workflow_dispatch must have a promote_approved input."""
-        # Handle both 'on' (bool True in YAML) and the string 'on'
-        on_block = loop_workflow_yaml.get(True) or loop_workflow_yaml.get("on") or {}
-        wf_dispatch = on_block.get("workflow_dispatch", {}) or {}
-        inputs = wf_dispatch.get("inputs", {}) or {}
-        assert "promote_approved" in inputs, (
-            "workflow_dispatch inputs must include 'promote_approved'. "
+        wf_dispatch = _workflow_dispatch_section(loop_workflow_text)
+        assert "promote_approved:" in wf_dispatch, (
+            "workflow_dispatch inputs must include 'promote_approved:'. "
             "Without this input, Human Owner cannot gate the promote job."
         )
 
     def test_promote_approved_default_is_false(
-        self, loop_workflow_yaml: dict
+        self, loop_workflow_text: str
     ) -> None:
-        """promote_approved default must be 'false' to prevent accidental promotion."""
-        on_block = loop_workflow_yaml.get(True) or loop_workflow_yaml.get("on") or {}
-        wf_dispatch = on_block.get("workflow_dispatch", {}) or {}
-        inputs = wf_dispatch.get("inputs", {}) or {}
-        promote_input = inputs.get("promote_approved", {}) or {}
-        default_val = promote_input.get("default")
-        assert default_val == "false", (
-            f"promote_approved input default must be 'false'. Got: {default_val!r}. "
-            "A truthy default would allow unintended promotion without Human Owner approval."
+        """promote_approved default must be 'false' to prevent accidental promotion.
+
+        We locate the promote_approved input block and confirm that a
+        'default: \"false\"' line appears before the next sibling input key.
+        """
+        wf_dispatch = _workflow_dispatch_section(loop_workflow_text)
+        # Extract the promote_approved: block up to the next 6-space-indent key.
+        m = re.search(
+            r"      promote_approved:(.*?)(?=\n      [a-zA-Z]|\Z)",
+            wf_dispatch,
+            re.DOTALL,
+        )
+        assert m is not None, (
+            "Could not locate the 'promote_approved:' input block in "
+            "the workflow_dispatch inputs section."
+        )
+        block = m.group(1)
+        assert 'default: "false"' in block, (
+            f"promote_approved input default must be '\"false\"'. "
+            "A truthy default would allow unintended promotion without Human Owner approval. "
+            f"promote_approved block:\n{block}"
         )
 
     def test_promote_if_requires_workflow_dispatch(
-        self, loop_workflow_yaml: dict
+        self, loop_workflow_text: str
     ) -> None:
         """promote job if condition must require github.event_name == 'workflow_dispatch'."""
-        if_str = self._promote_if_condition(loop_workflow_yaml)
+        if_str = _promote_if_condition(loop_workflow_text)
         assert "github.event_name == 'workflow_dispatch'" in if_str, (
             "promote job if condition must require "
             "github.event_name == 'workflow_dispatch'. "
-            "Without this, schedule events could trigger promotion."
+            "Without this, schedule events could trigger promotion. "
+            f"Extracted if condition: {if_str!r}"
         )
 
     def test_promote_if_requires_promote_approved_true(
-        self, loop_workflow_yaml: dict
+        self, loop_workflow_text: str
     ) -> None:
         """promote job if condition must require promote_approved == 'true'."""
-        if_str = self._promote_if_condition(loop_workflow_yaml)
+        if_str = _promote_if_condition(loop_workflow_text)
         assert "promote_approved == 'true'" in if_str, (
             "promote job if condition must require "
             "github.event.inputs.promote_approved == 'true'. "
-            "Without this, generated code could be promoted without Human Owner approval."
+            "Without this, generated code could be promoted without Human Owner approval. "
+            f"Extracted if condition: {if_str!r}"
         )
 
     def test_promote_cannot_run_on_schedule_alone(
-        self, loop_workflow_yaml: dict
+        self, loop_workflow_text: str
     ) -> None:
         """promote job cannot execute on schedule events alone.
 
@@ -706,13 +746,14 @@ class TestPromoteGate:
         workflow_dispatch event-name check and the promote_approved check
         are present simultaneously.
         """
-        if_str = self._promote_if_condition(loop_workflow_yaml)
+        if_str = _promote_if_condition(loop_workflow_text)
         has_event_name_check = "github.event_name == 'workflow_dispatch'" in if_str
         has_approved_check = "promote_approved == 'true'" in if_str
         assert has_event_name_check and has_approved_check, (
             "promote job if condition must prevent schedule-driven promotion. "
             "Both github.event_name == 'workflow_dispatch' and "
-            "promote_approved == 'true' must be present."
+            "promote_approved == 'true' must be present. "
+            f"Extracted if condition: {if_str!r}"
         )
 
 
