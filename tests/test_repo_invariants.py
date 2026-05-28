@@ -960,17 +960,40 @@ class TestPersistLedgerWritesOnlyLedger:
 # 7. Repository secret leakage invariants
 # ===========================================================================
 
-# Raw secret patterns to detect (false-positive resistant):
-_RAW_SECRET_PATTERNS = [
-    # Google API key — starts with AIza followed by 35 characters
-    (re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b"), "Google API key (AIza...)"),
-    # OpenAI secret key
-    (re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"), "OpenAI key (sk-...)"),
-    # GitHub PAT formats
-    (re.compile(r"\bghp_[A-Za-z0-9]{36,}\b"), "GitHub PAT (ghp_...)"),
-    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"), "GitHub PAT (github_pat_...)"),
-    # PEM private key header
-    (re.compile(r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"),
+# Raw secret patterns to detect (false-positive resistant).
+# Each entry: (compiled_pattern, human_readable_label).
+# Ordered from most-specific to least-specific within each vendor family.
+#
+# Design notes:
+#  - OpenAI:  sk- body now allows hyphens and underscores in addition to
+#             alphanumerics to cover newer key formats (sk-proj-..., sk-ant-...).
+#  - GitHub:  gh[opusr]_ covers OAuth (gho_), classic PAT (ghp_), user-to-server
+#             (ghu_), server-to-server (ghs_), and refresh (ghr_) tokens.
+#             github_pat_ is kept as a separate entry for fine-grained PATs.
+#  - AWS:     AKIA (long-term) and ASIA (temporary STS) access key IDs are
+#             20 chars total (prefix 4 + body 16) in uppercase alphanumeric.
+#  - PEM:     Non-capturing group; covers RSA, EC, DSA, OPENSSH, and bare
+#             PRIVATE KEY headers.
+#  - Not included: .env-style KEY=value patterns — too many false positives
+#    in legitimate configuration examples and test fixtures.
+_RAW_SECRET_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # Google Cloud / Firebase API key
+    (re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b"),
+     "Google API key (AIza...)"),
+    # OpenAI-style secret keys (sk-<body>); body may include hyphens/underscores
+    (re.compile(r"\bsk-[A-Za-z0-9_\-]{20,}\b"),
+     "OpenAI-style secret key (sk-...)"),
+    # GitHub short-prefix tokens: OAuth, classic PAT, user/server/refresh
+    (re.compile(r"\bgh[opusr]_[A-Za-z0-9_]{20,}\b"),
+     "GitHub token (gho_/ghp_/ghu_/ghs_/ghr_...)"),
+    # GitHub fine-grained personal access tokens
+    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"),
+     "GitHub fine-grained PAT (github_pat_...)"),
+    # AWS access key IDs: long-term (AKIA) and STS temporary (ASIA)
+    (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+     "AWS access key ID (AKIA.../ASIA...)"),
+    # PEM private key headers (RSA, EC, DSA, OPENSSH, or bare PRIVATE KEY)
+    (re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"),
      "PEM private key header"),
 ]
 
@@ -1048,9 +1071,14 @@ class TestRepositorySecretLeakage:
     def _assert_no_pattern(
         self,
         tracked_files: list[Path],
-        pattern_index: int,
+        entry: tuple[re.Pattern[str], str],
     ) -> None:
-        pattern, label = _RAW_SECRET_PATTERNS[pattern_index]
+        """Assert that no tracked file matches the given secret pattern entry.
+
+        Accepts the (pattern, label) tuple directly — not an index — so that
+        test methods are resilient to reordering of _RAW_SECRET_PATTERNS.
+        """
+        pattern, label = entry
         hits = _scan_for_pattern(tracked_files, pattern, label)
         assert len(hits) == 0, (
             f"Found {label} pattern(s) in tracked files "
@@ -1060,27 +1088,49 @@ class TestRepositorySecretLeakage:
 
     def test_no_google_api_key_pattern(self, tracked_files: list[Path]) -> None:
         """No file must contain an AIza... Google API key pattern."""
-        self._assert_no_pattern(tracked_files, 0)
+        self._assert_no_pattern(
+            tracked_files,
+            next(e for e in _RAW_SECRET_PATTERNS if "Google" in e[1]),
+        )
 
     def test_no_openai_key_pattern(self, tracked_files: list[Path]) -> None:
-        """No file must contain an sk-... OpenAI key pattern."""
-        self._assert_no_pattern(tracked_files, 1)
+        """No file must contain an sk-... OpenAI-style secret key pattern."""
+        self._assert_no_pattern(
+            tracked_files,
+            next(e for e in _RAW_SECRET_PATTERNS if "OpenAI" in e[1]),
+        )
 
-    def test_no_github_pat_ghp_pattern(self, tracked_files: list[Path]) -> None:
-        """No file must contain a ghp_... GitHub PAT pattern."""
-        self._assert_no_pattern(tracked_files, 2)
+    def test_no_github_token_pattern(self, tracked_files: list[Path]) -> None:
+        """No file must contain a gho_/ghp_/ghu_/ghs_/ghr_ GitHub token pattern."""
+        self._assert_no_pattern(
+            tracked_files,
+            next(e for e in _RAW_SECRET_PATTERNS if "gho_" in e[1]),
+        )
 
-    def test_no_github_pat_github_pat_pattern(
+    def test_no_github_fine_grained_pat_pattern(
         self, tracked_files: list[Path]
     ) -> None:
-        """No file must contain a github_pat_... GitHub PAT pattern."""
-        self._assert_no_pattern(tracked_files, 3)
+        """No file must contain a github_pat_... GitHub fine-grained PAT pattern."""
+        self._assert_no_pattern(
+            tracked_files,
+            next(e for e in _RAW_SECRET_PATTERNS if "github_pat_" in e[1]),
+        )
+
+    def test_no_aws_access_key_pattern(self, tracked_files: list[Path]) -> None:
+        """No file must contain an AKIA.../ASIA... AWS access key ID pattern."""
+        self._assert_no_pattern(
+            tracked_files,
+            next(e for e in _RAW_SECRET_PATTERNS if "AWS" in e[1]),
+        )
 
     def test_no_pem_private_key_header(
         self, tracked_files: list[Path]
     ) -> None:
         """No file must contain a PEM private key header."""
-        self._assert_no_pattern(tracked_files, 4)
+        self._assert_no_pattern(
+            tracked_files,
+            next(e for e in _RAW_SECRET_PATTERNS if "PEM" in e[1]),
+        )
 
     def test_gemini_api_key_string_itself_is_not_forbidden(
         self, tracked_files: list[Path]
