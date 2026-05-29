@@ -43,7 +43,9 @@ SAFETY CONSTRAINTS (all modes):
       patch file is written.
     - Unsafe replacement_code is rejected before writing.
     - Generated code is never executed in this script.
-    - GEMINI_API_KEY must only be present in the propose CI job.
+    - raw GEMINI_API_KEY is injected only at step-level env in mode-specific
+      propose job steps (live-model, gemini-paid-credit); noop, offline-sample,
+      and gemini-paid-credit-preflight steps receive no raw GEMINI_API_KEY.
     - The schedule forces noop; live API calls are always manual opt-in.
 """
 from __future__ import annotations

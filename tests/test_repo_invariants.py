@@ -1204,3 +1204,146 @@ class TestRepositorySecretLeakage:
             "tracked file (docs, tests, or workflow). If it's entirely absent "
             "something may have been incorrectly removed."
         )
+
+
+# ---------------------------------------------------------------------------
+# 8. GEMINI_API_KEY wording invariants (backlog #15)
+# ---------------------------------------------------------------------------
+
+
+class TestGeminiApiKeyTerminology:
+    """Wording guards for canonical GEMINI_API_KEY terminology (#15).
+
+    These tests enforce that:
+      - API_ACTIVATION_CHECKLIST.md contains a canonical terminology section
+        that defines 'raw GEMINI_API_KEY' and 'GEMINI_API_KEY_PRESENT'.
+      - The checklist explicitly declares that the preflight step does not
+        receive raw GEMINI_API_KEY.
+      - No tracked doc or workflow file contains obsolete phrasing that
+        implies raw GEMINI_API_KEY is acceptable at job-level scope.
+    """
+
+    @pytest.fixture(scope="class")
+    def checklist_text(self) -> str:
+        assert _CHECKLIST_PATH.exists(), f"Checklist not found: {_CHECKLIST_PATH}"
+        return _CHECKLIST_PATH.read_text(encoding="utf-8")
+
+    def test_checklist_defines_raw_key_and_boolean_signal(
+        self, checklist_text: str
+    ) -> None:
+        """Checklist must have a canonical terminology section that defines both
+        'raw GEMINI_API_KEY' and 'GEMINI_API_KEY_PRESENT' so readers can
+        distinguish the actual secret value from the boolean existence signal.
+        """
+        assert "Canonical GEMINI_API_KEY terminology" in checklist_text, (
+            "API_ACTIVATION_CHECKLIST.md must contain a '## Canonical GEMINI_API_KEY "
+            "terminology' section that defines the standard terms used throughout "
+            "this repository."
+        )
+        assert "raw `GEMINI_API_KEY`" in checklist_text, (
+            "API_ACTIVATION_CHECKLIST.md must define 'raw `GEMINI_API_KEY`' as a "
+            "canonical term that distinguishes the actual injected secret value "
+            "from the key name string."
+        )
+        assert "GEMINI_API_KEY_PRESENT" in checklist_text, (
+            "API_ACTIVATION_CHECKLIST.md must define 'GEMINI_API_KEY_PRESENT' as "
+            "the non-secret boolean existence signal used by the preflight step."
+        )
+
+    def test_checklist_declares_preflight_has_no_raw_key(
+        self, checklist_text: str
+    ) -> None:
+        """Checklist must explicitly state that the preflight step does not receive
+        raw GEMINI_API_KEY — only the GEMINI_API_KEY_PRESENT boolean signal.
+
+        This declaration prevents ambiguity that might lead a reviewer to
+        approve a change that widens the raw secret's exposure to preflight.
+        """
+        has_declaration = re.search(
+            r"preflight[^\n]*does not receive raw"
+            r"|does not receive raw[^\n]*preflight",
+            checklist_text,
+            re.IGNORECASE,
+        ) is not None
+        assert has_declaration, (
+            "API_ACTIVATION_CHECKLIST.md must explicitly state that the "
+            "gemini-paid-credit-preflight step 'does not receive raw GEMINI_API_KEY'. "
+            "This declaration belongs in the canonical terminology section."
+        )
+
+    def test_no_obsolete_job_scoped_key_wording(self) -> None:
+        """No source file may contain obsolete phrasing that implies raw
+        GEMINI_API_KEY is acceptable at job-level scope.
+
+        Obsolete patterns guarded:
+          - 'GEMINI_API_KEY is scoped to this job'
+          - 'GEMINI_API_KEY is configured/set/injected/placed at job-level env'
+          - 'GEMINI_API_KEY must only be present in the propose CI job'
+
+        The correct wording is 'raw GEMINI_API_KEY is injected only at
+        step-level env in mode-specific propose job steps'.
+
+        Scan strategy:
+          search_roots — recursively scan docs/, .github/workflows/, scripts/
+          explicit_files — also check README.md directly
+          tests/ is intentionally excluded: the pattern strings in this test's
+          own docstring and regex literals would cause self-detection.
+        """
+        _OBSOLETE = [
+            re.compile(
+                r"`?GEMINI_API_KEY`?\s+is\s+scoped\s+to\s+this\s+job",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"`?GEMINI_API_KEY`?\s+is\s+(?:configured|set|injected|placed)\s+"
+                r"at\s+(?:the\s+)?job[\s-]level\s+env",
+                re.IGNORECASE,
+            ),
+            re.compile(
+                r"`?GEMINI_API_KEY`?\s+must\s+only\s+be\s+present\s+in\s+the\s+propose\s+CI\s+job",
+                re.IGNORECASE,
+            ),
+        ]
+        search_roots = [
+            _DOCS,
+            _WORKFLOWS,
+            _ROOT / "scripts",
+        ]
+        explicit_files = [
+            _ROOT / "README.md",
+        ]
+        _SKIP_SUFFIXES = {".pyc", ".pyo", ".so", ".dylib", ".exe"}
+
+        def _collect(d: Path) -> list[Path]:
+            if not d.exists():
+                return []
+            return [
+                fp for fp in sorted(d.rglob("*"))
+                if fp.is_file()
+                and fp.suffix.lower() not in _SKIP_SUFFIXES
+                and "__pycache__" not in fp.parts
+            ]
+
+        candidates: list[Path] = []
+        for root in search_roots:
+            candidates.extend(_collect(root))
+        for ef in explicit_files:
+            if ef.is_file() and ef not in candidates:
+                candidates.append(ef)
+
+        hits: list[str] = []
+        for fp in candidates:
+            try:
+                text = fp.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for pat in _OBSOLETE:
+                if pat.search(text):
+                    hits.append(str(fp.relative_to(_ROOT)))
+                    break
+        assert len(hits) == 0, (
+            "Found obsolete job-scoped GEMINI_API_KEY wording in:\n"
+            + "\n".join(hits)
+            + "\nReplace with step-level scoping terminology per "
+            "docs/API_ACTIVATION_CHECKLIST.md § Canonical GEMINI_API_KEY terminology."
+        )
