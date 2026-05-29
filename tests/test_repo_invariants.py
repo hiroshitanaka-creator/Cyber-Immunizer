@@ -1291,16 +1291,16 @@ class TestGeminiApiKeyTerminology:
         """
         _OBSOLETE = [
             re.compile(
-                r"GEMINI_API_KEY\s+is\s+scoped\s+to\s+this\s+job",
+                r"`?GEMINI_API_KEY`?\s+is\s+scoped\s+to\s+this\s+job",
                 re.IGNORECASE,
             ),
             re.compile(
-                r"GEMINI_API_KEY\s+is\s+(?:configured|set|injected|placed)\s+"
+                r"`?GEMINI_API_KEY`?\s+is\s+(?:configured|set|injected|placed)\s+"
                 r"at\s+(?:the\s+)?job[\s-]level\s+env",
                 re.IGNORECASE,
             ),
             re.compile(
-                r"GEMINI_API_KEY\s+must\s+only\s+be\s+present\s+in\s+the\s+propose\s+CI\s+job",
+                r"`?GEMINI_API_KEY`?\s+must\s+only\s+be\s+present\s+in\s+the\s+propose\s+CI\s+job",
                 re.IGNORECASE,
             ),
         ]
