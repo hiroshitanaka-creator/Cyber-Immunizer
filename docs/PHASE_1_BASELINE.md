@@ -1,3 +1,20 @@
+<!--
+AI_DOC_META
+status: HISTORICAL
+scope: Phase 1 baseline and foundational safety invariants.
+use_for:
+  - understanding the original safety baseline
+  - checking whether later work contradicts Phase 1 assumptions
+do_not_use_for:
+  - current task selection
+  - Phase 3 activation decision
+  - current API readiness judgment
+related:
+  - docs/PHASE_2_PLAN.md
+  - docs/PHASE_2_COMPLETION_CHECKPOINT.md
+last_reviewed: 2026-05-30
+AI_DOC_META_END
+-->
 # Cyber-Immunizer Phase 1 Baseline
 
 > このドキュメントは Phase 1 の完了状態を固定します。  

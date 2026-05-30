@@ -1,3 +1,21 @@
+<!--
+AI_DOC_META
+status: HISTORICAL
+scope: offline-sample dry-run and promote separation design.
+use_for:
+  - understanding why offline-sample success is not promote approval
+  - reviewing separation between evaluation and promotion
+  - checking future workflow changes against design intent
+do_not_use_for:
+  - allowing automatic promotion from offline-sample
+  - bypassing Human Owner promote approval
+related:
+  - docs/AUDIT_CHARTER.md
+  - docs/audit_gate/PR_AUDIT_PROTOCOL.md
+  - docs/PHASE_2_PLAN.md
+last_reviewed: 2026-05-30
+AI_DOC_META_END
+-->
 # Cyber-Immunizer Offline-Sample Dry-run / Promote Separation Design
 
 > **このドキュメントは Phase 2-D の設計・仕様文書です。**

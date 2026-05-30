@@ -1,3 +1,22 @@
+<!--
+AI_DOC_META
+status: CANONICAL
+scope: GPT Audit Gate roles, authority, audit categories, and merge decision policy.
+use_for:
+  - understanding Human Owner / GPT Audit Gate / Claude Code responsibility boundaries
+  - applying the six high-level audit categories
+  - checking whether a PR weakens audit governance
+do_not_use_for:
+  - detailed PR audit procedure
+  - CI classification details
+  - Codex thread handling details
+related:
+  - docs/AI_ENTRYPOINT.md
+  - docs/audit_gate/PR_AUDIT_PROTOCOL.md
+  - docs/audit_gate/PULLBACK_PROMPT.md
+last_reviewed: 2026-05-30
+AI_DOC_META_END
+-->
 # GPT Audit Gate 憲章 — Project Cyber-Immunizer
 
 > **目的**: このプロジェクトへのすべての変更は、マージ前に GPT Audit Gate を通過しなければならない。  

@@ -1,3 +1,23 @@
+<!--
+AI_DOC_META
+status: CANONICAL
+scope: API activation readiness checklist, GEMINI_API_KEY terminology, and pre-Phase-3 boundaries.
+use_for:
+  - checking API activation readiness
+  - confirming Phase 2-E does not connect Gemini API
+  - understanding raw GEMINI_API_KEY vs GEMINI_API_KEY_PRESENT
+  - verifying secret-scoping terminology
+do_not_use_for:
+  - performing API activation by itself
+  - bypassing Human Owner approval
+  - changing workflow execution logic without a dedicated activation PR
+related:
+  - docs/AI_ENTRYPOINT.md
+  - docs/API_ACTIVATION_RUNBOOK.md
+  - docs/audit_gate/PR_AUDIT_PROTOCOL.md
+last_reviewed: 2026-05-30
+AI_DOC_META_END
+-->
 # Cyber-Immunizer API Activation Checklist
 
 > **このドキュメントは Phase 2-E で作成されました。**  

@@ -1,3 +1,20 @@
+<!--
+AI_DOC_META
+status: CANONICAL
+scope: evolution_history audit semantics and traceability expectations.
+use_for:
+  - checking evolution_history audit requirements
+  - reviewing fail-closed history behavior
+  - evaluating promotion traceability
+do_not_use_for:
+  - editing data/evolution_history.json directly
+  - bypassing promote_candidate history validation
+related:
+  - docs/ROLLBACK_BACKTRACK_DESIGN.md
+  - docs/audit_gate/PR_AUDIT_PROTOCOL.md
+last_reviewed: 2026-05-30
+AI_DOC_META_END
+-->
 # Cyber-Immunizer Evolution History Audit Design
 
 > **Phase 2-C: Evolution History Audit Specification**  

@@ -1,3 +1,22 @@
+<!--
+AI_DOC_META
+status: RUNBOOK
+scope: Phase 3 API activation procedure and operational checklist.
+use_for:
+  - planning a dedicated Phase 3 activation PR
+  - understanding the order of API activation steps
+  - Human Owner guided activation procedure
+do_not_use_for:
+  - executing API activation during Phase 2
+  - registering GEMINI_API_KEY without explicit Human Owner approval
+  - setting live_model_enabled=true outside a dedicated Phase 3 activation PR
+related:
+  - docs/API_ACTIVATION_CHECKLIST.md
+  - docs/PHASE_2_COMPLETION_CHECKPOINT.md
+  - docs/audit_gate/PR_AUDIT_PROTOCOL.md
+last_reviewed: 2026-05-30
+AI_DOC_META_END
+-->
 # Cyber-Immunizer API Activation Runbook
 
 > **目的**: GEMINI_API_KEY を登録し、実際の Gemini API 呼び出しを有効化する前に迷わないよう、手順と安全チェックリストをまとめたドキュメントです。  

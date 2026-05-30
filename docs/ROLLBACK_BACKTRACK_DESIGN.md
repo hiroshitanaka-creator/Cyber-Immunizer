@@ -1,3 +1,20 @@
+<!--
+AI_DOC_META
+status: HISTORICAL
+scope: rollback and backtrack design background.
+use_for:
+  - understanding rollback/backtrack concepts
+  - checking design intent for future recovery mechanisms
+  - reviewing whether future recovery work matches the original design
+do_not_use_for:
+  - claiming rollback/backtrack automation is implemented
+  - changing promote behavior without a dedicated implementation PR
+related:
+  - docs/EVOLUTION_HISTORY_AUDIT.md
+  - docs/PHASE_2_PLAN.md
+last_reviewed: 2026-05-30
+AI_DOC_META_END
+-->
 # Cyber-Immunizer Rollback / Backtrack Design
 
 > **このドキュメントは Phase 2-B の設計文書です。**  
