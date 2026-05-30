@@ -41,7 +41,7 @@ to a future PR.
 
 | User request / task | Read first | Then read |
 |---|---|---|
-| PR audit / merge decision | docs/audit_gate/PR_AUDIT_PROTOCOL.md | docs/AUDIT_CHARTER.md |
+| PR audit / merge decision | docs/audit_gate/PR_AUDIT_PROTOCOL.md | docs/AUDIT_CHARTER.md, docs/audit_gate/CHANGELOG.md |
 | GPT drift / pullback prompt | docs/audit_gate/PULLBACK_PROMPT.md | docs/audit_gate/CHANGELOG.md |
 | Tool blocked / fallback / low-level GitHub operation | docs/audit_gate/TOOL_EXECUTION_ANOMALY_PROTOCOL.md | docs/audit_gate/PR_AUDIT_PROTOCOL.md |
 | Phase status check | docs/PHASE_2_COMPLETION_CHECKPOINT.md | docs/PHASE_2_PLAN.md |

@@ -128,6 +128,8 @@ Codex Verification: VERIFIED / FAILED / NOT VERIFIED / VERIFIED BY REACTION ONLY
 Merge Recommendation: APPROVE / HOLD / BLOCK
 ```
 
+Before final decision, check `docs/audit_gate/CHANGELOG.md` for relevant regression lessons, especially when a PR touches schemas, workflows, secret handling, generated-code boundaries, CI behavior, or audit protocol documents.
+
 Do not give APPROVE unless all are true:
 - Current PR state checked
 - Current head SHA checked and stated
