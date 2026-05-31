@@ -39,9 +39,8 @@ def test_readme_lists_ai_entrypoint():
 def test_readme_lists_audit_gate_protocol_files():
     readme = _readme_text()
     for path in AUDIT_GATE_FILES:
-        filename = pathlib.Path(path).name
-        assert filename in readme, (
-            f"README.md must reference {filename} (from {path})"
+        assert path in readme, (
+            f"README.md must reference full path {path}"
         )
 
 

@@ -104,12 +104,12 @@ Cyber-Immunizer/
 │   └── api_usage_ledger.json   # Gemini API 使用量台帳（gemini-paid-credit モード）
 ├── docs/
 │   ├── AI_ENTRYPOINT.md                        # AI作業開始時の入口（task別参照先・status label定義）
-│   ├── audit_gate/
-│   │   ├── README.md                           # Audit Gate protocol群の索引
-│   │   ├── PULLBACK_PROMPT.md                  # GPT引き戻し用の短縮プロンプト
-│   │   ├── PR_AUDIT_PROTOCOL.md                # PR監査・merge判断の詳細手順
-│   │   ├── TOOL_EXECUTION_ANOMALY_PROTOCOL.md  # tool failure / blocked / fallback / low-level GitHub操作の報告ルール
-│   │   └── CHANGELOG.md                        # Audit Gate運用教訓（PR #33/#34/#36/#35/#28 由来）
+│   ├── audit_gate/                             # docs/audit_gate/
+│   │   ├── README.md                           # docs/audit_gate/README.md — Audit Gate protocol群の索引
+│   │   ├── PULLBACK_PROMPT.md                  # docs/audit_gate/PULLBACK_PROMPT.md — GPT引き戻し用の短縮プロンプト
+│   │   ├── PR_AUDIT_PROTOCOL.md                # docs/audit_gate/PR_AUDIT_PROTOCOL.md — PR監査・merge判断の詳細手順
+│   │   ├── TOOL_EXECUTION_ANOMALY_PROTOCOL.md  # docs/audit_gate/TOOL_EXECUTION_ANOMALY_PROTOCOL.md — tool failure / blocked / fallback / low-level GitHub操作の報告ルール
+│   │   └── CHANGELOG.md                        # docs/audit_gate/CHANGELOG.md — Audit Gate運用教訓（PR #33/#34/#36/#35/#28 由来）
 │   ├── AUDIT_CHARTER.md                        # GPT Audit Gate 憲章（役割・カテゴリ・決定基準・Phase 2/3 transition rule）
 │   ├── PHASE_1_BASELINE.md                     # Phase 1 完了状態の固定記録（Safety invariants・Exit criteria）
 │   ├── PHASE_2_PLAN.md                         # Phase 2 計画文書（historical）
