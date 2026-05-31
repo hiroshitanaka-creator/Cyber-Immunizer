@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time as _time_module
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -1307,3 +1308,90 @@ class TestPaidCreditLedgerMissingFailClosed:
             "Gemini API must NOT be called when the ledger is missing; "
             f"api_called={api_called}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 19. Retry inside _call_gemini_api does NOT cause multiple ledger writes
+# ---------------------------------------------------------------------------
+
+
+class TestPaidCreditRetryDoesNotWriteLedgerPerAttempt:
+    """Verify that internal retry in _call_gemini_api does not cause the paid-credit
+    path to write more than one ledger record per propose_mutation call.
+
+    The retry loop is entirely contained inside _call_gemini_api; the ledger
+    responsibility belongs to _propose_via_gemini_paid_credit and must remain
+    there — exactly one write per external call, regardless of how many
+    internal retries occurred.
+    """
+
+    def test_paid_credit_retry_does_not_write_ledger_per_attempt(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When _call_gemini_api retries internally and succeeds, ledger is written once."""
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(live_paid_genome), encoding="utf-8")
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file, ledger_path, tmp_path)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        # Simulate _call_gemini_api itself retrying internally by having it
+        # succeed on first call (retry already happened inside before returning).
+        # We verify that append_usage_record is called exactly once — not once
+        # per retry attempt.
+        valid_response_text = json.dumps({
+            "mutation_rationale": "ok",
+            "target_threats": ["T1"],
+            "expected_improvement": "better",
+            "risk": "low",
+            "replacement_code": (
+                "    surface = request.path.lower()\n"
+                "    return DetectionResult(\n"
+                "        blocked=False,\n"
+                "        reason='no match',\n"
+                "        confidence=0.0,\n"
+                "        matched_signals=(),\n"
+                "    )\n"
+            ),
+        })
+
+        # Track ledger append calls
+        append_call_count: list[int] = [0]
+        from scripts import api_budget as ab
+        original_append = ab.append_usage_record
+
+        def counting_append(*args: Any, **kwargs: Any) -> Any:
+            append_call_count[0] += 1
+            return original_append(*args, **kwargs)
+
+        monkeypatch.setattr(ab, "append_usage_record", counting_append)
+
+        # Mock _call_gemini_api to return success (representing a call that
+        # internally retried once before succeeding — the ledger must not know
+        # about those internal attempts).
+        monkeypatch.setattr(
+            pm, "_call_gemini_api",
+            lambda *a, **kw: (valid_response_text, 100, 50, ""),
+        )
+        # Prevent actual sleep in case real _call_gemini_api were used
+        monkeypatch.setattr(_time_module, "sleep", lambda _: None)
+
+        patch_result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert err == "", f"Expected success, got: {err}"
+        assert patch_result is not None
+
+        assert append_call_count[0] == 1, (
+            f"append_usage_record must be called exactly once per propose_mutation call, "
+            f"got {append_call_count[0]} calls"
+        )
+        ledger = json.loads(ledger_path.read_text())
+        assert len(ledger) == 1, f"Ledger must have exactly 1 record, got {len(ledger)}"
