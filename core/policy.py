@@ -62,6 +62,12 @@ MAX_LITERAL_CHARS: int = 5_000
 #: Maximum number of elements in any single list/tuple/set/dict literal.
 MAX_COLLECTION_ITEMS: int = 1_000
 
+#: Maximum integer constant allowed as a range() argument or sequence repeat multiplier.
+MAX_RANGE_CONSTANT: int = 1_000
+
+#: Maximum integer constant allowed on either side of a multiplication (sequence repeat).
+MAX_REPEAT_MULTIPLIER: int = 1_000
+
 
 # ---------------------------------------------------------------------------
 # Individual check functions (each returns a list of violation strings)
@@ -331,6 +337,183 @@ def check_literal_sizes(tree: ast.AST) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Runtime allocation risk guard
+# ---------------------------------------------------------------------------
+
+def _int_const(a: ast.expr) -> int | None:
+    """Return the integer value of a constant or negated-constant node, else None."""
+    if isinstance(a, ast.Constant) and isinstance(a.value, int):
+        return a.value
+    if isinstance(a, ast.UnaryOp) and isinstance(a.op, ast.USub):
+        inner = _int_const(a.operand)
+        return -inner if inner is not None else None
+    return None
+
+
+def _check_range_call(node: ast.Call, violations: list[str]) -> None:
+    """Append a violation if range() call cannot be proven to iterate safely."""
+    args = node.args
+    if node.keywords:
+        violations.append(
+            "runtime allocation risk: range() with keyword arguments is not permitted"
+        )
+        return
+    if not args:
+        return  # range() with no args is a runtime TypeError — not our concern
+
+    consts = [_int_const(a) for a in args]
+    if any(c is None for c in consts):
+        violations.append(
+            "runtime allocation risk: range() with non-constant argument is not permitted"
+        )
+        return
+
+    # Estimate iteration count from constant arguments
+    if len(consts) == 1:
+        count = max(0, consts[0])
+    elif len(consts) == 2:
+        count = max(0, consts[1] - consts[0])
+    else:
+        start, stop, step = consts[0], consts[1], consts[2]
+        if step == 0:
+            violations.append(
+                "runtime allocation risk: range() with step=0 is invalid"
+            )
+            return
+        import math
+        count = max(0, math.ceil((stop - start) / step))
+
+    if count > MAX_RANGE_CONSTANT:
+        violations.append(
+            f"runtime allocation risk: range() estimated {count} iterations "
+            f"(limit MAX_RANGE_CONSTANT={MAX_RANGE_CONSTANT})"
+        )
+
+
+def _check_repeat_mult(node: ast.BinOp, violations: list[str]) -> None:
+    """Append a violation if a multiplication node looks like an oversized repeat."""
+    left_val = _int_const(node.left)
+    right_val = _int_const(node.right)
+    multiplier = left_val if left_val is not None else right_val
+    if multiplier is not None and multiplier > MAX_REPEAT_MULTIPLIER:
+        violations.append(
+            f"runtime allocation risk: repeat multiplier {multiplier} "
+            f"exceeds limit MAX_REPEAT_MULTIPLIER={MAX_REPEAT_MULTIPLIER}"
+        )
+
+
+def _extract_mutation_region(source: str) -> str | None:
+    """Return the source text between MUTATION_START and MUTATION_END, or None.
+
+    The returned snippet is wrapped in a minimal function so it can be parsed
+    as a valid Python module for AST analysis.
+    """
+    start_idx = source.find(MUTATION_START)
+    end_idx = source.find(MUTATION_END)
+    if start_idx == -1 or end_idx == -1 or end_idx <= start_idx:
+        return None
+    region = source[start_idx + len(MUTATION_START): end_idx]
+    # Wrap in a dummy function to make it parseable
+    return "def _region():\n" + (region if region.strip() else "    pass\n")
+
+
+def _is_join_of_generator(node: ast.Call) -> bool:
+    """Return True if this Call looks like '...'.join(generator_expr)."""
+    func = node.func
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr == "join"
+        and len(node.args) == 1
+        and isinstance(node.args[0], ast.GeneratorExp)
+    )
+
+
+def _generator_has_large_range(gen_node: ast.GeneratorExp) -> bool:
+    """Return True if any generator comprehension iterates over a large/non-constant range."""
+    for comp in gen_node.generators:
+        iter_ = comp.iter
+        if isinstance(iter_, ast.Call):
+            func = iter_.func
+            if isinstance(func, ast.Name) and func.id == "range":
+                # Collect the same violation check logic
+                scratch: list[str] = []
+                _check_range_call(iter_, scratch)
+                if scratch:
+                    return True
+    return False
+
+
+def check_runtime_allocation_risks(tree: ast.AST) -> list[str]:
+    """Reject AST patterns that may trigger large runtime memory allocations.
+
+    Unconditionally rejects:
+      - list / set / dict comprehensions (ast.ListComp, ast.SetComp, ast.DictComp)
+      - standalone generator expressions not used as a join() argument
+
+    Conditionally rejects:
+      - join(generator) where the generator iterates over large/non-constant range()
+      - join(generator) where the iterable is non-constant (cannot bound statically)
+      - range() calls whose estimated iteration count exceeds MAX_RANGE_CONSTANT
+      - range() calls with non-constant arguments (cannot bound statically)
+      - BinOp(Mult) where either operand is a large integer constant
+
+    Small join(f"..." for k, v in dict.items()) patterns — as used in the
+    baseline detector — are permitted because they iterate over a bounded
+    dict (request.query / request.headers) rather than a range() bomb.
+
+    Fail-closed: any unexpected exception returns a violation rather than raising.
+    """
+    violations: list[str] = []
+
+    # Track GeneratorExp nodes that are direct join() arguments (permitted if small)
+    permitted_generators: set[int] = set()
+
+    try:
+        # First pass: identify join(generator) calls and pre-check them
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and _is_join_of_generator(node):
+                gen = node.args[0]
+                if _generator_has_large_range(gen):
+                    violations.append(
+                        "runtime allocation risk: join(generator) over large range is not permitted"
+                    )
+                else:
+                    # Small / non-range generator inside join — permit
+                    permitted_generators.add(id(gen))
+
+        # Second pass: check all nodes
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ListComp):
+                violations.append(
+                    "runtime allocation risk: list comprehension is not permitted"
+                )
+            elif isinstance(node, ast.SetComp):
+                violations.append(
+                    "runtime allocation risk: set comprehension is not permitted"
+                )
+            elif isinstance(node, ast.DictComp):
+                violations.append(
+                    "runtime allocation risk: dict comprehension is not permitted"
+                )
+            elif isinstance(node, ast.GeneratorExp):
+                if id(node) not in permitted_generators:
+                    violations.append(
+                        "runtime allocation risk: generator expression is not permitted"
+                    )
+            elif isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Name) and func.id == "range":
+                    _check_range_call(node, violations)
+            elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+                _check_repeat_mult(node, violations)
+    except Exception as exc:  # noqa: BLE001
+        violations.append(
+            f"runtime allocation risk check failed (fail-closed): {exc}"
+        )
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Unified policy runner
 # ---------------------------------------------------------------------------
 
@@ -369,7 +552,23 @@ def run_full_policy(candidate_path: Path) -> dict:
     if violations:
         return {"valid": False, "violations": violations}
 
-    # 5. Imports
+    # 5. Runtime allocation risks (comprehensions, range bombs, repeat multipliers)
+    # Check only the mutation region so that the stable boilerplate outside the
+    # mutation markers (e.g. generator expressions in detector.py's header) is
+    # not incorrectly rejected.
+    mutation_source = _extract_mutation_region(source)
+    if mutation_source:
+        mutation_tree, parse_errs = parse_source_safely(mutation_source)
+        if mutation_tree is not None:
+            violations.extend(check_runtime_allocation_risks(mutation_tree))
+        # parse errors in the region are already caught by full-file parse above
+    else:
+        # No region found — fall back to full-tree check (fail-closed)
+        violations.extend(check_runtime_allocation_risks(tree))
+    if violations:
+        return {"valid": False, "violations": violations}
+
+    # 6. Imports
     violations.extend(check_imports(tree))
 
     # 6. Forbidden calls (eval, exec, type, dir, super, …)
