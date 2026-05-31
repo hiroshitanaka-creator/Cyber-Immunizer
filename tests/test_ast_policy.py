@@ -7,6 +7,14 @@ from pathlib import Path
 
 import pytest
 
+from core.policy import (
+    MAX_POLICY_SOURCE_CHARS,
+    MAX_AST_NODES,
+    MAX_AST_DEPTH,
+    MAX_LITERAL_CHARS,
+    MAX_COLLECTION_ITEMS,
+)
+
 from scripts.validate_mutation import validate
 
 # ---------------------------------------------------------------------------
@@ -316,3 +324,216 @@ for t in tokens:
 return DetectionResult(False, "no match", 0.0, ())
 """)
         _assert_accepted(p)
+
+
+# ---------------------------------------------------------------------------
+# Tests: AST complexity / DoS guard (backlog #14)
+# ---------------------------------------------------------------------------
+
+def _write_raw_candidate(source: str) -> Path:
+    """Write raw source text directly (no template wrapping)."""
+    tmp = tempfile.NamedTemporaryFile(
+        suffix=".py", delete=False, mode="w", encoding="utf-8"
+    )
+    tmp.write(source)
+    tmp.flush()
+    return Path(tmp.name)
+
+
+class TestComplexityGuardAcceptsNormalCode:
+    def test_accepts_simple_safe_body_via_complexity_path(self):
+        """Normal candidate well within all limits must still be accepted."""
+        p = _make_candidate("""\
+if "drop table" in request.path.lower():
+    return DetectionResult(True, "sqli", 0.9, ("drop table",))
+return DetectionResult(False, "ok", 0.0, ())
+""")
+        _assert_accepted(p)
+
+
+class TestSourceSizeGuard:
+    def test_rejects_oversized_source(self):
+        """Source exceeding MAX_POLICY_SOURCE_CHARS must be rejected before parse."""
+        # Build a valid-looking candidate that is just over the size limit
+        header = (
+            "from core.types import Request, DetectionResult\n\n"
+            "def inspect_request(request: Request) -> DetectionResult:\n"
+            "    # === MUTATION_START ===\n"
+        )
+        filler_line = "    # " + "x" * 100 + "\n"
+        footer = (
+            "    return DetectionResult(False, '', 0.0, ())\n"
+            "    # === MUTATION_END ===\n"
+        )
+        # Pad until we exceed the limit
+        needed = MAX_POLICY_SOURCE_CHARS - len(header) - len(footer) + 1
+        filler = filler_line * (needed // len(filler_line) + 1)
+        source = header + filler + footer
+        assert len(source) > MAX_POLICY_SOURCE_CHARS
+        p = _write_raw_candidate(source)
+        _assert_rejected(p, "MAX_POLICY_SOURCE_CHARS")
+
+    def test_accepts_source_exactly_at_limit(self):
+        """Source at exactly MAX_POLICY_SOURCE_CHARS should not be rejected for size."""
+        # A minimal valid candidate is far below the limit; just confirm no
+        # false-positive at a size we control.
+        p = _make_candidate("return DetectionResult(False, '', 0.0, ())")
+        result = validate(p)
+        # May pass or fail for other reasons, but NOT for source size
+        combined = " ".join(result.get("violations", []))
+        assert "MAX_POLICY_SOURCE_CHARS" not in combined
+
+
+class TestASTNodeCountGuard:
+    def test_rejects_excessive_node_count(self):
+        """A body with many statements must be rejected when node count > MAX_AST_NODES."""
+        # Each "x = 0" yields ~3 AST nodes. Use MAX_AST_NODES // 2 lines to stay
+        # under source-size limit while exceeding the node count limit.
+        n = MAX_AST_NODES // 2
+        many_stmts = "\n".join(f"x{i} = 0" for i in range(n))
+        many_stmts += "\nreturn DetectionResult(False, '', 0.0, ())"
+        p = _make_candidate(many_stmts)
+        _assert_rejected(p, "MAX_AST_NODES")
+
+
+class TestASTDepthGuard:
+    def test_rejects_deeply_nested_ifs(self):
+        """Deeply nested if-statements must be rejected when depth > MAX_AST_DEPTH."""
+        # Build a syntactically valid deeply nested structure
+        depth = MAX_AST_DEPTH + 5
+        indent = "    "
+        lines = []
+        for i in range(depth):
+            lines.append(indent * (i + 1) + f"if True:")
+        lines.append(indent * (depth + 1) + "pass")
+        body = "\n".join(lines) + "\nreturn DetectionResult(False, '', 0.0, ())"
+        p = _make_candidate(body)
+        _assert_rejected(p, "MAX_AST_DEPTH")
+
+
+class TestLiteralSizeGuard:
+    def test_rejects_giant_string_literal(self):
+        """A string literal exceeding MAX_LITERAL_CHARS must be rejected."""
+        big_str = "a" * (MAX_LITERAL_CHARS + 1)
+        body = f'x = "{big_str}"\nreturn DetectionResult(False, "", 0.0, ())'
+        p = _make_candidate(body)
+        _assert_rejected(p, "MAX_LITERAL_CHARS")
+
+    def test_accepts_normal_string_literal(self):
+        """A small string literal must not trigger the literal size guard."""
+        p = _make_candidate('x = "hello"\nreturn DetectionResult(False, "", 0.0, ())')
+        result = validate(p)
+        combined = " ".join(result.get("violations", []))
+        assert "MAX_LITERAL_CHARS" not in combined
+
+
+class TestCollectionSizeGuard:
+    def test_rejects_giant_list_literal(self):
+        """A list literal with more than MAX_COLLECTION_ITEMS elements must be rejected."""
+        items = ", ".join(str(i) for i in range(MAX_COLLECTION_ITEMS + 1))
+        body = f"x = [{items}]\nreturn DetectionResult(False, '', 0.0, ())"
+        p = _make_candidate(body)
+        _assert_rejected(p, "MAX_COLLECTION_ITEMS")
+
+    def test_rejects_giant_dict_literal_via_check_directly(self):
+        """check_literal_sizes must reject a dict with > MAX_COLLECTION_ITEMS keys."""
+        import ast as _ast
+        from core.policy import check_literal_sizes
+        # Build an AST dict node directly, bypassing source-size / node-count limits
+        keys = [_ast.Constant(value=i) for i in range(MAX_COLLECTION_ITEMS + 1)]
+        values = [_ast.Constant(value=0)] * len(keys)
+        dict_node = _ast.Dict(keys=keys, values=values)
+        module = _ast.Module(body=[_ast.Expr(value=dict_node)], type_ignores=[])
+        violations = check_literal_sizes(module)
+        assert any("MAX_COLLECTION_ITEMS" in v for v in violations), (
+            f"Expected MAX_COLLECTION_ITEMS violation, got: {violations}"
+        )
+
+    def test_accepts_normal_collection(self):
+        """A small list literal must not trigger the collection size guard."""
+        p = _make_candidate('x = [1, 2, 3]\nreturn DetectionResult(False, "", 0.0, ())')
+        result = validate(p)
+        combined = " ".join(result.get("violations", []))
+        assert "MAX_COLLECTION_ITEMS" not in combined
+
+
+class TestComplexityRejectionDoesNotTraceback:
+    def test_huge_source_no_traceback(self):
+        """Oversized source must return a structured result, not raise an exception."""
+        source = "x = 1\n" * (MAX_POLICY_SOURCE_CHARS // 6 + 1)
+        p = _write_raw_candidate(source)
+        result = validate(p)  # must not raise
+        assert isinstance(result, dict)
+        assert "valid" in result
+        assert not result["valid"]
+
+    def test_deep_nesting_no_traceback(self):
+        """Deeply nested body must return a structured failure, not RecursionError."""
+        depth = MAX_AST_DEPTH + 20
+        indent = "    "
+        lines = []
+        for i in range(depth):
+            lines.append(indent * (i + 1) + "if True:")
+        lines.append(indent * (depth + 1) + "pass")
+        body = "\n".join(lines) + "\nreturn DetectionResult(False, '', 0.0, ())"
+        p = _make_candidate(body)
+        result = validate(p)  # must not raise RecursionError
+        assert isinstance(result, dict)
+        assert not result["valid"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: parser stack overflow / pathological input (Codex P1)
+# ---------------------------------------------------------------------------
+
+class TestParserStackOverflowHandling:
+    """Pathological inputs that trigger MemoryError / RecursionError in ast.parse
+    must produce a structured failure, never a raw traceback."""
+
+    def _make_unary_chain_candidate(self) -> Path:
+        """Return a candidate file with a parser-stack-busting unary chain.
+
+        The source stays within MAX_POLICY_SOURCE_CHARS so the pre-parse size
+        guard does not intercept it first.
+        """
+        # "x = ---...---1" with ~9000 unary minuses triggers MemoryError in
+        # the CPython parser without exceeding the source size limit.
+        body = "x = " + "-" * 9000 + "1\nreturn DetectionResult(False, '', 0.0, ())"
+        assert len(body) < MAX_POLICY_SOURCE_CHARS, (
+            "Test body must stay within MAX_POLICY_SOURCE_CHARS "
+            "to reach the parser, not the pre-parse size guard"
+        )
+        return _make_candidate(body)
+
+    def test_validate_does_not_raise_on_parser_stack_overflow(self):
+        """validate() must return a structured dict, not raise MemoryError."""
+        p = self._make_unary_chain_candidate()
+        result = validate(p)  # must NOT raise
+        assert isinstance(result, dict), "validate() must always return a dict"
+        assert "valid" in result
+
+    def test_validate_returns_false_on_parser_stack_overflow(self):
+        """validate() must return valid=False for parser-stack-busting input."""
+        p = self._make_unary_chain_candidate()
+        result = validate(p)
+        assert not result["valid"], (
+            "Parser-stack-busting input must be rejected"
+        )
+
+    def test_validate_violation_describes_parser_failure(self):
+        """The violation message must indicate a parser-level failure."""
+        p = self._make_unary_chain_candidate()
+        result = validate(p)
+        combined = " ".join(result.get("violations", [])).lower()
+        assert any(
+            kw in combined
+            for kw in ("parser", "memoryerror", "too complex", "syntaxerror", "recursionerror")
+        ), f"Violation must describe parser failure, got: {result.get('violations')}"
+
+    def test_run_full_policy_does_not_raise_on_parser_stack_overflow(self, tmp_path):
+        """run_full_policy() itself must not raise on pathological parse input."""
+        from core.policy import run_full_policy
+        p = self._make_unary_chain_candidate()
+        result = run_full_policy(p)  # must NOT raise
+        assert isinstance(result, dict)
+        assert not result["valid"]

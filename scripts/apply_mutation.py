@@ -25,6 +25,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from scripts.validate_mutation import validate  # noqa: E402
+from core.policy import MAX_POLICY_SOURCE_CHARS  # noqa: E402
 
 _MUTATION_START = "# === MUTATION_START ==="
 _MUTATION_END = "# === MUTATION_END ==="
@@ -106,8 +107,17 @@ def _apply_replacement(base_source: str, replacement_code: str) -> tuple[str | N
     # Preserve everything from MUTATION_END onwards
     after = base_source[end_idx:]
 
+    # Reject before constructing the full string if projected size exceeds limit
+    replacement_stripped = replacement_code.rstrip("\n")
+    projected_len = len(before) + 1 + len(replacement_stripped) + 1 + len(after)
+    if projected_len > MAX_POLICY_SOURCE_CHARS:
+        return None, (
+            f"candidate source too large: projected {projected_len} chars "
+            f"(limit MAX_POLICY_SOURCE_CHARS={MAX_POLICY_SOURCE_CHARS})"
+        )
+
     # Build new source: before + newline + replacement + newline + after
-    new_source = before + "\n" + replacement_code.rstrip("\n") + "\n" + after
+    new_source = before + "\n" + replacement_stripped + "\n" + after
 
     return new_source, ""
 
@@ -146,7 +156,20 @@ def apply_mutation(
     out_path.write_text(new_source, encoding="utf-8")
 
     # --- Validate candidate ---
-    val_result = validate(out_path)
+    # Wrap in try/except so any unexpected parser exception (MemoryError,
+    # RecursionError, etc.) is handled fail-closed here as well, removing the
+    # written candidate and returning a structured failure.
+    # KeyboardInterrupt / SystemExit are not caught and propagate normally.
+    try:
+        val_result = validate(out_path)
+    except Exception as exc:  # noqa: BLE001
+        out_path.unlink(missing_ok=True)
+        return {
+            "success": False,
+            "candidate_path": None,
+            "violations": [f"parser failed (fail-closed): {type(exc).__name__}"],
+            "error": "validation raised an unexpected exception; candidate removed",
+        }
     if not val_result["valid"]:
         # Remove invalid candidate
         out_path.unlink(missing_ok=True)

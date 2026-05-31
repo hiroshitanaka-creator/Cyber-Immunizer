@@ -229,3 +229,94 @@ class TestRejectedPatches:
         assert "double" in result["error"].lower() or "2" in result["error"], (
             f"Error should mention duplicate marker, got: {result['error']!r}"
         )
+
+
+class TestApplyMutationSourceSizeGuard:
+    def test_rejects_oversized_replacement_before_file_write(self, tmp_path):
+        """Oversized replacement_code must be rejected before out_path is created."""
+        from core.policy import MAX_POLICY_SOURCE_CHARS
+
+        # Build a replacement_code large enough to push projected candidate over the limit
+        giant_replacement = (
+            "    # " + "x" * 100 + "\n"
+        ) * (MAX_POLICY_SOURCE_CHARS // 100 + 10)
+        giant_replacement += "    return DetectionResult(False, '', 0.0, ())\n"
+
+        patch_path = _make_patch(giant_replacement)
+        out_path = tmp_path / "should_not_be_created.py"
+
+        result = apply_mutation(patch_path, _BASE_DETECTOR, out_path)
+
+        assert not result["success"], (
+            "apply_mutation must fail when replacement_code makes candidate too large"
+        )
+        error_lower = result["error"].lower()
+        assert (
+            "max_policy_source_chars" in error_lower
+            or "source too large" in error_lower
+            or "candidate source" in error_lower
+        ), f"Error must mention size limit, got: {result['error']!r}"
+        assert not out_path.exists(), (
+            "out_path must NOT be created when projected candidate exceeds size limit"
+        )
+
+    def test_normal_replacement_still_applies(self, tmp_path):
+        """A normal-sized replacement_code must still produce a valid candidate."""
+        patch_path = _make_patch(
+            "    if '../' in request.path:\n"
+            "        return DetectionResult(True, 'traversal', 0.9, ('../',))\n"
+            "    return DetectionResult(False, 'ok', 0.0, ())\n"
+        )
+        out_path = tmp_path / "candidate.py"
+
+        result = apply_mutation(patch_path, _BASE_DETECTOR, out_path)
+
+        assert result["success"], (
+            f"Normal replacement should succeed, got: {result}"
+        )
+        assert out_path.exists(), "out_path must be created for a valid candidate"
+
+
+class TestApplyMutationParserStackOverflow:
+    """Parser-stack-busting replacement_code must be handled fail-closed by
+    apply_mutation() without writing out_path."""
+
+    def test_rejects_parser_stack_bomb_before_or_at_validate(self, tmp_path):
+        """apply_mutation() must fail safely on parser-stack-busting replacement."""
+        # ~9000 unary minuses trigger MemoryError in the CPython parser.
+        # The source stays within MAX_POLICY_SOURCE_CHARS so it's not caught
+        # by the pre-write size guard, but validate() must still handle it.
+        body = "    x = " + "-" * 9000 + "1\n    return DetectionResult(False, '', 0.0, ())\n"
+        patch_path = _make_patch(body)
+        out_path = tmp_path / "should_not_exist.py"
+
+        result = apply_mutation(patch_path, _BASE_DETECTOR, out_path)
+
+        assert not result["success"], (
+            "apply_mutation must fail on parser-stack-busting replacement_code"
+        )
+        assert not out_path.exists(), (
+            "out_path must NOT persist after a parser-failure rejection"
+        )
+        combined = (
+            " ".join(result.get("violations", []))
+            + " " + result.get("error", "")
+        ).lower()
+        assert any(
+            kw in combined
+            for kw in ("parser", "memoryerror", "too complex", "syntaxerror", "recursionerror", "validation")
+        ), f"Failure must describe parser issue, got: result={result}"
+
+    def test_normal_replacement_unaffected(self, tmp_path):
+        """Normal replacement_code is not affected by the parser exception guard."""
+        patch_path = _make_patch(
+            "    if 'xss' in request.path.lower():\n"
+            "        return DetectionResult(True, 'xss', 0.9, ('xss',))\n"
+            "    return DetectionResult(False, 'ok', 0.0, ())\n"
+        )
+        out_path = tmp_path / "candidate.py"
+
+        result = apply_mutation(patch_path, _BASE_DETECTOR, out_path)
+
+        assert result["success"], f"Normal replacement must succeed: {result}"
+        assert out_path.exists(), "out_path must be created for a valid candidate"
