@@ -54,6 +54,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).parent.parent
@@ -450,6 +451,56 @@ def _build_user_prompt(genome: dict, detector_source: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Gemini API resilience constants
+# ---------------------------------------------------------------------------
+
+_GEMINI_API_TIMEOUT_SECONDS = 30.0
+# Google GenAI SDK HttpOptions.timeout is in milliseconds.
+_GEMINI_API_TIMEOUT_MS = int(_GEMINI_API_TIMEOUT_SECONDS * 1000)  # 30,000 ms = 30 s
+_GEMINI_API_MAX_ATTEMPTS = 3
+_GEMINI_API_BACKOFF_INITIAL_SECONDS = 1.0
+_GEMINI_API_BACKOFF_MULTIPLIER = 2.0
+_GEMINI_API_BACKOFF_MAX_SECONDS = 8.0
+
+# Status codes that indicate a transient failure worth retrying.
+_TRANSIENT_STATUS_CODES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
+# Status codes that indicate a permanent failure; do not retry.
+_NON_TRANSIENT_STATUS_CODES: frozenset[int] = frozenset({400, 401, 403})
+# Message substrings that indicate a transient failure when no status code is available.
+_TRANSIENT_MESSAGE_FRAGMENTS: tuple[str, ...] = (
+    "429",
+    "rate limit",
+    "resource exhausted",
+    "temporarily unavailable",
+    "timeout",
+    "timed out",
+    "deadline",
+    "connection reset",
+    "503",
+    "500",
+    "502",
+    "504",
+)
+
+
+def _is_transient_gemini_error(exc: BaseException) -> bool:
+    """Return True if exc represents a transient Gemini API error worth retrying.
+
+    Uses status_code / code attribute inspection and message substring matching
+    so that this helper works even when the google-genai SDK is not installed
+    and exception classes are not importable.
+    """
+    status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    if isinstance(status, int):
+        if status in _NON_TRANSIENT_STATUS_CODES:
+            return False
+        if status in _TRANSIENT_STATUS_CODES:
+            return True
+    msg = str(exc).lower()
+    return any(frag in msg for frag in _TRANSIENT_MESSAGE_FRAGMENTS)
+
+
+# ---------------------------------------------------------------------------
 # Raw Gemini API call (shared by both live-model and gemini-paid-credit)
 # ---------------------------------------------------------------------------
 
@@ -460,14 +511,42 @@ def _call_gemini_api(
     user_prompt: str,
     max_output_tokens: int,
     temperature: float,
+    *,
+    max_attempts: int = _GEMINI_API_MAX_ATTEMPTS,
+    _sleep_fn=None,
 ) -> tuple[str | None, int | None, int | None, str]:
-    """Issue a single Gemini API call.
+    """Issue a Gemini API call with explicit timeout and bounded transient retry.
 
     Returns (raw_text, actual_input_tokens, actual_output_tokens, error).
     On error, raw_text is None and error is non-empty.
     actual_input_tokens / actual_output_tokens may be None if the API
     does not return usage metadata.
+
+    Retry behaviour:
+      - Transient errors (429, 5xx, timeout, network interruption) are retried
+        with exponential backoff up to effective_attempts times, where
+        effective_attempts = min(max_attempts, _GEMINI_API_MAX_ATTEMPTS).
+      - Non-transient errors (400, 401, 403, schema failures, etc.) are not
+        retried; the function returns immediately.
+      - The retry loop is fully contained here; callers see a single result.
+
+    max_attempts should be set by callers to genome["max_model_requests_per_run"]
+    so that the number of actual generate_content calls never exceeds the budget
+    allowed for this run.  _GEMINI_API_MAX_ATTEMPTS acts as a hard upper cap.
+
+    _sleep_fn is injectable for tests (default: time.sleep).
     """
+    if _sleep_fn is None:
+        _sleep_fn = time.sleep
+
+    # Enforce caller-supplied attempt budget capped by the hard constant.
+    effective_attempts = min(max_attempts, _GEMINI_API_MAX_ATTEMPTS)
+    if effective_attempts < 1:
+        return None, None, None, (
+            f"Gemini API call failed: invalid max_attempts={max_attempts!r} — "
+            "request budget must be >= 1."
+        )
+
     try:
         from google import genai  # type: ignore[import]
         from google.genai import types as genai_types  # type: ignore[import]
@@ -478,35 +557,75 @@ def _call_gemini_api(
             "or: pip install 'google-genai>=1.0.0'"
         )
 
+    # Build client with explicit timeout.  Google GenAI SDK HttpOptions.timeout
+    # is in milliseconds, so pass _GEMINI_API_TIMEOUT_MS (30,000 ms = 30 s).
+    # Fail closed if HttpOptions is not supported by the installed SDK version
+    # rather than silently omitting the timeout.
     try:
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=model_name,
-            contents=user_prompt,
-            config=genai_types.GenerateContentConfig(
-                system_instruction=_LLM_SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                response_schema=_PATCH_SCHEMA_FOR_GEMINI,
-                max_output_tokens=max_output_tokens,
-                temperature=temperature,
-            ),
+        http_opts = genai_types.HttpOptions(timeout=_GEMINI_API_TIMEOUT_MS)
+        client = genai.Client(api_key=api_key, http_options=http_opts)
+    except (TypeError, AttributeError) as http_exc:
+        return None, None, None, (
+            "Gemini API call failed: could not configure explicit timeout — "
+            "HttpOptions(timeout=...) is not supported by the installed "
+            f"google-genai SDK version ({type(http_exc).__name__}). "
+            "Upgrade to google-genai>=1.0.0."
         )
-        raw_text: str = response.text
 
-        # Extract actual token counts if available in response metadata
-        actual_input_tokens: int | None = None
-        actual_output_tokens: int | None = None
+    last_exc_type_name = "UnknownError"
+    last_is_transient = False
+    attempt = 0
+    backoff = _GEMINI_API_BACKOFF_INITIAL_SECONDS
+
+    for attempt in range(1, effective_attempts + 1):
         try:
-            usage = response.usage_metadata
-            if usage is not None:
-                actual_input_tokens = getattr(usage, "prompt_token_count", None)
-                actual_output_tokens = getattr(usage, "candidates_token_count", None)
-        except Exception:
-            pass
+            response = client.models.generate_content(
+                model=model_name,
+                contents=user_prompt,
+                config=genai_types.GenerateContentConfig(
+                    system_instruction=_LLM_SYSTEM_PROMPT,
+                    response_mime_type="application/json",
+                    response_schema=_PATCH_SCHEMA_FOR_GEMINI,
+                    max_output_tokens=max_output_tokens,
+                    temperature=temperature,
+                ),
+            )
+            raw_text: str = response.text
 
-        return raw_text, actual_input_tokens, actual_output_tokens, ""
-    except Exception as exc:
-        return None, None, None, f"Gemini API call failed: {exc}"
+            # Extract actual token counts if available in response metadata.
+            actual_input_tokens: int | None = None
+            actual_output_tokens: int | None = None
+            try:
+                usage = response.usage_metadata
+                if usage is not None:
+                    actual_input_tokens = getattr(usage, "prompt_token_count", None)
+                    actual_output_tokens = getattr(usage, "candidates_token_count", None)
+            except Exception:
+                pass
+
+            return raw_text, actual_input_tokens, actual_output_tokens, ""
+
+        except Exception as exc:
+            last_exc_type_name = type(exc).__name__
+            last_is_transient = _is_transient_gemini_error(exc)
+
+            if not last_is_transient:
+                # Non-transient: fail immediately, do not retry.
+                break
+
+            if attempt < effective_attempts:
+                _sleep_fn(backoff)
+                backoff = min(
+                    backoff * _GEMINI_API_BACKOFF_MULTIPLIER,
+                    _GEMINI_API_BACKOFF_MAX_SECONDS,
+                )
+
+    classification = "transient" if last_is_transient else "non-transient"
+    plural = "s" if attempt != 1 else ""
+    return None, None, None, (
+        f"Gemini API call failed after {attempt} attempt{plural}: "
+        f"{classification} error {last_exc_type_name}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -555,6 +674,9 @@ def _propose_via_gemini_live(
     max_output_tokens: int = int(genome.get("max_output_tokens", 2048))
     temperature: float = float(genome.get("temperature", 0.2))
     max_prompt_chars: int = int(genome.get("max_prompt_chars", 12000))
+    # Pass genome's request budget so that retries never exceed the allowed
+    # number of generate_content calls for this run.
+    request_attempt_budget: int = int(genome.get("max_model_requests_per_run", 1))
 
     # Build user prompt (never includes secrets)
     user_prompt = _build_user_prompt(genome, detector_source)
@@ -574,7 +696,8 @@ def _propose_via_gemini_live(
         return None, scan_err
 
     raw_text, _inp_tok, _out_tok, api_err = _call_gemini_api(
-        api_key, model_name, user_prompt, max_output_tokens, temperature
+        api_key, model_name, user_prompt, max_output_tokens, temperature,
+        max_attempts=request_attempt_budget,
     )
     if api_err:
         return None, api_err
@@ -612,6 +735,11 @@ def _propose_via_gemini_paid_credit(
     temperature: float = float(genome.get("temperature", 0.2))
     max_prompt_chars: int = int(genome.get("max_prompt_chars", 12000))
     api_mode: str = genome.get("api_mode", "gemini_paid_credit")
+    # Pass genome's request budget so that retries never exceed the allowed
+    # number of generate_content calls for this run.  With the current default
+    # of max_model_requests_per_run=1 the effective retry count is 1 (no retry),
+    # keeping actual API calls in lockstep with the budget estimate.
+    request_attempt_budget: int = int(genome.get("max_model_requests_per_run", 1))
 
     # Build user prompt (never includes secrets)
     user_prompt = _build_user_prompt(genome, detector_source)
@@ -650,9 +778,11 @@ def _propose_via_gemini_paid_credit(
     if not budget_ok:
         return None, budget_err
 
-    # Single Gemini API call
+    # Single Gemini API call (retries up to request_attempt_budget attempts for
+    # transient errors, keeping total generate_content calls within budget).
     raw_text, actual_input_tokens, actual_output_tokens, api_err = _call_gemini_api(
-        api_key, model_name, user_prompt, max_output_tokens, temperature
+        api_key, model_name, user_prompt, max_output_tokens, temperature,
+        max_attempts=request_attempt_budget,
     )
 
     # Append usage record — HARD ERROR if ledger write fails.

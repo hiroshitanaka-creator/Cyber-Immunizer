@@ -934,3 +934,337 @@ class TestAdditionalGates:
         monkeypatch.setattr(pm, "_OUT_PATCH", tmp_path / "mutation_patch.json")
         result = pm.main(["--json"])
         assert result == 1
+
+
+# ---------------------------------------------------------------------------
+# 14. Resilience: timeout, retry, backoff, non-transient, import error, secrets
+# ---------------------------------------------------------------------------
+
+# Shared helpers for building fake google.genai modules used across tests.
+
+def _make_fake_genai_modules(generate_side_effects):
+    """Return (mock_genai, mock_genai_types, mock_client) with generate_content
+    configured to raise/return items from generate_side_effects in order.
+
+    generate_side_effects: list of Exception instances (to raise) or return
+    values (to return).  MagicMock side_effect handles both.
+
+    mock_genai.types is set to mock_genai_types so that
+    ``from google.genai import types`` resolves to mock_genai_types
+    regardless of whether Python uses getattr or sys.modules lookup.
+    """
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = generate_side_effects
+
+    mock_genai_types = MagicMock()
+    mock_genai = MagicMock()
+    mock_genai.Client.return_value = mock_client
+    mock_genai.types = mock_genai_types  # ensure from-import resolves correctly
+
+    return mock_genai, mock_genai_types, mock_client
+
+
+class TestCallGeminiApiResilience:
+    """Tests for _call_gemini_api resilience: timeout config, retry, backoff."""
+
+    def _patch_genai_modules(self, mock_genai, mock_genai_types):
+        return patch.dict("sys.modules", {
+            "google": MagicMock(genai=mock_genai),
+            "google.genai": mock_genai,
+            "google.genai.types": mock_genai_types,
+        })
+
+    # ------------------------------------------------------------------ #
+    # 1. Timeout HttpOptions is passed to genai.Client
+    # ------------------------------------------------------------------ #
+
+    def test_call_gemini_api_passes_timeout_http_options(self) -> None:
+        """_call_gemini_api creates the client with HttpOptions(timeout=30.0)."""
+        captured_http_opts: list = []
+
+        mock_response = MagicMock()
+        mock_response.text = '{"result": "ok"}'
+        mock_response.usage_metadata = None
+
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = mock_response
+
+        mock_genai_types = MagicMock()
+
+        def capture_http_options(*args, **kwargs):
+            captured_http_opts.append(kwargs.get("http_options") or (args[0] if args else None))
+            return mock_client
+
+        mock_genai = MagicMock()
+        mock_genai.Client.side_effect = capture_http_options
+        mock_genai.types = mock_genai_types  # ensure from-import resolves correctly
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert err == "", f"Expected success, got: {err}"
+        # Verify HttpOptions was constructed with the correct timeout in milliseconds.
+        # Google GenAI SDK HttpOptions.timeout is in ms: 30 s = 30,000 ms.
+        mock_genai_types.HttpOptions.assert_called_once_with(
+            timeout=pm._GEMINI_API_TIMEOUT_MS
+        )
+        # Verify Client was created with http_options
+        mock_genai.Client.assert_called_once()
+        call_kwargs = mock_genai.Client.call_args
+        assert call_kwargs is not None
+        # http_options should be the HttpOptions mock return value
+        passed_http_opts = (
+            call_kwargs.kwargs.get("http_options")
+            if call_kwargs.kwargs
+            else call_kwargs[1].get("http_options")
+        )
+        assert passed_http_opts is mock_genai_types.HttpOptions.return_value
+
+    # ------------------------------------------------------------------ #
+    # 2. Transient error then success retries
+    # ------------------------------------------------------------------ #
+
+    def test_call_gemini_api_retries_transient_then_succeeds(self) -> None:
+        """First call raises TimeoutError (transient); second call succeeds."""
+        success_response = MagicMock()
+        success_response.text = '{"mutation_rationale": "ok"}'
+        success_response.usage_metadata = None
+
+        mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([
+            TimeoutError("request timed out"),
+            success_response,
+        ])
+
+        sleep_calls: list[float] = []
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
+                _sleep_fn=lambda s: sleep_calls.append(s),
+            )
+
+        assert err == "", f"Expected success after retry, got: {err}"
+        assert raw_text == '{"mutation_rationale": "ok"}'
+        assert mock_client.models.generate_content.call_count == 2
+        assert len(sleep_calls) == 1, f"Expected 1 sleep call, got {len(sleep_calls)}"
+        assert sleep_calls[0] == pm._GEMINI_API_BACKOFF_INITIAL_SECONDS
+
+    # ------------------------------------------------------------------ #
+    # 3. All attempts exhausted with transient error
+    # ------------------------------------------------------------------ #
+
+    def test_call_gemini_api_stops_after_max_transient_attempts(self) -> None:
+        """Three consecutive transient failures → fail after max attempts."""
+
+        class Fake429(Exception):
+            status_code = 429
+
+        mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([
+            Fake429("429 Too Many Requests"),
+            Fake429("429 Too Many Requests"),
+            Fake429("429 Too Many Requests"),
+        ])
+
+        sleep_calls: list[float] = []
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, inp, out, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
+                _sleep_fn=lambda s: sleep_calls.append(s),
+            )
+
+        assert raw_text is None
+        assert inp is None
+        assert out is None
+        assert "3 attempt" in err, f"Error should mention 3 attempts: {err!r}"
+        assert "transient" in err, f"Error should say transient: {err!r}"
+        assert mock_client.models.generate_content.call_count == pm._GEMINI_API_MAX_ATTEMPTS
+        # Sleep is called between attempts — not after the last one
+        assert len(sleep_calls) == pm._GEMINI_API_MAX_ATTEMPTS - 1, (
+            f"Expected {pm._GEMINI_API_MAX_ATTEMPTS - 1} sleeps, got {len(sleep_calls)}"
+        )
+
+    # ------------------------------------------------------------------ #
+    # 4. Non-transient error does not retry
+    # ------------------------------------------------------------------ #
+
+    def test_call_gemini_api_does_not_retry_non_transient_error(self) -> None:
+        """401 Unauthorized is non-transient; generate_content called only once."""
+
+        class Fake401(Exception):
+            status_code = 401
+
+        mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([
+            Fake401("401 Unauthorized"),
+        ])
+
+        sleep_calls: list[float] = []
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
+                _sleep_fn=lambda s: sleep_calls.append(s),
+            )
+
+        assert raw_text is None
+        assert "non-transient" in err, f"Error should say non-transient: {err!r}"
+        assert mock_client.models.generate_content.call_count == 1
+        assert len(sleep_calls) == 0, "No sleep on non-transient error"
+
+    # ------------------------------------------------------------------ #
+    # 5. ImportError behaviour is unchanged
+    # ------------------------------------------------------------------ #
+
+    def test_call_gemini_api_import_error_unchanged(self) -> None:
+        """When google-genai is not installed, returns the expected error string."""
+        with patch.dict("sys.modules", {"google": None, "google.genai": None}):
+            with patch("builtins.__import__", side_effect=ImportError("No module named 'google'")):
+                raw_text, inp, out, err = pm._call_gemini_api(
+                    "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
+                    _sleep_fn=lambda _: None,
+                )
+
+        assert raw_text is None
+        assert inp is None
+        assert out is None
+        assert "google-genai" in err or "not installed" in err, (
+            f"Expected import error message, got: {err!r}"
+        )
+
+    # ------------------------------------------------------------------ #
+    # 6. Error message does not include API key or prompt text
+    # ------------------------------------------------------------------ #
+
+    def test_call_gemini_api_error_does_not_include_secret_or_prompt(self) -> None:
+        """On failure, the error string must not contain the API key or prompt."""
+        secret_key = "super-secret-api-key-value-12345"
+        user_prompt_text = "This is the full user prompt content do not log this"
+
+        class Fake503(Exception):
+            status_code = 503
+
+        mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([
+            Fake503("503 Service Unavailable"),
+            Fake503("503 Service Unavailable"),
+            Fake503("503 Service Unavailable"),
+        ])
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            _, _, _, err = pm._call_gemini_api(
+                secret_key, "gemini-2.0-flash", user_prompt_text, 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert secret_key not in err, (
+            f"API key must not appear in error string: {err!r}"
+        )
+        assert user_prompt_text not in err, (
+            f"Prompt must not appear in error string: {err!r}"
+        )
+
+    # ------------------------------------------------------------------ #
+    # 7. max_attempts=1 limits retries to a single attempt
+    # ------------------------------------------------------------------ #
+
+    def test_call_gemini_api_respects_max_attempts_one(self) -> None:
+        """max_attempts=1 means no retry: generate_content called once on transient error."""
+
+        class Fake503(Exception):
+            status_code = 503
+
+        mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([
+            Fake503("503 Service Unavailable"),
+        ])
+
+        sleep_calls: list[float] = []
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
+                max_attempts=1,
+                _sleep_fn=lambda s: sleep_calls.append(s),
+            )
+
+        assert raw_text is None
+        assert "1 attempt" in err, f"Error should mention 1 attempt: {err!r}"
+        assert mock_client.models.generate_content.call_count == 1
+        assert len(sleep_calls) == 0, "No sleep when max_attempts=1"
+
+    # ------------------------------------------------------------------ #
+    # 8. max_attempts=2 allows one retry
+    # ------------------------------------------------------------------ #
+
+    def test_call_gemini_api_allows_retry_when_max_attempts_two(self) -> None:
+        """max_attempts=2: fails once transiently then succeeds on second attempt."""
+        success_response = MagicMock()
+        success_response.text = '{"retry": "ok"}'
+        success_response.usage_metadata = None
+
+        mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([
+            TimeoutError("timed out"),
+            success_response,
+        ])
+
+        sleep_calls: list[float] = []
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
+                max_attempts=2,
+                _sleep_fn=lambda s: sleep_calls.append(s),
+            )
+
+        assert err == "", f"Expected success, got: {err}"
+        assert raw_text == '{"retry": "ok"}'
+        assert mock_client.models.generate_content.call_count == 2
+        assert len(sleep_calls) == 1
+
+    # ------------------------------------------------------------------ #
+    # 9. max_attempts is capped by _GEMINI_API_MAX_ATTEMPTS
+    # ------------------------------------------------------------------ #
+
+    def test_call_gemini_api_caps_max_attempts_at_constant(self) -> None:
+        """Passing max_attempts=999 never exceeds _GEMINI_API_MAX_ATTEMPTS calls."""
+
+        class Fake429(Exception):
+            status_code = 429
+
+        side_effects = [Fake429("429") for _ in range(100)]
+        mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules(side_effects)
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
+                max_attempts=999,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert raw_text is None
+        assert mock_client.models.generate_content.call_count <= pm._GEMINI_API_MAX_ATTEMPTS, (
+            f"Call count {mock_client.models.generate_content.call_count} "
+            f"exceeds cap {pm._GEMINI_API_MAX_ATTEMPTS}"
+        )
+
+    # ------------------------------------------------------------------ #
+    # 10. max_attempts < 1 returns fail-closed error without calling API
+    # ------------------------------------------------------------------ #
+
+    def test_call_gemini_api_max_attempts_zero_fail_closed(self) -> None:
+        """max_attempts=0 returns an error immediately without calling generate_content."""
+        mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([])
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
+                max_attempts=0,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert raw_text is None
+        assert err != "", "Must return an error for max_attempts=0"
+        assert mock_client.models.generate_content.call_count == 0, (
+            "generate_content must not be called when max_attempts=0"
+        )
