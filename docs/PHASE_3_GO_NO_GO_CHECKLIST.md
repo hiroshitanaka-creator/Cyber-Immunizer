@@ -14,6 +14,8 @@ do_not_use_for:
   - calling Gemini API
 related:
   - docs/AI_ENTRYPOINT.md
+  - docs/PHASE_2_5_CLOSEOUT_AUDIT.md
+  - docs/human用roadmap/phase3_to_phase7_roadmap.md
   - docs/PHASE_2_COMPLETION_CHECKPOINT.md
   - docs/API_ACTIVATION_CHECKLIST.md
   - docs/API_ACTIVATION_RUNBOOK.md
@@ -48,17 +50,21 @@ This document is a Go/No-Go readiness checklist that must be reviewed before any
 | Field | Value |
 |---|---|
 | Phase 2 | Complete |
-| pre-Phase-3 hardening through PR #44 | Completed |
+| Phase 2.5 hardening | Complete through PR #53 |
 | Phase 3 | Not started |
 | API connection | Not connected |
 | live_model_enabled | false |
-| Gemini API real calls | Not executed |
+| Gemini API real calls | Not executed by repository work |
 | GitHub Secrets state | Not asserted by repository files; Human Owner controlled |
+| Human Owner Phase 3 GO | Not given |
 | Human Owner external verification | Human Owner controls external secret and billing verification |
 
 > Phase 3 is not started. API is not connected. live_model_enabled remains false.
 > GitHub Secrets state is not asserted by repository files.
 > Human Owner verifies GitHub Secrets state out-of-band before Phase 3.
+>
+> See [docs/PHASE_2_5_CLOSEOUT_AUDIT.md](./PHASE_2_5_CLOSEOUT_AUDIT.md) for the Phase 2.5 hardening ledger.
+> See [docs/human用roadmap/phase3_to_phase7_roadmap.md](./human用roadmap/phase3_to_phase7_roadmap.md) for Human Owner roadmap guidance.
 
 ---
 
@@ -66,8 +72,11 @@ This document is a Go/No-Go readiness checklist that must be reviewed before any
 
 The following items can be verified from repository files without external access.
 
-- [ ] PR #37–#44 completed and reflected in current docs
+- [ ] Phase 2.5 hardening PRs #46–#53 completed and reflected in current docs
+- [ ] docs/PHASE_2_5_CLOSEOUT_AUDIT.md exists and records Phase 2.5 completion
+- [ ] docs/human用roadmap/phase3_to_phase7_roadmap.md exists and contains thread handoff guidance
 - [ ] docs/AI_ENTRYPOINT.md routes Phase 3 readiness work to this checklist
+- [ ] docs/AI_ENTRYPOINT.md routes Phase 2.5 closeout queries to docs/PHASE_2_5_CLOSEOUT_AUDIT.md
 - [ ] README docs map includes this checklist (docs/PHASE_3_GO_NO_GO_CHECKLIST.md)
 - [ ] docs/audit_gate/PR_AUDIT_PROTOCOL.md exists and is referenced
 - [ ] docs/audit_gate/CHANGELOG.md exists and is referenced
@@ -85,6 +94,11 @@ The following items can be verified from repository files without external acces
 - [ ] parser MemoryError and RecursionError and syntax-path failures return structured validation failures
 - [ ] runtime allocation risks (computed repeat multipliers, unbounded join generators) are rejected before evaluation and promote
 - [ ] apply_mutation safe output path guard is in place (output_root symlink rejection, traversal rejection)
+- [ ] apply_mutation atomic write in place (PR #50)
+- [ ] API success followed by ledger write failure returns no patch (PR #53 behavior tests pass)
+- [ ] evaluate_candidate resource limits enforced (PR #47)
+- [ ] detector large payload regression tests pass (PR #51)
+- [ ] indicator case normalization tests pass (PR #52)
 - [ ] docs tests cover current state (python -m pytest passes on current head SHA)
 
 ---
@@ -182,6 +196,8 @@ Without an explicit Human Owner "GO", Phase 3 activation must not proceed.
 ## Related Documents
 
 - [docs/AI_ENTRYPOINT.md](./AI_ENTRYPOINT.md) — Task routing entrypoint for AI
+- [docs/PHASE_2_5_CLOSEOUT_AUDIT.md](./PHASE_2_5_CLOSEOUT_AUDIT.md) — Phase 2.5 closeout audit (PR #46–#53 ledger)
+- [docs/human用roadmap/phase3_to_phase7_roadmap.md](./human用roadmap/phase3_to_phase7_roadmap.md) — Human Owner roadmap for Phase 3–7
 - [docs/PHASE_2_COMPLETION_CHECKPOINT.md](./PHASE_2_COMPLETION_CHECKPOINT.md) — Phase 2 completion checkpoint and current state
 - [docs/API_ACTIVATION_CHECKLIST.md](./API_ACTIVATION_CHECKLIST.md) — Detailed API activation checklist
 - [docs/API_ACTIVATION_RUNBOOK.md](./API_ACTIVATION_RUNBOOK.md) — API activation runbook (Phase 3 execution guide)
