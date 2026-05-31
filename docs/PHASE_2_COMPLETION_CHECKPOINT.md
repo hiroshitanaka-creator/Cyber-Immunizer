@@ -58,6 +58,13 @@ GEMINI_API_KEY must be stored only in GitHub Secrets during Phase 3 activation.
 | Phase 2-D: offline-sample dry-run / promote separation design | Completed | PR #26 |
 | Phase 2-E: API activation checklist hardening | Completed | PR #27 |
 | Phase 2-E (backlog #12): fitness report schema bool hardening | Completed | PR-E (#12) — `_validate_fitness_schema` now uses `type(v) is T` (not `isinstance`) to reject bool-as-number in score, rate fields, and exception_count; NaN/±Inf rejected; rate fields bounded [0.0, 1.0]; exception_count requires strict non-negative int |
+| AI navigation / Audit Gate modularization | Completed | PR #37 |
+| Existing docs AI_DOC_META role labels | Completed | PR #38 |
+| README AI docs map / navigation guard | Completed | PR #39 |
+| AST complexity / parser DoS guard | Completed | PR #40 |
+| Runtime allocation / comprehension DoS guard | Completed | PR #41 |
+| Gemini API timeout / retry / max_model_requests_per_run alignment | Completed | PR #42 |
+| apply_mutation safe output path / output_root symlink rejection | Completed | PR #43 |
 
 > **Phase 2 complete does not mean Phase 3 is underway.**
 > Phase 3 is not started. Phase 3 requires explicit Human Owner decision.
@@ -80,6 +87,7 @@ GEMINI_API_KEY must be stored only in GitHub Secrets during Phase 3 activation.
 | Normal CI | read-only |
 | Human Owner decision required before Phase 3 | Yes |
 | Phase 3 activation | Must be a dedicated PR |
+| Pre-Phase-3 hardening status | PR #37–#43 completed; Phase 3 still not started |
 
 **Important boundary notes:**
 
@@ -126,6 +134,17 @@ All of the following safety invariants are preserved at Phase 2 completion:
 - Phase 3 activation requires dedicated PR
 - Human Owner explicit decision is required before Phase 3
 - no workflow permission escalation in Phase 2
+- AI entrypoint and Audit Gate protocol are modularized and guarded by docs navigation tests
+- existing docs carry AI_DOC_META role labels
+- README docs map includes AI entrypoint and audit_gate protocol files
+- AST source size / node count / depth / literal / collection limits are enforced fail-closed
+- parser MemoryError / RecursionError / syntax-path failures return structured validation failures
+- runtime allocation risks are rejected before evaluation / promote
+- Gemini API calls have explicit timeout and bounded transient retry
+- retry attempts are capped by max_model_requests_per_run
+- paid-credit ledger responsibility remains outside retry loop and is not written per attempt
+- apply_mutation output path is restricted to a safe output root
+- apply_mutation rejects absolute escape, traversal, symlink escape, output_root symlink, non-.py targets, and directory targets
 
 ### Documented but Not Yet Workflow-Enforced Invariants (Critical #1 — Now Resolved)
 
@@ -162,6 +181,17 @@ The following requirements were previously documented in source documents and te
 | Phase 3 activation requires dedicated PR | docs/PHASE_2_PLAN.md, docs/API_ACTIVATION_CHECKLIST.md, docs/PHASE_2_COMPLETION_CHECKPOINT.md | tests/test_phase2_completion_checkpoint_docs.py | Covered |
 | Human Owner explicit decision is required before Phase 3 | docs/PHASE_2_PLAN.md, docs/API_ACTIVATION_CHECKLIST.md, docs/PHASE_2_COMPLETION_CHECKPOINT.md | tests/test_phase2_completion_checkpoint_docs.py | Covered |
 | no workflow permission escalation | docs/PHASE_2_COMPLETION_CHECKPOINT.md | tests/test_phase2_completion_checkpoint_docs.py | Covered |
+| AI entrypoint and Audit Gate protocol are modularized and guarded by docs navigation tests | docs/AI_ENTRYPOINT.md, docs/audit_gate/README.md | tests/test_ai_docs_navigation.py | Covered |
+| existing docs carry AI_DOC_META role labels | docs/* (AI_DOC_META blocks) | tests/test_ai_docs_navigation.py | Covered |
+| README docs map includes AI entrypoint and audit_gate protocol files | README.md | tests/test_ai_docs_navigation.py | Covered |
+| AST source size / node count / depth / literal / collection limits are enforced fail-closed | docs/PHASE_2_COMPLETION_CHECKPOINT.md | tests/test_ast_policy.py | Covered |
+| parser MemoryError / RecursionError / syntax-path failures return structured validation failures | docs/PHASE_2_COMPLETION_CHECKPOINT.md | tests/test_ast_policy.py | Covered |
+| runtime allocation risks are rejected before evaluation / promote | docs/PHASE_2_COMPLETION_CHECKPOINT.md | tests/test_mutation_boundaries.py | Covered |
+| Gemini API calls have explicit timeout and bounded transient retry | docs/PHASE_2_COMPLETION_CHECKPOINT.md | tests/test_gemini_integration.py | Covered |
+| retry attempts are capped by max_model_requests_per_run | docs/PHASE_2_COMPLETION_CHECKPOINT.md | tests/test_gemini_integration.py | Covered |
+| paid-credit ledger responsibility remains outside retry loop and is not written per attempt | docs/PHASE_2_COMPLETION_CHECKPOINT.md | tests/test_gemini_paid_credit.py | Covered |
+| apply_mutation output path is restricted to a safe output root | docs/PHASE_2_COMPLETION_CHECKPOINT.md | tests/test_mutation_boundaries.py | Covered |
+| apply_mutation rejects symlink escape / traversal / output_root symlink / non-.py / directory targets | docs/PHASE_2_COMPLETION_CHECKPOINT.md | tests/test_mutation_boundaries.py | Covered |
 
 ### Known Phase 3 Blockers
 
@@ -174,6 +204,22 @@ Each blocker must be fixed in a dedicated pre-Phase-3 hardening PR and audited i
 |---|---|---|---|
 | Critical #1 | `.github/workflows/immunization_loop.yml` promote job was missing a `promote_approved=true` gate requiring Human Owner approval. The promote job could execute without explicit Human Owner gate. | High: generated code could be promoted to `core/detector.py` without Human Owner approval. | **Resolved** — `promote_approved` workflow_dispatch input (default: `false`) added; promote job now requires `github.event_name == 'workflow_dispatch'` and `github.event.inputs.promote_approved == 'true'`; schedule runs can never promote; tested in `tests/test_workflow.py`. Fixed in a **dedicated pre-Phase-3 hardening PR** before any Phase 3 activation PR is opened or merged. Phase 3 activation PR may proceed only after the promote gate is already enforced and audited. |
 | Backlog #2 | `.github/workflows/immunization_loop.yml` single "Propose mutation patch" step injected `GEMINI_API_KEY` into ALL propose modes (noop / offline-sample / preflight), violating minimum-privilege. | Medium: noop and offline-sample modes make no API calls; injecting the secret widens its exposure surface unnecessarily. | **Resolved** (PR-D) — step split into five mode-specific steps: noop and offline-sample receive no API key; gemini-paid-credit-preflight receives only `GEMINI_API_KEY_PRESENT` boolean signal; live-model and gemini-paid-credit receive raw `GEMINI_API_KEY`. `run_gemini_paid_credit_preflight()` updated to accept `GEMINI_API_KEY_PRESENT=true` signal. Tested in `tests/test_workflow.py` (TestModeSpecificStepsExist, TestNonApiModeStepsHaveNoRawApiKey, TestPreflightStepUsesBooleanSignal, TestApiModeStepsHaveRawApiKey, TestModeStepsHaveCorrectIfConditions, TestAggregateStepStructure, TestModeStepsWriteExitCodeToFile, TestModeStepsUseSetPlusE, TestStepLevelSecretScopingRegressionGuards) and `tests/test_preflight_mode.py` (TestPreflightApiKeyPresentSignal). |
+
+**Pre-Phase-3 Hardening — Resolved (PR #37–#43)**
+
+The following items were identified as pre-Phase-3 hardening requirements and resolved before any Phase 3 activation PR is opened:
+
+| ID | Description | Status |
+|---|---|---|
+| Hardening #37 | AI navigation / Audit Gate modularization — docs/AI_ENTRYPOINT.md modularized; docs navigation tests added. | **Resolved** — PR #37 |
+| Hardening #38 | Existing docs AI_DOC_META role labels — all key docs carry AI_DOC_META metadata blocks. | **Resolved** — PR #38 |
+| Hardening #39 | README AI docs map / navigation guard — README docs map includes AI entrypoint and audit_gate protocol files. | **Resolved** — PR #39 |
+| Hardening #40 | AST complexity / parser DoS guard — source-size guard runs before ast.parse; parser MemoryError / RecursionError are handled fail-closed; node-count and depth guards run after parsing succeeds and before evaluation / promote. | **Resolved** — PR #40 |
+| Hardening #41 | Runtime allocation / comprehension DoS guard — computed repeat multipliers (e.g. "a" * (10 ** 9)) and unbounded join(generator) rejected before evaluation / promote. | **Resolved** — PR #41 |
+| Hardening #42 | Gemini API timeout / retry / max_model_requests_per_run alignment — explicit timeout, bounded transient retry, retry count capped by max_model_requests_per_run, paid-credit ledger not written per retry attempt. | **Resolved** — PR #42 |
+| Hardening #43 | apply_mutation safe output path / output_root symlink rejection — output path checked after resolving traversal and symlinks; output_root itself must not be a symlink; unsafe paths fail closed before write_text. | **Resolved** — PR #43 |
+
+Phase 3 is still not started. These hardening items are resolved pre-Phase-3 hardening only.
 
 ---
 

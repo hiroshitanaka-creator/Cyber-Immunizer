@@ -91,3 +91,94 @@ Lessons that drove protocol additions:
   old PR whose branch had diverged from main was less safe than closing it and
   opening a new PR from current main. Protocol now recommends this approach when
   a PR's branch is no longer mergeable and main has moved on.
+
+---
+
+## PR #40 — AST complexity / parser DoS guard
+
+Lessons that drove protocol additions:
+
+- **Source-size guard before ast.parse**: Source-size guard must run before
+  calling `ast.parse`. Oversized source can cause the parser itself to exhaust
+  memory before any AST-level check runs. Source size is checkable without
+  building the AST.
+- **AST node-count and depth guards run after parsing succeeds**: Node-count is
+  not knowable before AST construction. AST node-count, depth, and related
+  structural guards run only after `ast.parse` succeeds, before evaluation,
+  promote, or other expensive policy processing.
+- **ast.parse raises MemoryError / RecursionError**: `ast.parse` may raise
+  `MemoryError` or `RecursionError` in addition to `SyntaxError`. Protocol now
+  requires that all three exception types are handled fail-closed.
+- **Candidate write-before-validation DoS residue**: Writing a candidate file
+  before full validation can leave residue on disk if cleanup is bypassed by an
+  exception. Protocol now requires that `apply_mutation` fails closed and cleans
+  invalid candidate files when validation aborts mid-flight.
+- **Fail-closed on parser failure**: When any parser failure (syntax, memory,
+  recursion) occurs, the mutation must be rejected with a structured validation
+  failure — not silently accepted or partially applied.
+
+---
+
+## PR #41 — Runtime allocation guard
+
+Lessons that drove protocol additions:
+
+- **Small AST can still cause huge runtime allocation**: An AST that passes
+  node-count limits can still generate unbounded runtime allocation at
+  evaluation time. Source-level AST limits are not sufficient on their own.
+- **Computed repeat multiplier must be rejected**: Expressions like
+  `"a" * (10 ** 9)` yield a valid small AST but allocate gigabytes at runtime.
+  Protocol now requires that computed repeat multipliers are rejected
+  fail-closed before evaluation / promote.
+- **join(generator) must be restricted to statically bounded iterables**:
+  `"".join(generator)` where the generator is not provably bounded can cause
+  unbounded allocation. Protocol now requires that such patterns are rejected
+  unless the iterable is statically bounded.
+- **Non-provably bounded runtime allocation fails closed**: Any allocation
+  pattern that cannot be statically proven bounded must be rejected, not
+  accepted with a warning.
+
+---
+
+## PR #42 — Gemini API resilience / budget alignment
+
+Lessons that drove protocol additions:
+
+- **SDK timeout units must be verified**: The Gemini SDK may accept timeout
+  values in seconds or milliseconds depending on the version or call site.
+  A seconds-vs-milliseconds mismatch is audit-significant because it can
+  result in either no effective timeout or a timeout far shorter than intended.
+  Protocol now requires that timeout unit is verified and documented.
+- **Retry attempts are actual API calls**: Each transient retry is a real
+  `generate_content` call. Retry attempts must respect `max_model_requests_per_run`.
+  Protocol now requires that retry count plus the initial call does not exceed
+  the per-run request budget.
+- **Paid-credit ledger must not be written per retry attempt**: Writing ledger
+  entries per retry attempt (rather than per successful completion) can inflate
+  the ledger and violate the budget accounting model. Protocol now requires
+  that ledger writes occur outside the retry loop.
+- **Budget / ledger accounting must align with actual generate_content call count**:
+  The per-run call count tracked in the ledger must match the actual number of
+  `generate_content` calls made, including retries.
+
+---
+
+## PR #43 — apply_mutation safe output path
+
+Lessons that drove protocol additions:
+
+- **Output path containment after resolving traversal and symlinks**: Checking
+  the raw output path string is not sufficient. The resolved path (after
+  traversal and symlink resolution) must be contained within the safe output
+  root. Protocol now requires `Path.resolve()` before containment check.
+- **output_root itself must not be a symlink**: If `output_root` is a symlink,
+  containment checks against its string prefix can be bypassed. Protocol now
+  requires that `output_root` itself is not a symlink before accepting any
+  output path.
+- **Unsafe output paths fail closed before write_text**: Any output path that
+  fails the containment check, traversal check, or symlink check must cause
+  `apply_mutation` to fail closed — no partial write, no fallback path.
+- **Output-root parent symlink assumptions should be documented as residual
+  constraints**: When full enforcement of parent-directory symlink assumptions
+  is not achieved, the remaining constraint must be documented explicitly as a
+  residual risk, not silently assumed safe.
