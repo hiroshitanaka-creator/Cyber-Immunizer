@@ -72,3 +72,24 @@ def test_existing_docs_have_ai_doc_meta_blocks():
         assert "AI_DOC_META" in text, (
             f"{path} must contain an AI_DOC_META metadata block"
         )
+
+
+def test_readme_lists_phase3_go_no_go_checklist():
+    assert "PHASE_3_GO_NO_GO_CHECKLIST.md" in _readme_text(), (
+        "README.md must reference docs/PHASE_3_GO_NO_GO_CHECKLIST.md"
+    )
+
+
+def test_phase3_go_no_go_checklist_exists():
+    full = REPO_ROOT / "docs" / "PHASE_3_GO_NO_GO_CHECKLIST.md"
+    assert full.exists(), (
+        "docs/PHASE_3_GO_NO_GO_CHECKLIST.md must exist on disk"
+    )
+
+
+def test_ai_entrypoint_routes_phase3_readiness_to_checklist():
+    text = (REPO_ROOT / "docs" / "AI_ENTRYPOINT.md").read_text(encoding="utf-8")
+    assert "PHASE_3_GO_NO_GO_CHECKLIST.md" in text, (
+        "docs/AI_ENTRYPOINT.md must reference docs/PHASE_3_GO_NO_GO_CHECKLIST.md "
+        "in its Phase 3 readiness / Go-No-Go task routing"
+    )
