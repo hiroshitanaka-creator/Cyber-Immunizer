@@ -1,3 +1,27 @@
+<!--
+AI_DOC_META
+status: CURRENT
+scope: Human Owner roadmap for Phase 3 to Phase 7 planning and thread handoff.
+use_for:
+  - explaining Phase 3 to Phase 7 sequence to Human Owner
+  - preparing new thread handoff before Phase 3
+  - identifying Human Owner decision points
+  - preventing accidental Phase 3 activation
+do_not_use_for:
+  - executing Phase 3 activation
+  - setting live_model_enabled=true
+  - registering or modifying GitHub Secrets
+  - calling Gemini API
+  - replacing docs/PHASE_3_GO_NO_GO_CHECKLIST.md
+related:
+  - docs/AI_ENTRYPOINT.md
+  - docs/PHASE_2_5_CLOSEOUT_AUDIT.md
+  - docs/PHASE_3_GO_NO_GO_CHECKLIST.md
+  - docs/API_ACTIVATION_CHECKLIST.md
+last_reviewed: 2026-05-31
+AI_DOC_META_END
+-->
+
 # Human Roadmap: Phase 3〜7 の進行判断表
 
 この文書は、Human Owner が Phase 2.5 closeout 後に Phase 3〜7へ進む順序・判断点・禁止事項を確認するための人間向けロードマップです。

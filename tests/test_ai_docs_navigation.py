@@ -25,6 +25,14 @@ EXISTING_DOCS_WITH_META = [
     "docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md",
 ]
 
+# Decision documents that docs/AI_ENTRYPOINT.md now routes phase-status,
+# Phase 2.5 closeout, and Human Owner roadmap tasks to. They must carry
+# AI_DOC_META so future AI sessions do not rank older docs above them.
+ROUTED_DECISION_DOCS_WITH_META = [
+    "docs/PHASE_2_5_CLOSEOUT_AUDIT.md",
+    "docs/human用roadmap/phase3_to_phase7_roadmap.md",
+]
+
 
 def _readme_text() -> str:
     return README.read_text(encoding="utf-8")
@@ -71,6 +79,19 @@ def test_existing_docs_have_ai_doc_meta_blocks():
         text = full.read_text(encoding="utf-8")
         assert "AI_DOC_META" in text, (
             f"{path} must contain an AI_DOC_META metadata block"
+        )
+
+
+def test_routed_decision_docs_have_ai_doc_meta_blocks():
+    for path in ROUTED_DECISION_DOCS_WITH_META:
+        full = REPO_ROOT / path
+        assert full.exists(), f"Expected file {path} to exist"
+        text = full.read_text(encoding="utf-8")
+        assert "AI_DOC_META" in text, (
+            f"{path} must contain an AI_DOC_META metadata block"
+        )
+        assert "status: CURRENT" in text, (
+            f"{path} must declare status: CURRENT in its AI_DOC_META block"
         )
 
 

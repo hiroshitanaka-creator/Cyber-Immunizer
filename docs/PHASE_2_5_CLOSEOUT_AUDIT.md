@@ -1,3 +1,26 @@
+<!--
+AI_DOC_META
+status: CURRENT
+scope: Phase 2.5 hardening closeout audit and Phase 3 readiness preparation.
+use_for:
+  - verifying Phase 2.5 hardening completion
+  - classifying Grok / Claude Code / GPT audit findings
+  - confirming Phase 3 is not activated
+  - preparing Human Owner for Phase 3 Go/No-Go review
+do_not_use_for:
+  - executing Phase 3 activation
+  - setting live_model_enabled=true
+  - registering or modifying GitHub Secrets
+  - calling Gemini API
+related:
+  - docs/AI_ENTRYPOINT.md
+  - docs/PHASE_3_GO_NO_GO_CHECKLIST.md
+  - docs/API_ACTIVATION_CHECKLIST.md
+  - docs/human用roadmap/phase3_to_phase7_roadmap.md
+last_reviewed: 2026-05-31
+AI_DOC_META_END
+-->
+
 # Phase 2.5 Closeout Audit
 
 > This document is not Phase 3 activation.
