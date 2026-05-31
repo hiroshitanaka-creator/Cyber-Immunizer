@@ -480,3 +480,60 @@ class TestComplexityRejectionDoesNotTraceback:
         result = validate(p)  # must not raise RecursionError
         assert isinstance(result, dict)
         assert not result["valid"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: parser stack overflow / pathological input (Codex P1)
+# ---------------------------------------------------------------------------
+
+class TestParserStackOverflowHandling:
+    """Pathological inputs that trigger MemoryError / RecursionError in ast.parse
+    must produce a structured failure, never a raw traceback."""
+
+    def _make_unary_chain_candidate(self) -> Path:
+        """Return a candidate file with a parser-stack-busting unary chain.
+
+        The source stays within MAX_POLICY_SOURCE_CHARS so the pre-parse size
+        guard does not intercept it first.
+        """
+        # "x = ---...---1" with ~9000 unary minuses triggers MemoryError in
+        # the CPython parser without exceeding the source size limit.
+        body = "x = " + "-" * 9000 + "1\nreturn DetectionResult(False, '', 0.0, ())"
+        assert len(body) < MAX_POLICY_SOURCE_CHARS, (
+            "Test body must stay within MAX_POLICY_SOURCE_CHARS "
+            "to reach the parser, not the pre-parse size guard"
+        )
+        return _make_candidate(body)
+
+    def test_validate_does_not_raise_on_parser_stack_overflow(self):
+        """validate() must return a structured dict, not raise MemoryError."""
+        p = self._make_unary_chain_candidate()
+        result = validate(p)  # must NOT raise
+        assert isinstance(result, dict), "validate() must always return a dict"
+        assert "valid" in result
+
+    def test_validate_returns_false_on_parser_stack_overflow(self):
+        """validate() must return valid=False for parser-stack-busting input."""
+        p = self._make_unary_chain_candidate()
+        result = validate(p)
+        assert not result["valid"], (
+            "Parser-stack-busting input must be rejected"
+        )
+
+    def test_validate_violation_describes_parser_failure(self):
+        """The violation message must indicate a parser-level failure."""
+        p = self._make_unary_chain_candidate()
+        result = validate(p)
+        combined = " ".join(result.get("violations", [])).lower()
+        assert any(
+            kw in combined
+            for kw in ("parser", "memoryerror", "too complex", "syntaxerror", "recursionerror")
+        ), f"Violation must describe parser failure, got: {result.get('violations')}"
+
+    def test_run_full_policy_does_not_raise_on_parser_stack_overflow(self, tmp_path):
+        """run_full_policy() itself must not raise on pathological parse input."""
+        from core.policy import run_full_policy
+        p = self._make_unary_chain_candidate()
+        result = run_full_policy(p)  # must NOT raise
+        assert isinstance(result, dict)
+        assert not result["valid"]

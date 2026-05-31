@@ -156,7 +156,20 @@ def apply_mutation(
     out_path.write_text(new_source, encoding="utf-8")
 
     # --- Validate candidate ---
-    val_result = validate(out_path)
+    # Wrap in try/except so any unexpected parser exception (MemoryError,
+    # RecursionError, etc.) is handled fail-closed here as well, removing the
+    # written candidate and returning a structured failure.
+    # KeyboardInterrupt / SystemExit are not caught and propagate normally.
+    try:
+        val_result = validate(out_path)
+    except Exception as exc:  # noqa: BLE001
+        out_path.unlink(missing_ok=True)
+        return {
+            "success": False,
+            "candidate_path": None,
+            "violations": [f"parser failed (fail-closed): {type(exc).__name__}"],
+            "error": "validation raised an unexpected exception; candidate removed",
+        }
     if not val_result["valid"]:
         # Remove invalid candidate
         out_path.unlink(missing_ok=True)

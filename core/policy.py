@@ -67,13 +67,40 @@ MAX_COLLECTION_ITEMS: int = 1_000
 # Individual check functions (each returns a list of violation strings)
 # ---------------------------------------------------------------------------
 
-def check_syntax(source: str) -> list[str]:
-    """Return a SyntaxError description, or [] if source parses cleanly."""
+def parse_source_safely(source: str) -> tuple[ast.Module | None, list[str]]:
+    """Attempt to parse *source* and return (tree, violations).
+
+    Captures all exceptions that ast.parse() may raise on pathological input:
+      SyntaxError, MemoryError, RecursionError, SystemError, ValueError,
+      and any other unexpected Exception (fail-closed).
+
+    KeyboardInterrupt and SystemExit are NOT caught — they propagate normally.
+    Returns (ast.Module, []) on success, (None, [violation_str]) on failure.
+    """
     try:
-        ast.parse(source)
-        return []
+        return ast.parse(source), []
     except SyntaxError as exc:
-        return [f"SyntaxError: {exc}"]
+        return None, [f"SyntaxError: {exc}"]
+    except MemoryError:
+        return None, ["parser MemoryError: Python source too complex to parse (parser stack overflowed)"]
+    except RecursionError:
+        return None, ["parser RecursionError: Python source too complex to parse (excessive nesting)"]
+    except SystemError as exc:
+        return None, [f"parser SystemError: {exc}"]
+    except ValueError as exc:
+        return None, [f"parser ValueError: {exc}"]
+    except Exception as exc:  # noqa: BLE001
+        return None, [f"parser failed (fail-closed): {type(exc).__name__}"]
+
+
+def check_syntax(source: str) -> list[str]:
+    """Return parser violation strings, or [] if source parses cleanly.
+
+    Delegates to parse_source_safely() so all parser exceptions are
+    converted to structured violations rather than raw tracebacks.
+    """
+    _, violations = parse_source_safely(source)
+    return violations
 
 
 def check_mutation_markers(source: str) -> list[str]:
@@ -324,16 +351,13 @@ def run_full_policy(candidate_path: Path) -> dict:
     if violations:
         return {"valid": False, "violations": violations}
 
-    # 1. Syntax — must pass before AST can be built
-    violations.extend(check_syntax(source))
-    if violations:
-        return {"valid": False, "violations": violations}
+    # 1. Parse — fail-closed on SyntaxError / MemoryError / RecursionError / etc.
+    tree, parse_violations = parse_source_safely(source)
+    if parse_violations:
+        return {"valid": False, "violations": parse_violations}
 
     # 2. Mutation markers (source-level check)
     violations.extend(check_mutation_markers(source))
-
-    # Build AST for remaining checks
-    tree = ast.parse(source)
 
     # 3. AST complexity — fail-closed before any policy traversal
     violations.extend(check_ast_complexity(tree))
