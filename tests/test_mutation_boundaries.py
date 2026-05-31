@@ -537,3 +537,102 @@ class TestResolveSafeOutputPathHelper:
         resolved, err = _resolve_safe_output_path(out_path, output_root)
         assert resolved is None
         assert err != ""
+
+
+class TestOutputRootSymlinkRejection:
+    """output_root itself is a symlink — must be rejected before any write."""
+
+    _GOOD_REPLACEMENT = (
+        "    if '../' in request.path:\n"
+        "        return DetectionResult(True, 'traversal', 0.9, ('../',))\n"
+        "    return DetectionResult(False, 'ok', 0.0, ())\n"
+    )
+
+    def _try_symlink(self, link: Path, target: Path) -> bool:
+        """Create symlink; return False and skip if platform doesn't support it."""
+        try:
+            link.symlink_to(target)
+            return True
+        except (OSError, NotImplementedError):
+            return False
+
+    def test_output_root_symlink_rejected(self, tmp_path):
+        """output_root that is itself a symlink must be rejected fail-closed."""
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        output_root = tmp_path / ".cyber_immunizer"
+
+        if not self._try_symlink(output_root, outside):
+            pytest.skip("Symlink creation not supported on this platform")
+
+        out_path = output_root / "candidate.py"
+        patch_path = _make_patch(self._GOOD_REPLACEMENT)
+
+        result = apply_mutation(patch_path, _BASE_DETECTOR, out_path, output_root=output_root)
+
+        assert not result["success"], "Symlinked output_root must be rejected"
+        err_lower = result["error"].lower()
+        assert "symlink" in err_lower, (
+            f"Error must mention symlink, got: {result['error']!r}"
+        )
+        assert "output root" in err_lower, (
+            f"Error must mention output root, got: {result['error']!r}"
+        )
+        assert not (outside / "candidate.py").exists(), (
+            "Candidate must not be created in symlink target"
+        )
+
+    def test_output_root_symlink_to_repo_like_dir_cannot_write_important_file(self, tmp_path):
+        """Symlinked output_root pointing to a repo-like dir cannot write core files."""
+        fake_repo = tmp_path / "fake_repo"
+        fake_repo.mkdir()
+        output_root = tmp_path / ".cyber_immunizer"
+
+        if not self._try_symlink(output_root, fake_repo):
+            pytest.skip("Symlink creation not supported on this platform")
+
+        # Attempt to write what would look like core/detector.py under fake_repo
+        out_path = output_root / "core" / "detector.py"
+        patch_path = _make_patch(self._GOOD_REPLACEMENT)
+
+        result = apply_mutation(patch_path, _BASE_DETECTOR, out_path, output_root=output_root)
+
+        assert not result["success"], "Symlinked output_root must be rejected"
+        # File must not appear under the fake_repo tree
+        assert not (fake_repo / "core" / "detector.py").exists(), (
+            "Important file must not be created in symlink-redirected directory"
+        )
+        # Real repo core/detector.py must be untouched
+        assert _BASE_DETECTOR.exists(), "Real core/detector.py must be untouched"
+
+    def test_real_output_root_directory_still_works(self, tmp_path):
+        """A genuine (non-symlink) output_root directory must still be accepted."""
+        output_root = tmp_path / ".cyber_immunizer"
+        out_path = output_root / "candidate.py"
+        patch_path = _make_patch(self._GOOD_REPLACEMENT)
+
+        result = apply_mutation(patch_path, _BASE_DETECTOR, out_path, output_root=output_root)
+
+        assert result["success"], f"Real directory output_root must succeed: {result}"
+        assert out_path.exists(), "Candidate file must be created"
+
+    def test_symlink_escape_under_real_root_still_rejected(self, tmp_path):
+        """Symlink inside a real output_root that escapes the root is still caught."""
+        output_root = tmp_path / ".cyber_immunizer"
+        output_root.mkdir(parents=True, exist_ok=True)
+        outside_dir = tmp_path / "outside"
+        outside_dir.mkdir()
+        link = output_root / "link"
+
+        if not self._try_symlink(link, outside_dir):
+            pytest.skip("Symlink creation not supported on this platform")
+
+        out_path = link / "candidate.py"
+        patch_path = _make_patch(self._GOOD_REPLACEMENT)
+
+        result = apply_mutation(patch_path, _BASE_DETECTOR, out_path, output_root=output_root)
+
+        assert not result["success"], "Symlink escape inside root must be rejected"
+        assert not (outside_dir / "candidate.py").exists(), (
+            "File must not be created in symlink-escaped directory"
+        )

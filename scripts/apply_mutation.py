@@ -50,14 +50,44 @@ def _resolve_safe_output_path(
 
     Returns (resolved_path, error_message).  On error, resolved_path is None
     and the candidate file must NOT be created.
+
+    Security invariants enforced:
+    - output_root itself must not be a symlink (prevents root-redirect attacks).
+    - output_root must be a real directory (created only if absent).
+    - out_path must resolve inside output_root after symlink expansion.
+    - Only .py files are permitted; directory targets are rejected.
+
+    Residual constraint: parent directories of output_root are not
+    exhaustively checked for intermediate symlinks.  Callers should ensure
+    that the parent tree of output_root is trustworthy (the default
+    _DEFAULT_OUTPUT_ROOT parent is _PROJECT_ROOT, which is controlled by the
+    repo checkout).
     """
     if output_root is None:
         output_root = _DEFAULT_OUTPUT_ROOT
 
-    # Ensure output_root exists so resolve() can canonicalise it correctly.
-    output_root.mkdir(parents=True, exist_ok=True)
+    # --- Validate output_root itself before mkdir ---
+    # If output_root already exists (or is a dangling/live symlink), inspect it.
+    if output_root.exists() or output_root.is_symlink():
+        if output_root.is_symlink():
+            return None, (
+                "unsafe output root: output root must not be a symlink"
+            )
+        if not output_root.is_dir():
+            return None, (
+                "unsafe output root: output root exists but is not a directory"
+            )
+    else:
+        # output_root does not exist — create it as a real directory.
+        output_root.mkdir(parents=True, exist_ok=True)
+        # Post-mkdir safety check: confirm it is a real directory (not a symlink
+        # that appeared between the existence check and the mkdir call).
+        if output_root.is_symlink() or not output_root.is_dir():
+            return None, (
+                "unsafe output root: output root became a symlink or non-directory after creation"
+            )
 
-    # Interpret relative paths relative to project root.
+    # Interpret relative out_path relative to project root.
     if not out_path.is_absolute():
         out_path = _PROJECT_ROOT / out_path
 
