@@ -103,15 +103,22 @@ Cyber-Immunizer/
 │   ├── evolution_history.json  # 進化の全履歴
 │   └── api_usage_ledger.json   # Gemini API 使用量台帳（gemini-paid-credit モード）
 ├── docs/
+│   ├── AI_ENTRYPOINT.md                        # AI作業開始時の入口（task別参照先・status label定義）
+│   ├── audit_gate/
+│   │   ├── README.md                           # Audit Gate protocol群の索引
+│   │   ├── PULLBACK_PROMPT.md                  # GPT引き戻し用の短縮プロンプト
+│   │   ├── PR_AUDIT_PROTOCOL.md                # PR監査・merge判断の詳細手順
+│   │   ├── TOOL_EXECUTION_ANOMALY_PROTOCOL.md  # tool failure / blocked / fallback / low-level GitHub操作の報告ルール
+│   │   └── CHANGELOG.md                        # Audit Gate運用教訓（PR #33/#34/#36/#35/#28 由来）
 │   ├── AUDIT_CHARTER.md                        # GPT Audit Gate 憲章（役割・カテゴリ・決定基準・Phase 2/3 transition rule）
 │   ├── PHASE_1_BASELINE.md                     # Phase 1 完了状態の固定記録（Safety invariants・Exit criteria）
-│   ├── PHASE_2_PLAN.md                         # Phase 2 計画文書（API未接続運用強化・やること/やらないこと・Phase 3条件）
+│   ├── PHASE_2_PLAN.md                         # Phase 2 計画文書（historical）
 │   ├── ROLLBACK_BACKTRACK_DESIGN.md            # rollback/backtrack 設計文書（Phase 2-B: design-only）
 │   ├── EVOLUTION_HISTORY_AUDIT.md              # evolution history 監査仕様（Phase 2-C: design and audit spec only）
 │   ├── OFFLINE_SAMPLE_PROMOTE_SEPARATION.md    # offline-sample dry-run / promote 分離設計（Phase 2-D: design-only）
-│   ├── API_ACTIVATION_CHECKLIST.md             # API有効化チェックリスト（Phase 2-E: docs-only）
-│   ├── PHASE_2_COMPLETION_CHECKPOINT.md        # Phase 2完了チェックポイント（Traceability Matrix・Residual Risk・Go/No-Go template）
-│   └── API_ACTIVATION_RUNBOOK.md               # API有効化手順書（Phase 3 で実施・GEMINI_API_KEY 登録〜live_model_enabled=true）
+│   ├── API_ACTIVATION_CHECKLIST.md             # API有効化チェックリスト・GEMINI_API_KEY用語正本
+│   ├── PHASE_2_COMPLETION_CHECKPOINT.md        # Phase 2完了チェックポイント・pre-Phase-3現在状態
+│   └── API_ACTIVATION_RUNBOOK.md               # API有効化手順書（Phase 3 runbook）
 ├── intelligence/
 │   └── threat_feeds.py     # 脅威インテリジェンスモジュール（スタブ）
 ├── scripts/
