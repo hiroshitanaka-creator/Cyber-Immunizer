@@ -1,6 +1,7 @@
 """tests/test_ast_policy.py — Verify AST policy enforcement."""
 from __future__ import annotations
 
+import sys
 import textwrap
 import tempfile
 from pathlib import Path
@@ -761,3 +762,206 @@ return DetectionResult(False, "", 0.0, ())
         assert "join(generator)" not in combined, (
             f"Baseline headers.items() join must be allowed; got violations: {combined}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests: structural disallowed AST construct guard (Phase 2.5 Stage A)
+# ---------------------------------------------------------------------------
+
+class TestDisallowedAstConstructs:
+    """Structural constructs unnecessary for candidate detectors must be rejected.
+
+    Rejection tests verify that each disallowed construct causes check_disallowed_ast_constructs
+    to fire.  Acceptance tests verify that baseline-safe patterns still pass after the
+    new guard is added to run_full_policy().
+    """
+
+    # ------------------------------------------------------------------
+    # Rejection tests
+    # ------------------------------------------------------------------
+
+    def test_rejects_try_except(self):
+        p = _make_candidate("""\
+try:
+    x = 1
+except Exception:
+    x = 0
+return DetectionResult(False, "ok", 0.0, ())
+""")
+        _assert_rejected(p, "disallowed AST construct")
+
+    def test_rejects_raise(self):
+        p = _make_candidate("""\
+raise RuntimeError("blocked")
+""")
+        _assert_rejected(p, "disallowed AST construct")
+
+    def test_rejects_with_statement(self):
+        # Use 'with request:' so the rejection is structural (With node),
+        # not triggered by a forbidden builtin such as open().
+        p = _make_candidate("""\
+with request:
+    pass
+return DetectionResult(False, "ok", 0.0, ())
+""")
+        _assert_rejected(p, "disallowed AST construct")
+
+    def test_rejects_nested_function_def(self):
+        p = _make_candidate("""\
+def helper():
+    return "x"
+return DetectionResult(False, "ok", 0.0, ())
+""")
+        _assert_rejected(p, "disallowed AST construct")
+
+    def test_rejects_nested_class_def(self):
+        p = _make_candidate("""\
+class Helper:
+    pass
+return DetectionResult(False, "ok", 0.0, ())
+""")
+        _assert_rejected(p, "disallowed AST construct")
+
+    def test_rejects_lambda(self):
+        p = _make_candidate("""\
+f = lambda x: x
+return DetectionResult(False, "ok", 0.0, ())
+""")
+        _assert_rejected(p, "disallowed AST construct")
+
+    def test_rejects_while_loop(self):
+        # Structural rejection — while False: pass is rejected even though it
+        # never executes.
+        p = _make_candidate("""\
+while False:
+    pass
+return DetectionResult(False, "ok", 0.0, ())
+""")
+        _assert_rejected(p, "disallowed AST construct")
+
+    def test_rejects_global_nonlocal(self):
+        # global is syntactically valid inside inspect_request.
+        p = _make_candidate("""\
+global x
+x = 1
+return DetectionResult(False, "ok", 0.0, ())
+""")
+        _assert_rejected(p, "disallowed AST construct")
+
+    def test_rejects_nonlocal_via_ast(self):
+        # nonlocal requires an enclosing scope; test at the AST level directly.
+        import ast as _ast
+        from core.policy import check_disallowed_ast_constructs
+        nonlocal_node = _ast.Nonlocal(names=["x"])
+        _ast.fix_missing_locations(nonlocal_node)
+        inner_fn = _ast.FunctionDef(
+            name="inspect_request",
+            args=_ast.arguments(
+                posonlyargs=[], args=[], vararg=None,
+                kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[],
+            ),
+            body=[nonlocal_node, _ast.Pass()],
+            decorator_list=[],
+            returns=None,
+        )
+        _ast.fix_missing_locations(inner_fn)
+        module = _ast.Module(body=[inner_fn], type_ignores=[])
+        _ast.fix_missing_locations(module)
+        violations = check_disallowed_ast_constructs(module)
+        assert any("Nonlocal" in v for v in violations), (
+            f"Expected Nonlocal violation; got: {violations}"
+        )
+
+    def test_rejects_delete(self):
+        p = _make_candidate("""\
+x = 1
+del x
+return DetectionResult(False, "ok", 0.0, ())
+""")
+        _assert_rejected(p, "disallowed AST construct")
+
+    def test_rejects_named_expr(self):
+        # Walrus operator (:=) must be rejected.
+        p = _make_candidate("""\
+if (x := request.path):
+    pass
+return DetectionResult(False, "ok", 0.0, ())
+""")
+        _assert_rejected(p, "disallowed AST construct")
+
+    @pytest.mark.skipif(sys.version_info < (3, 10), reason="match/case requires Python 3.10+")
+    def test_rejects_match_statement_if_supported(self):
+        p = _make_candidate("""\
+match request.path:
+    case "/":
+        pass
+return DetectionResult(False, "ok", 0.0, ())
+""")
+        _assert_rejected(p, "disallowed AST construct")
+
+    def test_rejects_duplicate_top_level_inspect_request(self):
+        # Two top-level inspect_request definitions: allowed_id becomes None,
+        # so both FunctionDef nodes are flagged.
+        source = (
+            "from core.types import Request, DetectionResult\n\n"
+            "def inspect_request(request: Request) -> DetectionResult:\n"
+            "    # === MUTATION_START ===\n"
+            "    return DetectionResult(False, 'ok', 0.0, ())\n"
+            "    # === MUTATION_END ===\n\n"
+            "def inspect_request(request: Request) -> DetectionResult:\n"
+            "    return DetectionResult(False, 'ok2', 0.0, ())\n"
+        )
+        p = _write_raw_candidate(source)
+        _assert_rejected(p)
+
+    def test_rejects_top_level_helper_function(self):
+        # A top-level helper function alongside inspect_request must be rejected.
+        source = (
+            "from core.types import Request, DetectionResult\n\n"
+            "def helper():\n"
+            "    return 'x'\n\n"
+            "def inspect_request(request: Request) -> DetectionResult:\n"
+            "    # === MUTATION_START ===\n"
+            "    return DetectionResult(False, 'ok', 0.0, ())\n"
+            "    # === MUTATION_END ===\n"
+        )
+        p = _write_raw_candidate(source)
+        _assert_rejected(p, "disallowed AST construct")
+
+    # ------------------------------------------------------------------
+    # Acceptance tests
+    # ------------------------------------------------------------------
+
+    def test_accepts_baseline_detector_after_structural_guard(self):
+        """Existing baseline core/detector.py must still pass after the new guard."""
+        _PROJECT_ROOT = Path(__file__).parent.parent
+        baseline = _PROJECT_ROOT / "core" / "detector.py"
+        _assert_accepted(baseline)
+
+    def test_accepts_simple_neutralized_indicator_detector(self):
+        """A simple detector using only neutralized symbolic indicators must pass."""
+        p = _make_candidate("""\
+surface = request.path.lower() + " " + request.body.lower()
+indicators = [
+    "path_traversal_indicator",
+    "sqli_indicator",
+    "script_injection_indicator",
+]
+for token in indicators:
+    if token in surface:
+        return DetectionResult(True, f"matched {token}", 0.8, (token,))
+return DetectionResult(False, "ok", 0.0, ())
+""")
+        _assert_accepted(p)
+
+    def test_accepts_baseline_like_join_query_headers(self):
+        """Baseline-like join over query.items() and headers.items() must be accepted."""
+        p = _make_candidate("""\
+q = " ".join(f"{k}={v}" for k, v in request.query.items()).lower()
+h = " ".join(f"{k}:{v}" for k, v in request.headers.items()).lower()
+surface = request.path.lower() + " " + q + " " + h
+if "path_traversal_indicator" in surface:
+    return DetectionResult(True, "traversal", 0.8, ("path_traversal_indicator",))
+return DetectionResult(False, "ok", 0.0, ())
+""")
+        _assert_accepted(p)

@@ -703,6 +703,125 @@ def check_runtime_allocation_risks(tree: ast.AST) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Structural disallowed AST node guard (Phase 2.5 Stage A)
+# ---------------------------------------------------------------------------
+
+#: AST node types that are unconditionally disallowed in candidate detectors.
+#: Kept for documentation; the actual check uses explicit isinstance tests.
+DISALLOWED_AST_NODES: tuple[type, ...] = (
+    ast.Try,
+    ast.ExceptHandler,
+    ast.Raise,
+    ast.With,
+    ast.AsyncWith,
+    ast.Lambda,
+    ast.While,
+    ast.Yield,
+    ast.YieldFrom,
+    ast.Await,
+    ast.Global,
+    ast.Nonlocal,
+    ast.Delete,
+    ast.NamedExpr,
+    ast.AsyncFunctionDef,
+    ast.ClassDef,
+)
+
+# ast.Match was added in Python 3.10; resolve once at import time.
+_MATCH_NODE_TYPE: type | None = getattr(ast, "Match", None)
+
+
+def check_disallowed_ast_constructs(tree: ast.Module) -> list[str]:
+    """Reject AST nodes that are structurally disallowed in candidate detectors.
+
+    Permits exactly one top-level FunctionDef named inspect_request.
+    Rejects every other FunctionDef: nested helpers, top-level helpers,
+    and duplicate inspect_request definitions.
+    Rejects AsyncFunctionDef and ClassDef unconditionally.
+    Rejects try/except, raise, with, lambda, while, yield, await, global,
+    nonlocal, del, walrus operator (:=), and match/case if available.
+
+    Violation messages use the stable prefix "disallowed AST construct"
+    so tests and invariants can anchor on a consistent phrase.
+    """
+    violations: list[str] = []
+
+    # Identify the single permitted FunctionDef: the top-level inspect_request.
+    top_level_inspect_requests = [
+        stmt for stmt in tree.body
+        if isinstance(stmt, ast.FunctionDef) and stmt.name == "inspect_request"
+    ]
+    allowed_id: int | None = (
+        id(top_level_inspect_requests[0])
+        if len(top_level_inspect_requests) == 1
+        else None
+    )
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            if id(node) != allowed_id:
+                violations.append(
+                    f"disallowed AST construct: FunctionDef {node.name!r}"
+                )
+
+        elif isinstance(node, ast.AsyncFunctionDef):
+            violations.append(
+                f"disallowed AST construct: AsyncFunctionDef {node.name!r}"
+            )
+
+        elif isinstance(node, ast.ClassDef):
+            violations.append(
+                f"disallowed AST construct: ClassDef {node.name!r}"
+            )
+
+        elif isinstance(node, ast.Try):
+            violations.append("disallowed AST construct: Try")
+
+        elif isinstance(node, ast.ExceptHandler):
+            violations.append("disallowed AST construct: ExceptHandler")
+
+        elif isinstance(node, ast.Raise):
+            violations.append("disallowed AST construct: Raise")
+
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            violations.append(
+                f"disallowed AST construct: {type(node).__name__}"
+            )
+
+        elif isinstance(node, ast.Lambda):
+            violations.append("disallowed AST construct: Lambda")
+
+        elif isinstance(node, ast.While):
+            violations.append("disallowed AST construct: While")
+
+        elif isinstance(node, ast.Yield):
+            violations.append("disallowed AST construct: Yield")
+
+        elif isinstance(node, ast.YieldFrom):
+            violations.append("disallowed AST construct: YieldFrom")
+
+        elif isinstance(node, ast.Await):
+            violations.append("disallowed AST construct: Await")
+
+        elif isinstance(node, ast.Global):
+            violations.append("disallowed AST construct: Global")
+
+        elif isinstance(node, ast.Nonlocal):
+            violations.append("disallowed AST construct: Nonlocal")
+
+        elif isinstance(node, ast.Delete):
+            violations.append("disallowed AST construct: Delete")
+
+        elif isinstance(node, ast.NamedExpr):
+            violations.append("disallowed AST construct: NamedExpr (walrus operator)")
+
+        elif _MATCH_NODE_TYPE is not None and isinstance(node, _MATCH_NODE_TYPE):
+            violations.append("disallowed AST construct: Match")
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Unified policy runner
 # ---------------------------------------------------------------------------
 
@@ -754,6 +873,11 @@ def run_full_policy(candidate_path: Path) -> dict:
     else:
         # No region found — fall back to full-tree check (fail-closed)
         violations.extend(check_runtime_allocation_risks(tree))
+    if violations:
+        return {"valid": False, "violations": violations}
+
+    # 5a. Structurally disallowed AST constructs (Phase 2.5 Stage A)
+    violations.extend(check_disallowed_ast_constructs(tree))
     if violations:
         return {"valid": False, "violations": violations}
 
