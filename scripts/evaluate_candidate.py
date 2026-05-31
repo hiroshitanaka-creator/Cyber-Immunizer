@@ -22,6 +22,10 @@ This prevents a legitimate soft-rejection from being treated as a workflow error
 SAFETY NOTE:
     Candidate code is never executed with secrets or write permissions.
     The evaluation subprocess has no access to GEMINI_API_KEY or git tokens.
+    On POSIX/Linux, the subprocess is also bounded by physical resource limits
+    (CPU time, address space, file size, open files, process count) to prevent
+    a malicious or buggy candidate from exhausting runner resources before the
+    wall-clock timeout triggers.
 """
 from __future__ import annotations
 
@@ -41,6 +45,68 @@ if str(_PROJECT_ROOT) not in sys.path:
 from scripts.validate_mutation import validate  # noqa: E402
 
 _REPORT_PATH = _PROJECT_ROOT / ".cyber_immunizer" / "fitness_report.json"
+
+# ---------------------------------------------------------------------------
+# Physical resource limits for the evaluation subprocess
+# ---------------------------------------------------------------------------
+
+# Conditional import: `resource` is POSIX-only.  _resource_module is None on
+# non-POSIX platforms (Windows).  This module-level variable can be monkeypatched
+# in tests to verify that the correct rlimits are applied.
+try:
+    import resource as _resource_module
+except ImportError:
+    _resource_module = None  # type: ignore[assignment]
+
+_EVAL_MAX_ADDRESS_SPACE_BYTES = 768 * 1024 * 1024   # 768 MiB — enough for Python fitness
+_EVAL_MAX_FILE_SIZE_BYTES = 16 * 1024 * 1024         # 16 MiB
+_EVAL_MAX_OPEN_FILES = 64
+_EVAL_MAX_PROCESSES = 32
+
+
+def _resource_limits_supported() -> bool:
+    """Return True if POSIX physical resource limits can be applied."""
+    return os.name == "posix" and _resource_module is not None
+
+
+def _make_resource_limiter(timeout_seconds: int):
+    """Return a callable suitable for subprocess.run preexec_fn.
+
+    When called in the child process (before exec), it applies rlimits that
+    bound CPU time, address space, file sizes, open-file count, and process
+    count so that a malicious or buggy candidate cannot exhaust runner resources.
+
+    Raises RuntimeError if the resource module is unavailable.
+    """
+    if _resource_module is None:
+        raise RuntimeError(
+            "resource module is unavailable; cannot apply physical resource limits"
+        )
+
+    def _apply_limits() -> None:
+        cpu_seconds = max(1, int(timeout_seconds))
+        _resource_module.setrlimit(
+            _resource_module.RLIMIT_CPU, (cpu_seconds, cpu_seconds)
+        )
+        _resource_module.setrlimit(
+            _resource_module.RLIMIT_AS,
+            (_EVAL_MAX_ADDRESS_SPACE_BYTES, _EVAL_MAX_ADDRESS_SPACE_BYTES),
+        )
+        _resource_module.setrlimit(
+            _resource_module.RLIMIT_FSIZE,
+            (_EVAL_MAX_FILE_SIZE_BYTES, _EVAL_MAX_FILE_SIZE_BYTES),
+        )
+        _resource_module.setrlimit(
+            _resource_module.RLIMIT_NOFILE,
+            (_EVAL_MAX_OPEN_FILES, _EVAL_MAX_OPEN_FILES),
+        )
+        if hasattr(_resource_module, "RLIMIT_NPROC"):
+            _resource_module.setrlimit(
+                _resource_module.RLIMIT_NPROC,
+                (_EVAL_MAX_PROCESSES, _EVAL_MAX_PROCESSES),
+            )
+
+    return _apply_limits
 
 
 def _safe_env() -> dict[str, str]:
@@ -100,7 +166,47 @@ def evaluate_candidate(
     source = candidate_path.read_text(encoding="utf-8")
     candidate_hash = hashlib.sha256(source.encode()).hexdigest()
 
-    # --- Step 3: Run fitness evaluation in subprocess ---
+    # --- Step 3: Build physical resource limiter (fail closed if unsupported) ---
+    # On Linux/POSIX, resource limits are mandatory.  We never run untrusted
+    # candidate code without rlimits; if they cannot be set, we fail closed.
+    if _resource_limits_supported():
+        try:
+            preexec_fn = _make_resource_limiter(timeout_seconds)
+        except RuntimeError as exc:
+            result = {
+                "success": False,
+                "passed_adoption_gate": False,
+                "timed_out": False,
+                "return_code": None,
+                "violations": [],
+                "fitness_report": None,
+                "error": f"resource limit setup failed: {exc}",
+                "is_tool_failure": True,
+                "candidate_hash": candidate_hash,
+            }
+            _write_report(result, candidate_hash, report_path)
+            return result
+    else:
+        # Non-POSIX or resource module unavailable: fail closed rather than run
+        # the candidate without physical resource limits.
+        result = {
+            "success": False,
+            "passed_adoption_gate": False,
+            "timed_out": False,
+            "return_code": None,
+            "violations": [],
+            "fitness_report": None,
+            "error": (
+                "candidate evaluation requires POSIX resource limits; "
+                "platform is not POSIX or resource module is unavailable"
+            ),
+            "is_tool_failure": True,
+            "candidate_hash": candidate_hash,
+        }
+        _write_report(result, candidate_hash, report_path)
+        return result
+
+    # --- Step 4: Run fitness evaluation in subprocess ---
     cmd = [
         sys.executable,
         "-m", "core.fitness",
@@ -118,6 +224,7 @@ def evaluate_candidate(
             text=True,
             timeout=timeout_seconds,
             env=_safe_env(),
+            preexec_fn=preexec_fn,
         )
         timed_out = False
         return_code = proc.returncode
@@ -137,8 +244,22 @@ def evaluate_candidate(
         }
         _write_report(result, candidate_hash, report_path)
         return result
+    except (subprocess.SubprocessError, OSError, RuntimeError) as exc:
+        result = {
+            "success": False,
+            "passed_adoption_gate": False,
+            "timed_out": False,
+            "return_code": None,
+            "violations": [],
+            "fitness_report": None,
+            "error": f"subprocess launch failed: {exc}",
+            "is_tool_failure": True,
+            "candidate_hash": candidate_hash,
+        }
+        _write_report(result, candidate_hash, report_path)
+        return result
 
-    # --- Step 4: Parse fitness report ---
+    # --- Step 5: Parse fitness report ---
     fitness_report: dict | None = None
     parse_error = ""
     try:

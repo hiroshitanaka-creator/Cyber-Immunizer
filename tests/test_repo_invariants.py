@@ -1347,3 +1347,76 @@ class TestGeminiApiKeyTerminology:
             + "\nReplace with step-level scoping terminology per "
             "docs/API_ACTIVATION_CHECKLIST.md § Canonical GEMINI_API_KEY terminology."
         )
+
+
+# ===========================================================================
+# 8. evaluate_candidate.py resource limit invariants
+# ===========================================================================
+
+class TestEvaluateCandidateResourceLimits:
+    """scripts/evaluate_candidate.py must enforce POSIX physical resource limits.
+
+    These invariants ensure that the candidate evaluation subprocess cannot run
+    on Linux/POSIX without rlimits being applied, and that all required limit
+    types are present in the implementation.
+    """
+
+    _EVAL_SCRIPT = _ROOT / "scripts" / "evaluate_candidate.py"
+
+    @pytest.fixture(scope="class")
+    def eval_text(self) -> str:
+        assert self._EVAL_SCRIPT.exists(), "scripts/evaluate_candidate.py must exist"
+        return self._EVAL_SCRIPT.read_text(encoding="utf-8")
+
+    def test_evaluate_candidate_script_exists(self) -> None:
+        assert self._EVAL_SCRIPT.exists(), (
+            "scripts/evaluate_candidate.py must exist — it is the candidate evaluation entrypoint"
+        )
+
+    def test_setrlimit_present(self, eval_text: str) -> None:
+        assert "setrlimit" in eval_text, (
+            "scripts/evaluate_candidate.py must call resource.setrlimit (or a wrapper) "
+            "to enforce physical resource limits on the candidate subprocess."
+        )
+
+    def test_rlimit_cpu_present(self, eval_text: str) -> None:
+        assert "RLIMIT_CPU" in eval_text, (
+            "scripts/evaluate_candidate.py must reference RLIMIT_CPU "
+            "to bound candidate CPU time."
+        )
+
+    def test_rlimit_as_present(self, eval_text: str) -> None:
+        assert "RLIMIT_AS" in eval_text, (
+            "scripts/evaluate_candidate.py must reference RLIMIT_AS "
+            "to bound candidate address space / memory."
+        )
+
+    def test_rlimit_fsize_present(self, eval_text: str) -> None:
+        assert "RLIMIT_FSIZE" in eval_text, (
+            "scripts/evaluate_candidate.py must reference RLIMIT_FSIZE "
+            "to prevent candidates from writing huge files."
+        )
+
+    def test_rlimit_nofile_present(self, eval_text: str) -> None:
+        assert "RLIMIT_NOFILE" in eval_text, (
+            "scripts/evaluate_candidate.py must reference RLIMIT_NOFILE "
+            "to limit open file descriptors in the candidate subprocess."
+        )
+
+    def test_preexec_fn_passed_to_subprocess(self, eval_text: str) -> None:
+        assert "preexec_fn" in eval_text, (
+            "scripts/evaluate_candidate.py must pass preexec_fn to subprocess.run "
+            "so that resource limits are applied in the child process on POSIX."
+        )
+
+    def test_posix_guard_present(self, eval_text: str) -> None:
+        assert "_resource_limits_supported" in eval_text or 'os.name' in eval_text, (
+            "scripts/evaluate_candidate.py must have a POSIX platform guard so that "
+            "resource limit enforcement is checked before running the candidate."
+        )
+
+    def test_no_baseexception_catch(self, eval_text: str) -> None:
+        assert "except BaseException" not in eval_text, (
+            "scripts/evaluate_candidate.py must not catch BaseException — "
+            "this would swallow KeyboardInterrupt and SystemExit."
+        )

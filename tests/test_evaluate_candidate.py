@@ -1,0 +1,434 @@
+"""tests/test_evaluate_candidate.py — Unit tests for scripts/evaluate_candidate.py.
+
+Tests cover:
+  A. Resource limiter helpers (_resource_limits_supported, _make_resource_limiter)
+  B. Subprocess invocation includes preexec_fn on POSIX
+  C. Resource setup / subprocess launch failure is fail-closed
+  D. Timeout behavior is preserved
+  E. No dangerous real resource abuse (all tests are deterministic and low-cost)
+"""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+_PROJECT_ROOT = Path(__file__).parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from scripts.evaluate_candidate import (
+    _EVAL_MAX_ADDRESS_SPACE_BYTES,
+    _EVAL_MAX_FILE_SIZE_BYTES,
+    _EVAL_MAX_OPEN_FILES,
+    _EVAL_MAX_PROCESSES,
+    _PROJECT_ROOT as _EVAL_PROJECT_ROOT,
+    _make_resource_limiter,
+    _resource_limits_supported,
+    evaluate_candidate,
+)
+
+# ---------------------------------------------------------------------------
+# Shared test fixtures / helpers
+# ---------------------------------------------------------------------------
+
+_MINIMAL_CANDIDATE = """\
+\"\"\"Minimal valid candidate for tests.\"\"\"
+from core.detector import Detector as _Base
+
+class Detector(_Base):
+    pass
+"""
+
+_FAKE_REJECTED_OUTPUT = json.dumps({
+    "passed_adoption_gate": False,
+    "score": 0.42,
+    "tp_rate": 0.5,
+    "fp_rate": 0.1,
+})
+
+_FAKE_PASSING_OUTPUT = json.dumps({
+    "passed_adoption_gate": True,
+    "score": 0.95,
+    "tp_rate": 0.9,
+    "fp_rate": 0.02,
+})
+
+
+def _fake_proc(stdout: str, returncode: int = 0) -> SimpleNamespace:
+    return SimpleNamespace(returncode=returncode, stdout=stdout, stderr="")
+
+
+def _write_candidate(tmp_path: Path) -> Path:
+    p = tmp_path / "candidate_detector.py"
+    p.write_text(_MINIMAL_CANDIDATE, encoding="utf-8")
+    return p
+
+
+# ===========================================================================
+# A. Resource limiter helpers
+# ===========================================================================
+
+class TestResourceLimiterHelpers:
+    """_resource_limits_supported() and _make_resource_limiter() behave correctly."""
+
+    def test_resource_limiter_is_available_on_posix(self) -> None:
+        """On POSIX, _resource_limits_supported() returns True when resource is importable."""
+        if os.name == "posix":
+            try:
+                import resource  # noqa: F401
+                assert _resource_limits_supported() is True
+            except ImportError:
+                assert _resource_limits_supported() is False
+        else:
+            assert _resource_limits_supported() is False
+
+    def test_resource_limiter_unavailable_when_module_absent(self) -> None:
+        """_resource_limits_supported() returns False when _resource_module is None."""
+        with patch("scripts.evaluate_candidate._resource_module", None):
+            assert _resource_limits_supported() is False
+
+    def test_make_resource_limiter_returns_callable_on_posix(self) -> None:
+        """On POSIX with resource available, _make_resource_limiter returns a callable."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+        limiter = _make_resource_limiter(timeout_seconds=5)
+        assert callable(limiter)
+
+    def test_make_resource_limiter_raises_when_module_absent(self) -> None:
+        """_make_resource_limiter raises RuntimeError when _resource_module is None."""
+        with patch("scripts.evaluate_candidate._resource_module", None):
+            with pytest.raises(RuntimeError, match="resource module"):
+                _make_resource_limiter(timeout_seconds=5)
+
+    def test_resource_limiter_sets_expected_limits(self) -> None:
+        """Resource limiter must attempt to set RLIMIT_CPU, RLIMIT_AS, RLIMIT_FSIZE, RLIMIT_NOFILE."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        fake_resource = MagicMock()
+        fake_resource.RLIMIT_CPU = 0
+        fake_resource.RLIMIT_AS = 9
+        fake_resource.RLIMIT_FSIZE = 1
+        fake_resource.RLIMIT_NOFILE = 7
+        fake_resource.RLIMIT_NPROC = 6
+
+        with patch("scripts.evaluate_candidate._resource_module", fake_resource):
+            limiter = _make_resource_limiter(timeout_seconds=10)
+            limiter()
+
+        set_rlimits = {c.args[0] for c in fake_resource.setrlimit.call_args_list}
+        assert fake_resource.RLIMIT_CPU in set_rlimits, "RLIMIT_CPU must be set"
+        assert fake_resource.RLIMIT_AS in set_rlimits, "RLIMIT_AS must be set"
+        assert fake_resource.RLIMIT_FSIZE in set_rlimits, "RLIMIT_FSIZE must be set"
+        assert fake_resource.RLIMIT_NOFILE in set_rlimits, "RLIMIT_NOFILE must be set"
+
+    def test_resource_limiter_sets_nproc_when_available(self) -> None:
+        """RLIMIT_NPROC is set when the attribute is present on the resource module."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        fake_resource = MagicMock()
+        fake_resource.RLIMIT_CPU = 0
+        fake_resource.RLIMIT_AS = 9
+        fake_resource.RLIMIT_FSIZE = 1
+        fake_resource.RLIMIT_NOFILE = 7
+        fake_resource.RLIMIT_NPROC = 6
+
+        with patch("scripts.evaluate_candidate._resource_module", fake_resource):
+            limiter = _make_resource_limiter(timeout_seconds=5)
+            limiter()
+
+        set_rlimits = {c.args[0] for c in fake_resource.setrlimit.call_args_list}
+        assert fake_resource.RLIMIT_NPROC in set_rlimits, "RLIMIT_NPROC must be set when available"
+
+    def test_resource_limiter_cpu_bounded_by_timeout(self) -> None:
+        """CPU rlimit soft and hard values must not exceed the requested timeout."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        fake_resource = MagicMock()
+        fake_resource.RLIMIT_CPU = 0
+        fake_resource.RLIMIT_AS = 9
+        fake_resource.RLIMIT_FSIZE = 1
+        fake_resource.RLIMIT_NOFILE = 7
+
+        with patch("scripts.evaluate_candidate._resource_module", fake_resource):
+            limiter = _make_resource_limiter(timeout_seconds=7)
+            limiter()
+
+        cpu_call = next(
+            c for c in fake_resource.setrlimit.call_args_list
+            if c.args[0] == fake_resource.RLIMIT_CPU
+        )
+        soft, hard = cpu_call.args[1]
+        assert soft >= 1, "CPU soft limit must be at least 1 second"
+        assert soft <= 7, "CPU soft limit must not exceed timeout"
+        assert hard <= 7, "CPU hard limit must not exceed timeout"
+
+    def test_resource_limiter_address_space_correct(self) -> None:
+        """RLIMIT_AS is set to _EVAL_MAX_ADDRESS_SPACE_BYTES."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        fake_resource = MagicMock()
+        fake_resource.RLIMIT_CPU = 0
+        fake_resource.RLIMIT_AS = 9
+        fake_resource.RLIMIT_FSIZE = 1
+        fake_resource.RLIMIT_NOFILE = 7
+
+        with patch("scripts.evaluate_candidate._resource_module", fake_resource):
+            limiter = _make_resource_limiter(timeout_seconds=5)
+            limiter()
+
+        as_call = next(
+            c for c in fake_resource.setrlimit.call_args_list
+            if c.args[0] == fake_resource.RLIMIT_AS
+        )
+        soft, hard = as_call.args[1]
+        assert soft == _EVAL_MAX_ADDRESS_SPACE_BYTES
+        assert hard == _EVAL_MAX_ADDRESS_SPACE_BYTES
+
+
+# ===========================================================================
+# B. Subprocess invocation includes preexec_fn on POSIX
+# ===========================================================================
+
+class TestSubprocessPreexecFn:
+    """evaluate_candidate passes preexec_fn and preserves all required kwargs."""
+
+    def test_preexec_fn_present_and_callable_on_posix(self, tmp_path: Path) -> None:
+        """On POSIX, subprocess.run must receive a callable preexec_fn."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("subprocess.run", return_value=_fake_proc(_FAKE_REJECTED_OUTPUT)) as mock_run:
+                evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        assert mock_run.called
+        kwargs = mock_run.call_args.kwargs
+        assert "preexec_fn" in kwargs, "preexec_fn must be passed to subprocess.run on POSIX"
+        assert callable(kwargs["preexec_fn"]), "preexec_fn must be callable"
+
+    def test_timeout_still_passed_to_subprocess(self, tmp_path: Path) -> None:
+        """timeout=timeout_seconds must still be passed to subprocess.run."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("subprocess.run", return_value=_fake_proc(_FAKE_REJECTED_OUTPUT)) as mock_run:
+                evaluate_candidate(candidate, timeout_seconds=8, report_path=report_path)
+
+        kwargs = mock_run.call_args.kwargs
+        assert kwargs.get("timeout") == 8, "timeout must be passed to subprocess.run"
+
+    def test_safe_env_passed_to_subprocess(self, tmp_path: Path) -> None:
+        """env must be the stripped _safe_env() — no secrets."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("subprocess.run", return_value=_fake_proc(_FAKE_REJECTED_OUTPUT)) as mock_run:
+                evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        kwargs = mock_run.call_args.kwargs
+        env = kwargs.get("env", {})
+        sensitive = {"GEMINI_API_KEY", "GITHUB_TOKEN", "GH_TOKEN", "AWS_SECRET_ACCESS_KEY"}
+        leaked = sensitive & set(env.keys())
+        assert not leaked, f"Sensitive keys must not reach child env: {leaked}"
+
+    def test_cwd_is_project_root(self, tmp_path: Path) -> None:
+        """cwd passed to subprocess must be the project root."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("subprocess.run", return_value=_fake_proc(_FAKE_REJECTED_OUTPUT)) as mock_run:
+                evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        kwargs = mock_run.call_args.kwargs
+        assert kwargs.get("cwd") == str(_EVAL_PROJECT_ROOT)
+
+
+# ===========================================================================
+# C. Resource setup / subprocess launch failure is fail-closed
+# ===========================================================================
+
+class TestFailClosed:
+    """Resource setup failure and subprocess launch failure must return is_tool_failure=True."""
+
+    def test_subprocess_oserror_is_tool_failure(self, tmp_path: Path) -> None:
+        """OSError from subprocess.run must produce is_tool_failure=True result."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("subprocess.run", side_effect=OSError("simulated launch error")):
+                result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        assert result["success"] is False
+        assert result["passed_adoption_gate"] is False
+        assert result["is_tool_failure"] is True
+        assert result["timed_out"] is False
+        assert "subprocess" in result["error"].lower() or "launch" in result["error"].lower()
+        assert result.get("candidate_hash") is not None
+        assert report_path.exists(), "report must be written on subprocess failure"
+
+    def test_subprocess_error_is_tool_failure(self, tmp_path: Path) -> None:
+        """subprocess.SubprocessError must produce is_tool_failure=True result."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("subprocess.run",
+                       side_effect=subprocess.SubprocessError("simulated subprocess error")):
+                result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        assert result["success"] is False
+        assert result["is_tool_failure"] is True
+        assert result.get("candidate_hash") is not None
+        assert report_path.exists()
+
+    def test_resource_module_none_is_tool_failure(self, tmp_path: Path) -> None:
+        """When _resource_module is None (non-POSIX / missing module), result is tool failure."""
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        with patch("scripts.evaluate_candidate._resource_module", None):
+            with patch("scripts.evaluate_candidate.validate",
+                       return_value={"valid": True, "violations": []}):
+                result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        assert result["success"] is False
+        assert result["is_tool_failure"] is True
+        assert "resource" in result["error"].lower() or "posix" in result["error"].lower()
+        assert result.get("candidate_hash") is not None
+        assert report_path.exists(), "report must be written even when resource limits unavailable"
+
+    def test_resource_limiter_runtime_error_is_tool_failure(self, tmp_path: Path) -> None:
+        """RuntimeError from _make_resource_limiter must produce is_tool_failure=True."""
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("scripts.evaluate_candidate._make_resource_limiter",
+                       side_effect=RuntimeError("simulated resource setup error")):
+                with patch("scripts.evaluate_candidate._resource_limits_supported",
+                           return_value=True):
+                    result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        assert result["success"] is False
+        assert result["is_tool_failure"] is True
+        assert "resource" in result["error"].lower() or "limit" in result["error"].lower()
+        assert report_path.exists()
+
+
+# ===========================================================================
+# D. Timeout behavior preserved
+# ===========================================================================
+
+class TestTimeoutBehavior:
+    """Wall-clock timeout must still work and produce a timed_out=True result."""
+
+    def test_timeout_expired_sets_timed_out(self, tmp_path: Path) -> None:
+        """subprocess.TimeoutExpired must set timed_out=True and is_tool_failure=True."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        timeout_exc = subprocess.TimeoutExpired(cmd=["python"], timeout=5)
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("subprocess.run", side_effect=timeout_exc):
+                result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        assert result["timed_out"] is True
+        assert result["is_tool_failure"] is True
+        assert result["success"] is False
+        assert result["passed_adoption_gate"] is False
+        assert "timeout" in result["error"].lower() or "timed out" in result["error"].lower()
+        assert result.get("candidate_hash") is not None
+        assert report_path.exists(), "report must be written on timeout"
+
+    def test_timeout_error_message_includes_duration(self, tmp_path: Path) -> None:
+        """Timeout error message must include the timeout duration."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        timeout_exc = subprocess.TimeoutExpired(cmd=["python"], timeout=12)
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("subprocess.run", side_effect=timeout_exc):
+                result = evaluate_candidate(candidate, timeout_seconds=12, report_path=report_path)
+
+        assert "12" in result["error"], "Timeout error must include the timeout duration"
+
+
+# ===========================================================================
+# E. Verify constants are in reasonable ranges (no real resource abuse)
+# ===========================================================================
+
+class TestResourceLimitConstants:
+    """Resource limit constants must be sane — not so tight they break fitness evaluation."""
+
+    def test_address_space_at_least_256_mib(self) -> None:
+        assert _EVAL_MAX_ADDRESS_SPACE_BYTES >= 256 * 1024 * 1024, (
+            "Address space limit must be at least 256 MiB to allow fitness evaluation"
+        )
+
+    def test_address_space_at_most_2_gib(self) -> None:
+        assert _EVAL_MAX_ADDRESS_SPACE_BYTES <= 2 * 1024 * 1024 * 1024, (
+            "Address space limit should be bounded to prevent unbounded memory"
+        )
+
+    def test_file_size_at_least_1_mib(self) -> None:
+        assert _EVAL_MAX_FILE_SIZE_BYTES >= 1024 * 1024, (
+            "File size limit must allow at least 1 MiB writes"
+        )
+
+    def test_open_files_at_least_32(self) -> None:
+        assert _EVAL_MAX_OPEN_FILES >= 32, (
+            "Open file limit must allow at least 32 file descriptors for Python runtime"
+        )
+
+    def test_process_count_at_least_8(self) -> None:
+        assert _EVAL_MAX_PROCESSES >= 8, (
+            "Process limit must allow a small number of subprocesses"
+        )
