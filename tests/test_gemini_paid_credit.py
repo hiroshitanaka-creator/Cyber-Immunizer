@@ -1502,3 +1502,369 @@ class TestPaidCreditMaxAttemptsFromGenome:
             f"max_attempts should be 1 (max_model_requests_per_run=1), "
             f"got {captured_max_attempts[0]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 21. Conservative multilingual estimate refuses before API call (Codex P2 aware)
+# ---------------------------------------------------------------------------
+
+
+class TestConservativeMultilingualBudgetRefusal:
+    """Proves the 2x conservative INPUT estimate participates in the pre-call budget gate.
+
+    These tests verify:
+    A. A large multilingual/code/symbol-heavy INPUT prompt triggers budget refusal
+       (max_output_tokens is kept very small so only input drives the estimate).
+    B. A small budget is no longer blocked solely because of output-cap re-estimation
+       (Codex P2 regression guard: max_output_tokens must be used directly, not
+       passed through estimate_tokens_from_chars).
+    C. The same Codex P2 fix applies in the preflight cost estimation site.
+    """
+
+    def test_conservative_multilingual_estimate_refuses_before_api_call(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Conservative 2x INPUT estimate of multilingual prompt must refuse before API call.
+
+        max_output_tokens is set to 16 so output cost is negligible; refusal must
+        come from the conservative INPUT estimate, not from output-cap re-estimation.
+
+        Budget = $0.001, system_prompt (~2682 chars) + user_prompt drives refusal:
+          - 2x input estimate: ceil(~3200 * 2.0) tokens → input_cost > $0.001  ✗ refused
+          - chars/4 input estimate: ceil(~3200 / 4) tokens → input_cost < $0.001  ✓ passed
+
+        _call_gemini_api must NOT be invoked; the pre-call budget gate must fire first.
+        Uses only neutralized symbolic indicators — no raw payload strings.
+        """
+        # Multilingual/code/symbol-heavy prompt: Japanese text + Python-like code
+        # + neutralised symbolic indicator names + punctuation-heavy content.
+        multilingual_prompt = (
+            "このコードはセキュリティの脆弱性を検出します。\n"
+            "以下のPythonコードを分析してください:\n"
+            "def check_request(req):\n"
+            "    surface = req.path.lower() + ' ' + req.body.lower()\n"
+            "    indicators = [\n"
+            "        'path_traversal_indicator',\n"
+            "        'sqli_indicator',\n"
+            "        'script_injection_indicator',\n"
+            "        'command_delimiter_indicator',\n"
+            "    ]\n"
+            "    matched = [ind for ind in indicators if ind in surface]\n"
+            "    if matched:\n"
+            "        confidence = min(1.0, 0.5 + 0.1 * len(matched))\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='indicator: ' + matched[0],\n"
+            "            confidence=confidence,\n"
+            "            matched_signals=tuple(matched),\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no indicator matched',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+            "# 記号テスト !@#$%^&*()_+-=[]{}|;':\",./<>?\n"
+            "# 攻撃パターンの指標検出: path_traversal_indicator sqli_indicator\n"
+        )
+        monkeypatch.setattr(pm, "_build_user_prompt", lambda g, d: multilingual_prompt)
+
+        # max_output_tokens=16 → output cost ≈ $0.000013 (negligible).
+        # Budget $0.001 is between new 2x input estimate and old chars/4 estimate:
+        #   full_prompt ≈ 2682(sys) + 1 + ~550(user) = ~3233 chars
+        #   2x input: ceil(3233*2)/1M*$0.20 ≈ $0.0013  > $0.001  → refused ✓
+        #   chars/4:  ceil(3233/4)/1M*$0.20 ≈ $0.00016 < $0.001  → would pass ✓
+        genome = {
+            **live_paid_genome,
+            "monthly_api_budget_usd": 0.001,
+            "daily_api_budget_usd": 0.001,
+            "max_output_tokens": 16,
+            "live_model_enabled": True,
+        }
+        genome_path = tmp_path / "genome_multilingual.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+
+        # Empty ledger — zero prior spend; the estimate alone must exceed the budget.
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file, ledger_path, out_dir)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        # Track whether _call_gemini_api is invoked — it must NOT be.
+        api_call_was_made: list[bool] = []
+
+        def mock_api_call(*args: Any, **kwargs: Any) -> Any:
+            api_call_was_made.append(True)
+            return None, None, None, "must not reach here"
+
+        monkeypatch.setattr(pm, "_call_gemini_api", mock_api_call)
+
+        result, err = pm.propose_mutation(gemini_paid_credit=True, allow_live_model=True)
+
+        assert result is None, (
+            "propose_mutation must return None when conservative INPUT estimate exceeds budget"
+        )
+        assert err, "Must produce a non-empty error message"
+        assert any(word in err.lower() for word in ("budget", "monthly", "daily")), (
+            f"Error must mention budget/monthly/daily, got: {err!r}"
+        )
+        assert not api_call_was_made, (
+            "_call_gemini_api must NOT be called when conservative INPUT estimate exceeds budget; "
+            "the pre-call budget gate must fire first"
+        )
+
+    def test_output_token_cap_is_not_reestimated_as_characters(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Codex P2 regression: max_output_tokens must not be re-estimated via char multiplier.
+
+        With the buggy code (estimate_tokens_from_chars(max_output_tokens * 4)):
+          est_output_tokens = ceil(2048 * 4 * 2.0) = 16384 → ~$0.013 → exceeds $0.01 → blocked
+
+        With the correct code (est_output_tokens = max_output_tokens):
+          est_output_tokens = 2048 → ~$0.0016 → within $0.01 → allowed
+
+        This test must fail under the buggy implementation and pass under the fix.
+        _call_gemini_api is mocked; no real API call is made.
+        """
+        # Short safe prompt using only neutralized indicators
+        short_prompt = (
+            "# Improve detection for path_traversal_indicator and sqli_indicator.\n"
+            "# Use only neutralized symbolic indicators.\n"
+        )
+        monkeypatch.setattr(pm, "_build_user_prompt", lambda g, d: short_prompt)
+
+        # Budget $0.01 is above the correct estimate (~$0.003) but below the buggy
+        # estimate (~$0.014) for max_output_tokens=2048.
+        genome = {
+            **live_paid_genome,
+            "monthly_api_budget_usd": 0.01,
+            "daily_api_budget_usd": 0.01,
+            "max_output_tokens": 2048,
+            "live_model_enabled": True,
+            "max_model_requests_per_run": 1,
+        }
+        genome_path = tmp_path / "genome_codex_p2.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file, ledger_path, out_dir)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        valid_response = json.dumps({
+            "mutation_rationale": "Improve coverage for path_traversal_indicator.",
+            "target_threats": ["THREAT-2024-001"],
+            "expected_improvement": "Higher TP rate.",
+            "risk": "Low — additive logic only.",
+            "replacement_code": (
+                "    surface = request.path.lower() + ' ' + request.body.lower()\n"
+                "    indicators = ['path_traversal_indicator', 'sqli_indicator']\n"
+                "    matched = [ind for ind in indicators if ind in surface]\n"
+                "    if matched:\n"
+                "        return DetectionResult(\n"
+                "            blocked=True,\n"
+                "            reason='indicator: ' + matched[0],\n"
+                "            confidence=0.7,\n"
+                "            matched_signals=tuple(matched),\n"
+                "        )\n"
+                "    return DetectionResult(\n"
+                "        blocked=False,\n"
+                "        reason='no match',\n"
+                "        confidence=0.0,\n"
+                "        matched_signals=(),\n"
+                "    )\n"
+            ),
+        })
+
+        api_call_count: list[int] = []
+
+        def mock_api_call(*args: Any, **kwargs: Any) -> Any:
+            api_call_count.append(1)
+            return valid_response, 500, 200, ""
+
+        monkeypatch.setattr(pm, "_call_gemini_api", mock_api_call)
+
+        result, err = pm.propose_mutation(gemini_paid_credit=True, allow_live_model=True)
+
+        assert err == "", (
+            f"Budget $0.01 must be sufficient when max_output_tokens=2048 is used directly "
+            f"(not re-estimated as chars). Got error: {err!r}"
+        )
+        assert result is not None, (
+            "propose_mutation must return a patch when budget is sufficient. "
+            "If this fails, max_output_tokens is likely still being re-estimated "
+            "via estimate_tokens_from_chars (Codex P2 bug)."
+        )
+        assert len(api_call_count) == 1, (
+            f"_call_gemini_api must be called exactly once, got {len(api_call_count)}"
+        )
+
+    def test_preflight_output_token_cap_is_not_reestimated_as_characters(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Codex P2 regression for preflight site: max_output_tokens must not be re-estimated.
+
+        run_gemini_paid_credit_preflight has the same output estimation site.
+        With budget=$0.01 and max_output_tokens=2048:
+          - Correct code: est_output_tokens=2048 → ~$0.003 < $0.01 → preflight succeeds
+          - Buggy code:   est_output_tokens=16384 → ~$0.014 > $0.01 → preflight fails
+
+        This test guards the second estimation site in propose_mutation.py.
+        live_model_enabled=False is the expected state for preflight.
+        """
+        short_prompt = (
+            "# Improve detection for path_traversal_indicator.\n"
+        )
+        monkeypatch.setattr(pm, "_build_user_prompt", lambda g, d: short_prompt)
+
+        genome = {
+            **live_paid_genome,
+            "monthly_api_budget_usd": 0.01,
+            "daily_api_budget_usd": 0.01,
+            "max_output_tokens": 2048,
+            "live_model_enabled": False,  # expected state for preflight
+        }
+        genome_path = tmp_path / "genome_preflight_p2.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file, ledger_path, out_dir)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        result, err = pm.run_gemini_paid_credit_preflight()
+
+        assert result.get("success") is True, (
+            f"Preflight must succeed when budget $0.01 is sufficient for max_output_tokens=2048. "
+            f"If this fails, the preflight output estimation site may still be using "
+            f"estimate_tokens_from_chars on the token cap (Codex P2 bug). err={err!r}"
+        )
+        assert err == "", f"Expected no error, got: {err!r}"
+        assert result.get("budget_available") is True
+
+    def test_paid_credit_ledger_uses_output_token_cap_not_char_reestimate(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Ledger estimated_output_tokens must match the pre-call gate, not a char-re-estimate.
+
+        Key invariant: ledger[0]["estimated_output_tokens"] == genome["max_output_tokens"]
+
+        With the old bug: estimate_tokens_from_chars(2048*4*2.0) = 16384 was stored.
+        With the fix: max_output_tokens = 2048 is stored directly.
+
+        This prevents accounting drift where future budget checks see inflated spend
+        because the ledger recorded 8x more output tokens than the gate estimated.
+        """
+        short_prompt = (
+            "# Improve detection for path_traversal_indicator and sqli_indicator.\n"
+        )
+        monkeypatch.setattr(pm, "_build_user_prompt", lambda g, d: short_prompt)
+
+        genome = {
+            **live_paid_genome,
+            "monthly_api_budget_usd": 0.01,
+            "daily_api_budget_usd": 0.01,
+            "max_output_tokens": 2048,
+            "live_model_enabled": True,
+            "max_model_requests_per_run": 1,
+        }
+        genome_path = tmp_path / "genome_ledger_check.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file, ledger_path, out_dir)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        valid_response = json.dumps({
+            "mutation_rationale": "Improve detection coverage.",
+            "target_threats": ["THREAT-2024-001"],
+            "expected_improvement": "Higher TP rate.",
+            "risk": "Low.",
+            "replacement_code": (
+                "    surface = request.path.lower() + ' ' + request.body.lower()\n"
+                "    indicators = ['path_traversal_indicator', 'sqli_indicator']\n"
+                "    matched = [ind for ind in indicators if ind in surface]\n"
+                "    if matched:\n"
+                "        return DetectionResult(\n"
+                "            blocked=True,\n"
+                "            reason='indicator: ' + matched[0],\n"
+                "            confidence=0.7,\n"
+                "            matched_signals=tuple(matched),\n"
+                "        )\n"
+                "    return DetectionResult(\n"
+                "        blocked=False,\n"
+                "        reason='no match',\n"
+                "        confidence=0.0,\n"
+                "        matched_signals=(),\n"
+                "    )\n"
+            ),
+        })
+        monkeypatch.setattr(
+            pm, "_call_gemini_api",
+            lambda *args, **kwargs: (valid_response, 400, 150, ""),
+        )
+
+        result, err = pm.propose_mutation(gemini_paid_credit=True, allow_live_model=True)
+
+        assert err == "", f"Expected success, got: {err!r}"
+        assert result is not None
+
+        ledger = json.loads(ledger_path.read_text())
+        assert len(ledger) == 1, f"Expected 1 ledger record, got {len(ledger)}"
+
+        rec = ledger[0]
+        # KEY INVARIANT: ledger output tokens must equal the token cap, not a
+        # char-derived re-estimate.  Before the fix, this was 16384 (8x inflated).
+        assert rec["estimated_output_tokens"] == genome["max_output_tokens"], (
+            f"Ledger estimated_output_tokens={rec['estimated_output_tokens']} "
+            f"must equal max_output_tokens={genome['max_output_tokens']}. "
+            "If 16384, the ledger accounting is using the buggy char re-estimate."
+        )
+        assert rec["estimated_output_tokens"] != 16384, (
+            "Ledger must NOT store 16384 output tokens — that is the Codex P2 bug "
+            "(estimate_tokens_from_chars(max_output_tokens * 4 * 2.0))."
+        )
+        # Cost in ledger must be consistent with output=2048 tokens, not 16384.
+        # gemini-2.0-flash output rate: $0.80/1M tokens
+        # With 16384 output tokens: cost contribution ≈ $0.0131 alone
+        # With 2048 output tokens:  cost contribution ≈ $0.0016
+        # Any cost above $0.005 for this prompt would indicate inflated output accounting.
+        assert rec["estimated_cost_usd"] < 0.005, (
+            f"Ledger cost ${rec['estimated_cost_usd']:.6f} is too high — likely caused by "
+            f"output token inflation from char re-estimation (expected < $0.005 for "
+            f"max_output_tokens=2048 with a short input prompt)."
+        )

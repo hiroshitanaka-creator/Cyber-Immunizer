@@ -152,17 +152,33 @@ def save_ledger(path: Path, records: list[dict]) -> None:
 # Token and cost estimation
 # ---------------------------------------------------------------------------
 
+# Conservative multiplier for pre-call token estimation.
+# Must be >= 2.0.  Falling back to chars/4 (i.e. multiplier 0.25) is
+# forbidden: it is unsafe for Japanese, CJK, symbol-heavy, and code-mixed
+# prompts where actual tokens per character can approach 1:1 or higher.
+_CONSERVATIVE_TOKENS_PER_CHAR: float = 2.0
+
 
 def estimate_tokens_from_chars(chars: int) -> int:
-    """Conservatively estimate token count from character count.
+    """Conservative pre-call budget gate estimate of token count from character count.
 
-    Uses ceil(chars / 4) as a conservative upper bound.
-    Real tokenisation is model-specific; this formula errs toward
-    over-counting to give a safe budget estimate.
+    This is a budget gate estimate only.  It intentionally overestimates to
+    remain safe across all input types:
+      - ASCII prose: actual ~1 token per 4 chars; this overestimates by ~8x.
+      - Japanese/CJK/symbol-heavy: actual tokens per char can approach or
+        exceed 1:1; the 2x multiplier keeps the estimate conservative.
+      - Code/mixed content: tokenisation varies widely; 2x is a safe floor.
+
+    Policy:
+      - Real tokenisation is model-specific and is not performed here.
+      - Future official token counting may supplement this, but any fallback
+        must remain at least as conservative as _CONSERVATIVE_TOKENS_PER_CHAR.
+      - Falling back to chars / 4 is forbidden: it makes the budget gate
+        fail-open for multilingual and code-mixed prompts.
     """
     if chars <= 0:
         return 0
-    return math.ceil(chars / 4)
+    return math.ceil(chars * _CONSERVATIVE_TOKENS_PER_CHAR)
 
 
 def estimate_cost_usd(
@@ -304,6 +320,8 @@ def append_usage_record(
     model: str,
     estimated_input_chars: int,
     estimated_output_chars: int,
+    estimated_input_tokens: int | None = None,
+    estimated_output_tokens: int | None = None,
     actual_input_tokens: int | None = None,
     actual_output_tokens: int | None = None,
     success: bool,
@@ -312,26 +330,41 @@ def append_usage_record(
 ) -> None:
     """Append one usage record to the ledger file at *path*.
 
-    Calculates estimated token counts and cost from char counts.
+    Estimated token counts are determined by the following precedence:
+      1. If estimated_input_tokens / estimated_output_tokens are supplied
+         explicitly (not None), those values are used directly.  This allows
+         paid-credit callers to record the same token estimates used in the
+         pre-call budget gate, preventing accounting drift.
+      2. Otherwise, token counts are derived from char counts via
+         estimate_tokens_from_chars() — the original char-based path retained
+         for backward compatibility.
+
     If the file does not exist, a new ledger file is created.
     If the file exists but is malformed, a ValueError is raised and the
     corrupt file is NOT overwritten.  Callers must treat this as a hard
     error and refuse to proceed (fail closed).
 
     Args:
-        path:                   Path to the ledger JSON file.
-        provider:               API provider identifier ("gemini").
-        api_mode:               Mode identifier ("gemini_paid_credit").
-        model:                  Model name used for the call.
-        estimated_input_chars:  Character count of input prompt.
-        estimated_output_chars: Character count of expected/actual output.
-        actual_input_tokens:    Actual input token count from response metadata,
-                                or None if unavailable.
-        actual_output_tokens:   Actual output token count from response metadata,
-                                or None if unavailable.
-        success:                True if the call succeeded.
-        error:                  Error message string (empty if success).
-        now:                    UTC datetime for the record (defaults to now).
+        path:                     Path to the ledger JSON file.
+        provider:                 API provider identifier ("gemini").
+        api_mode:                 Mode identifier ("gemini_paid_credit").
+        model:                    Model name used for the call.
+        estimated_input_chars:    Character count of input prompt.
+        estimated_output_chars:   Approximate character count of output
+                                  (kept for ledger diagnostics).
+        estimated_input_tokens:   If provided, override char-derived estimate.
+                                  Use this to keep ledger aligned with the
+                                  pre-call budget gate computation.
+        estimated_output_tokens:  If provided, override char-derived estimate.
+                                  Paid-credit callers should pass max_output_tokens
+                                  here so the ledger matches the gate estimate.
+        actual_input_tokens:      Actual input token count from response metadata,
+                                  or None if unavailable.
+        actual_output_tokens:     Actual output token count from response metadata,
+                                  or None if unavailable.
+        success:                  True if the call succeeded.
+        error:                    Error message string (empty if success).
+        now:                      UTC datetime for the record (defaults to now).
 
     Raises:
         ValueError: if the existing ledger file is present but malformed.
@@ -341,8 +374,16 @@ def append_usage_record(
     if now is None:
         now = datetime.now(timezone.utc)
 
-    est_input_tokens = estimate_tokens_from_chars(estimated_input_chars)
-    est_output_tokens = estimate_tokens_from_chars(estimated_output_chars)
+    if estimated_input_tokens is None:
+        est_input_tokens = estimate_tokens_from_chars(estimated_input_chars)
+    else:
+        est_input_tokens = estimated_input_tokens
+
+    if estimated_output_tokens is None:
+        est_output_tokens = estimate_tokens_from_chars(estimated_output_chars)
+    else:
+        est_output_tokens = estimated_output_tokens
+
     est_cost = estimate_cost_usd(est_input_tokens, est_output_tokens, model)
 
     record: dict = {

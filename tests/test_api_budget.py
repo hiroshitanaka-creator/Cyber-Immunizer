@@ -70,46 +70,99 @@ def _make_record(
 
 
 # ---------------------------------------------------------------------------
-# 1. estimate_tokens_from_chars rounds up
+# 1. estimate_tokens_from_chars — conservative multilingual/code-safe policy
 # ---------------------------------------------------------------------------
 
 
 class TestEstimateTokens:
-    def test_exact_multiple_of_4(self) -> None:
-        """400 chars → exactly 100 tokens."""
-        assert budget.estimate_tokens_from_chars(400) == 100
-
-    def test_rounds_up_1(self) -> None:
-        """1 char → 1 token (ceil(1/4) = 1)."""
-        assert budget.estimate_tokens_from_chars(1) == 1
-
-    def test_rounds_up_partial(self) -> None:
-        """5 chars → 2 tokens (ceil(5/4) = 2)."""
-        assert budget.estimate_tokens_from_chars(5) == 2
-
-    def test_rounds_up_3(self) -> None:
-        """3 chars → 1 token (ceil(3/4) = 1)."""
-        assert budget.estimate_tokens_from_chars(3) == 1
-
-    def test_rounds_up_exactly_ceil(self) -> None:
-        """Any n chars rounds up correctly."""
-        for n in range(1, 20):
-            expected = math.ceil(n / 4)
-            assert budget.estimate_tokens_from_chars(n) == expected, (
-                f"estimate_tokens_from_chars({n}) should be {expected}"
-            )
-
     def test_zero_chars(self) -> None:
-        """0 chars → 0 tokens."""
+        """0 chars → 0 tokens (boundary: non-positive input)."""
         assert budget.estimate_tokens_from_chars(0) == 0
 
     def test_negative_chars(self) -> None:
-        """Negative chars → 0 tokens."""
+        """Negative char count → 0 tokens (clamp at zero)."""
         assert budget.estimate_tokens_from_chars(-10) == 0
 
-    def test_large_input(self) -> None:
-        """12000 chars → ceil(12000/4) = 3000 tokens."""
-        assert budget.estimate_tokens_from_chars(12000) == 3000
+    def test_one_char_is_not_underestimated(self) -> None:
+        """1 char must produce at least 2 tokens (conservative 2x multiplier)."""
+        result = budget.estimate_tokens_from_chars(1)
+        assert result >= 2, f"estimate_tokens_from_chars(1) must be >= 2, got {result}"
+        assert result == 2, f"With _CONSERVATIVE_TOKENS_PER_CHAR=2.0, expected 2, got {result}"
+
+    def test_ascii_chars_use_conservative_multiplier(self) -> None:
+        """400 ASCII chars must produce at least 800 tokens (2x multiplier)."""
+        result = budget.estimate_tokens_from_chars(400)
+        assert result >= 800, (
+            f"estimate_tokens_from_chars(400) must be >= 800 for multilingual safety, "
+            f"got {result}"
+        )
+        assert result == 800, (
+            f"With _CONSERVATIVE_TOKENS_PER_CHAR=2.0, expected 800, got {result}"
+        )
+
+    def test_large_prompt_no_longer_uses_chars_div_4(self) -> None:
+        """12000 chars must produce at least 24000 tokens — NOT the stale 3000."""
+        result = budget.estimate_tokens_from_chars(12000)
+        assert result >= 24000, (
+            f"estimate_tokens_from_chars(12000) must be >= 24000, got {result}"
+        )
+        assert result != 3000, (
+            "estimate_tokens_from_chars(12000) must NOT return 3000 "
+            "(that was the unsafe chars/4 formula)"
+        )
+
+    def test_mixed_japanese_symbols_and_code_estimates_at_least_2x_chars(self) -> None:
+        """Multilingual/code/symbol prompt estimate must be >= 2x character count.
+
+        Uses only neutralized symbolic indicators — no raw payload strings.
+        """
+        prompt = (
+            "このコードはセキュリティの脆弱性を検出します。"
+            "以下のPythonコードを分析してください:\n"
+            "def check_request(req):\n"
+            "    # neutralized indicators: path_traversal_indicator, sqli_indicator\n"
+            "    surface = req.path.lower() + ' ' + req.body.lower()\n"
+            "    indicators = [\n"
+            "        'path_traversal_indicator',\n"
+            "        'sqli_indicator',\n"
+            "        'script_injection_indicator',\n"
+            "        'command_delimiter_indicator',\n"
+            "    ]\n"
+            "    return any(s in surface for s in indicators)\n"
+            "# 記号テスト !@#$%^&*()_+-=[]{}|;':\",./<>?\n"
+            "# 攻撃パターンの指標: path_traversal_indicator, sqli_indicator\n"
+        )
+        n = len(prompt)
+        result = budget.estimate_tokens_from_chars(n)
+        assert result >= n * 2, (
+            f"estimate_tokens_from_chars({n}) must be >= {n * 2} for multilingual prompt, "
+            f"got {result}"
+        )
+
+    def test_estimate_is_monotonic(self) -> None:
+        """Token estimates must never decrease as character count increases."""
+        sizes = [0, 1, 2, 3, 5, 10, 50, 100, 400, 1000, 4000, 12000]
+        estimates = [budget.estimate_tokens_from_chars(n) for n in sizes]
+        for i in range(1, len(estimates)):
+            assert estimates[i] >= estimates[i - 1], (
+                f"estimate_tokens_from_chars not monotonic: "
+                f"f({sizes[i]})={estimates[i]} < f({sizes[i-1]})={estimates[i-1]}"
+            )
+
+    def test_estimate_has_no_chars_div_4_regression(self) -> None:
+        """Regression guard: estimate must strictly exceed ceil(chars/4) for all positive n.
+
+        This test exists to permanently prevent reintroduction of the unsafe
+        chars/4 formula, which underestimates for multilingual/code prompts.
+        """
+        for n in [1, 3, 5, 400, 12000]:
+            result = budget.estimate_tokens_from_chars(n)
+            old_formula = math.ceil(n / 4)
+            assert result > old_formula, (
+                f"estimate_tokens_from_chars({n})={result} must be > "
+                f"ceil({n}/4)={old_formula}. "
+                "The chars/4 formula is forbidden as a fallback."
+            )
 
 
 # ---------------------------------------------------------------------------
