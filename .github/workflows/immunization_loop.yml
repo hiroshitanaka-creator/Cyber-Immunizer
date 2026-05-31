@@ -105,6 +105,22 @@ jobs:
             echo "checksum=" >> "$GITHUB_OUTPUT"
           fi
 
+      # --- Paid-credit main-only guard (Codex P1 fix) ---
+      # gemini-paid-credit writes to the API usage ledger.  persist-ledger is
+      # restricted to main, so if gemini-paid-credit runs on a non-main branch
+      # the ledger cannot be persisted safely.  Fail before any API call or
+      # ledger mutation to keep the budget cap fail-closed.
+      # noop, offline-sample, and gemini-paid-credit-preflight are NOT blocked:
+      #   - noop / offline-sample do not spend API quota
+      #   - gemini-paid-credit-preflight does not call Gemini and does not write ledger
+      - name: Refuse paid-credit mode outside main
+        if: >
+          steps.mode.outputs.effective_mode == 'gemini-paid-credit' &&
+          github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::gemini-paid-credit mode may only run on main because API usage ledger persistence is canonical on main."
+          exit 1
+
       # --- Step-level secret scoping (PR-D: minimum-privilege) ---
       # Each mode step writes its propose_mutation.py exit code to
       # .cyber_immunizer/propose_exit_code.  The Aggregate step (id: propose)
@@ -242,7 +258,10 @@ jobs:
   persist-ledger:
     name: Persist API Usage Ledger
     needs: propose
-    if: always() && needs.propose.outputs.ledger_changed == 'true'
+    if: >
+      always() &&
+      needs.propose.outputs.ledger_changed == 'true' &&
+      github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -254,7 +273,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: main
           # GITHUB_TOKEN provides write permission for this job.
+          # ref: main guarantees HEAD is on main, not the triggering feature
+          # branch, so the rebase retry loop cannot replay non-ledger commits.
           # It has no access to GEMINI_API_KEY or other model credentials.
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -271,14 +293,45 @@ jobs:
         # failing here prevents the monthly/daily budget cap from becoming
         # fail-open on future runs.
 
-      - name: Commit API usage ledger
+      - name: Commit and push API usage ledger (with rebase retry)
         run: |
           git config user.name "Cyber-Immunizer Bot"
           git config user.email "cyber-immunizer-bot@noreply.github.com"
+
           git add data/api_usage_ledger.json
-          git diff --cached --quiet || git commit -m \
-            "chore(ledger): record API usage $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          git push
+
+          if git diff --cached --quiet; then
+            echo "No ledger changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore(ledger): record API usage $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          max_attempts=5
+          attempt=1
+
+          while [ "$attempt" -le "$max_attempts" ]; do
+            echo "Attempt ${attempt}/${max_attempts}: pushing ledger commit..."
+            if git push origin HEAD:main; then
+              echo "Ledger push succeeded."
+              exit 0
+            fi
+
+            echo "Ledger push failed. Fetching and rebasing onto origin/main..."
+            git fetch origin main
+
+            if ! git rebase origin/main; then
+              echo "::error::Failed to rebase ledger commit onto origin/main. Manual intervention required."
+              git rebase --abort || true
+              exit 1
+            fi
+
+            attempt=$((attempt + 1))
+            sleep 3
+          done
+
+          echo "::error::Failed to persist API usage ledger after ${max_attempts} push attempts."
+          exit 1
 
   # -----------------------------------------------------------------------
   # Job 3: FINALIZE-PROPOSE-STATUS

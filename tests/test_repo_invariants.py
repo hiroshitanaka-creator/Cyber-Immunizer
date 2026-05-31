@@ -1420,3 +1420,341 @@ class TestEvaluateCandidateResourceLimits:
             "scripts/evaluate_candidate.py must not catch BaseException — "
             "this would swallow KeyboardInterrupt and SystemExit."
         )
+
+
+# ===========================================================================
+# 9. persist-ledger rebase retry safety invariants (Phase 2.5 Task 003)
+# ===========================================================================
+
+class TestPersistLedgerRetrySafety:
+    """Invariants that verify the bounded rebase retry loop in persist-ledger.
+
+    These tests pin the safety properties added in Phase 2.5 Task 003:
+    - the job exists and retains its write permission
+    - a bounded loop with fetch/rebase is present
+    - push uses an explicit ref
+    - failure after retry exhaustion exits non-zero
+    - continue-on-error is absent
+    - only the ledger file is staged
+    - finalize fail-closed is preserved
+    - top-level concurrency is preserved
+    """
+
+    def _persist_ledger_section(self, loop_workflow_text: str) -> str:
+        return _job_section(loop_workflow_text, "persist-ledger")
+
+    # ------------------------------------------------------------------
+    # 1. Job exists
+    # ------------------------------------------------------------------
+
+    def test_persist_ledger_job_exists(self, loop_workflow_text: str) -> None:
+        """workflow contains persist-ledger: job definition."""
+        assert "persist-ledger:" in loop_workflow_text, (
+            "persist-ledger: job is missing from immunization_loop.yml."
+        )
+
+    # ------------------------------------------------------------------
+    # 2. Permissions
+    # ------------------------------------------------------------------
+
+    def test_persist_ledger_has_write_permission(
+        self, loop_workflow_text: str
+    ) -> None:
+        """persist-ledger must retain contents: write."""
+        section = self._persist_ledger_section(loop_workflow_text)
+        assert "contents: write" in _non_comment_content(section), (
+            "persist-ledger must still have contents: write permission."
+        )
+
+    def test_evaluate_remains_read_only(self, loop_workflow_text: str) -> None:
+        """evaluate job must remain contents: read (not write)."""
+        section = _job_section(loop_workflow_text, "evaluate")
+        assert "contents: read" in _non_comment_content(section), (
+            "evaluate job must remain contents: read."
+        )
+        assert "contents: write" not in _non_comment_content(section), (
+            "evaluate job must NOT have contents: write."
+        )
+
+    def test_propose_remains_read_only(self, loop_workflow_text: str) -> None:
+        """propose job must remain contents: read (not write)."""
+        section = _job_section(loop_workflow_text, "propose")
+        assert "contents: read" in _non_comment_content(section), (
+            "propose job must remain contents: read."
+        )
+        assert "contents: write" not in _non_comment_content(section), (
+            "propose job must NOT have contents: write."
+        )
+
+    # ------------------------------------------------------------------
+    # 3. Bounded retry loop present
+    # ------------------------------------------------------------------
+
+    def test_persist_ledger_uses_bounded_retry_loop(
+        self, loop_workflow_text: str
+    ) -> None:
+        """persist-ledger section must contain a bounded retry variable and a loop."""
+        section = self._persist_ledger_section(loop_workflow_text)
+        has_max_attempts = "max_attempts" in section
+        has_loop = "while " in section or "for " in section
+        assert has_max_attempts, (
+            "persist-ledger must define a bounded retry variable (e.g. max_attempts)."
+        )
+        assert has_loop, (
+            "persist-ledger must contain a loop (while or for) for retry logic."
+        )
+
+    # ------------------------------------------------------------------
+    # 4. Fetch/rebase before retry
+    # ------------------------------------------------------------------
+
+    def test_persist_ledger_uses_rebase_before_retry(
+        self, loop_workflow_text: str
+    ) -> None:
+        """persist-ledger section must fetch origin/main and rebase before retrying."""
+        section = self._persist_ledger_section(loop_workflow_text)
+        assert "git fetch origin main" in section, (
+            "persist-ledger must run 'git fetch origin main' before retrying push."
+        )
+        assert "git rebase origin/main" in section, (
+            "persist-ledger must run 'git rebase origin/main' to resolve push races."
+        )
+
+    # ------------------------------------------------------------------
+    # 5. Explicit push ref, safe only with main checkout
+    # ------------------------------------------------------------------
+
+    def test_persist_ledger_pushes_explicit_ref(
+        self, loop_workflow_text: str
+    ) -> None:
+        """persist-ledger must use git push origin HEAD:main AND checkout ref: main.
+
+        git push origin HEAD:main is safe only when the local HEAD is guaranteed
+        to be based on main.  Fix C (ref: main in checkout) provides that guarantee.
+        Both invariants must be present together.
+        """
+        section = self._persist_ledger_section(loop_workflow_text)
+        assert "git push origin HEAD:main" in section, (
+            "persist-ledger must use 'git push origin HEAD:main' (explicit ref) "
+            "rather than an ambiguous plain 'git push'."
+        )
+        assert "ref: main" in section, (
+            "persist-ledger checkout must pin 'ref: main' so that HEAD is "
+            "guaranteed to be on main before 'git push origin HEAD:main' runs."
+        )
+
+    # ------------------------------------------------------------------
+    # 6. Hard failure after retry exhaustion
+    # ------------------------------------------------------------------
+
+    def test_persist_ledger_fails_after_retry_exhaustion(
+        self, loop_workflow_text: str
+    ) -> None:
+        """persist-ledger must exit 1 and emit ::error:: after all retries fail."""
+        section = self._persist_ledger_section(loop_workflow_text)
+        assert "exit 1" in section, (
+            "persist-ledger must call 'exit 1' after retry exhaustion."
+        )
+        assert "::error::" in section, (
+            "persist-ledger must emit an '::error::' annotation on failure."
+        )
+
+    # ------------------------------------------------------------------
+    # 7. No continue-on-error
+    # ------------------------------------------------------------------
+
+    def test_persist_ledger_does_not_continue_on_error(
+        self, loop_workflow_text: str
+    ) -> None:
+        """persist-ledger section must not use continue-on-error: true directive."""
+        section = self._persist_ledger_section(loop_workflow_text)
+        assert "continue-on-error: true" not in _non_comment_content(section), (
+            "persist-ledger must not use 'continue-on-error: true' — "
+            "push/rebase failures must not be hidden as success."
+        )
+
+    # ------------------------------------------------------------------
+    # 8. Only ledger file staged
+    # ------------------------------------------------------------------
+
+    def test_persist_ledger_only_adds_ledger_file(
+        self, loop_workflow_text: str
+    ) -> None:
+        """persist-ledger must git add only data/api_usage_ledger.json."""
+        import re as _re
+        section = self._persist_ledger_section(loop_workflow_text)
+        assert "git add data/api_usage_ledger.json" in section, (
+            "persist-ledger must stage 'data/api_usage_ledger.json' explicitly."
+        )
+        clean = _non_comment_content(section)
+        # Check for broad/dangerous staging patterns (matched as whole tokens on a line).
+        # Use regex word-boundary or end-of-line anchors to avoid false positives
+        # where 'git add data/' is a prefix of 'git add data/api_usage_ledger.json'.
+        assert not _re.search(r"git add \.", clean), (
+            "persist-ledger must NOT contain 'git add .' — only the ledger file may be staged."
+        )
+        assert not _re.search(r"git add data/$", clean, _re.MULTILINE), (
+            "persist-ledger must NOT contain 'git add data/' as a standalone command — "
+            "only the ledger file may be staged."
+        )
+        assert "git commit -a" not in clean, (
+            "persist-ledger must NOT use 'git commit -a' — only the ledger file may be staged."
+        )
+
+    # ------------------------------------------------------------------
+    # 9. finalize still fails closed when ledger changed but persist failed
+    # ------------------------------------------------------------------
+
+    def test_finalize_still_requires_persist_success_when_ledger_changed(
+        self, loop_workflow_text: str
+    ) -> None:
+        """finalize-propose-status must still fail if ledger_changed but persist != success."""
+        section = _job_section(loop_workflow_text, "finalize-propose-status")
+        # The condition must gate on LEDGER_CHANGED=true AND PERSIST_RESULT != success.
+        assert "LEDGER_CHANGED" in section or "ledger_changed" in section, (
+            "finalize-propose-status must still reference ledger_changed."
+        )
+        assert '!= "success"' in section or "!= 'success'" in section, (
+            "finalize-propose-status must still check PERSIST_RESULT != success."
+        )
+        assert "exit 1" in section, (
+            "finalize-propose-status must still exit 1 on ledger persistence failure."
+        )
+
+    # ------------------------------------------------------------------
+    # 10. Top-level concurrency preserved
+    # ------------------------------------------------------------------
+
+    def test_top_level_concurrency_preserved(
+        self, loop_workflow_text: str
+    ) -> None:
+        """Top-level concurrency block with cancel-in-progress: false must be present."""
+        assert "concurrency:" in loop_workflow_text, (
+            "workflow must retain top-level concurrency: block."
+        )
+        assert "cancel-in-progress: false" in loop_workflow_text, (
+            "concurrency.cancel-in-progress must remain false."
+        )
+
+    # ------------------------------------------------------------------
+    # 11. Codex P1 Fix A: paid-credit refused outside main
+    # ------------------------------------------------------------------
+
+    def test_paid_credit_mode_refused_outside_main(
+        self, loop_workflow_text: str
+    ) -> None:
+        """propose job must refuse gemini-paid-credit on non-main refs.
+
+        The guard step must:
+        - exist and be named 'Refuse paid-credit mode outside main'
+        - check github.ref against refs/heads/main
+        - exit 1
+        - appear before the 'Propose mutation patch — gemini-paid-credit' API-call step
+        """
+        import re as _re
+
+        # Guard step must exist
+        assert "Refuse paid-credit mode outside main" in loop_workflow_text, (
+            "propose job must have a 'Refuse paid-credit mode outside main' guard step."
+        )
+
+        # Extract guard step block
+        guard_m = _re.search(
+            r"- name: Refuse paid-credit mode outside main(.*?)(?=\n      - name:|\Z)",
+            loop_workflow_text,
+            _re.DOTALL,
+        )
+        assert guard_m is not None, "Could not extract 'Refuse paid-credit mode outside main' step block."
+        guard_block = guard_m.group(0)
+
+        # Guard must reference refs/heads/main
+        assert "refs/heads/main" in guard_block, (
+            "Guard step must check github.ref against refs/heads/main."
+        )
+
+        # Guard must exit 1
+        assert "exit 1" in guard_block, (
+            "Guard step must call exit 1 to refuse paid-credit on non-main."
+        )
+
+        # Guard must precede the gemini-paid-credit API-call step
+        paid_credit_m = _re.search(
+            r"Propose mutation patch — gemini-paid-credit(?!-preflight)",
+            loop_workflow_text,
+        )
+        assert paid_credit_m is not None, (
+            "Could not find 'Propose mutation patch — gemini-paid-credit' (non-preflight) step."
+        )
+        assert guard_m.start() < paid_credit_m.start(), (
+            "The main-only guard must appear before the 'gemini-paid-credit' API-call step."
+        )
+
+    # ------------------------------------------------------------------
+    # 12. Codex P1 Fix B: persist-ledger only runs on main
+    # ------------------------------------------------------------------
+
+    def test_persist_ledger_runs_only_on_main(
+        self, loop_workflow_text: str
+    ) -> None:
+        """persist-ledger job condition must restrict execution to refs/heads/main."""
+        section = self._persist_ledger_section(loop_workflow_text)
+        assert "refs/heads/main" in section, (
+            "persist-ledger job if condition must require github.ref == 'refs/heads/main' "
+            "to prevent branch-dispatched runs from pushing ledger to main."
+        )
+        assert "ledger_changed" in section, (
+            "persist-ledger must still gate on needs.propose.outputs.ledger_changed."
+        )
+
+    # ------------------------------------------------------------------
+    # 13. Codex P1 Fix C: persist-ledger checkout pins main
+    # ------------------------------------------------------------------
+
+    def test_persist_ledger_checkout_uses_main_ref(
+        self, loop_workflow_text: str
+    ) -> None:
+        """persist-ledger checkout step must pin ref: main and use GITHUB_TOKEN."""
+        section = self._persist_ledger_section(loop_workflow_text)
+        assert "ref: main" in section, (
+            "persist-ledger checkout must include 'ref: main' so HEAD is always "
+            "on main before the ledger commit and rebase retry run."
+        )
+        assert "secrets.GITHUB_TOKEN" in section, (
+            "persist-ledger checkout must use secrets.GITHUB_TOKEN for write auth."
+        )
+
+    # ------------------------------------------------------------------
+    # 14. No generated-code execution in persist-ledger
+    # ------------------------------------------------------------------
+
+    def test_persist_ledger_has_no_generated_code_execution(
+        self, loop_workflow_text: str
+    ) -> None:
+        """persist-ledger must not download or execute any generated candidate artifacts."""
+        section = self._persist_ledger_section(loop_workflow_text)
+        forbidden = [
+            "mutation-patch",
+            "candidate-detector",
+            "evaluate_candidate.py",
+            "apply_mutation.py",
+            "core.fitness",
+        ]
+        for token in forbidden:
+            assert token not in section, (
+                f"persist-ledger must NOT reference '{token}'. "
+                "Generated code must not be present in the write-permission ledger job."
+            )
+
+    # ------------------------------------------------------------------
+    # 15. No GEMINI_API_KEY in persist-ledger
+    # ------------------------------------------------------------------
+
+    def test_persist_ledger_has_no_gemini_api_key(
+        self, loop_workflow_text: str
+    ) -> None:
+        """persist-ledger must not receive GEMINI_API_KEY (raw or present signal)."""
+        section = self._persist_ledger_section(loop_workflow_text)
+        assert "GEMINI_API_KEY" not in _non_comment_content(section), (
+            "persist-ledger must NOT reference GEMINI_API_KEY in non-comment lines. "
+            "Write permissions and model secrets must remain in separate jobs."
+        )
