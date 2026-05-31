@@ -1,3 +1,23 @@
+<!--
+AI_DOC_META
+status: CURRENT
+scope: Phase 2 completion checkpoint and pre-Phase-3 readiness state.
+use_for:
+  - checking whether Phase 2 is complete
+  - confirming Phase 3 is not started
+  - verifying API remains not connected before activation
+  - checking pre-Phase-3 readiness evidence
+do_not_use_for:
+  - executing Phase 3 activation steps
+  - changing live_model_enabled
+  - registering GitHub Secrets
+related:
+  - docs/AI_ENTRYPOINT.md
+  - docs/API_ACTIVATION_CHECKLIST.md
+  - docs/API_ACTIVATION_RUNBOOK.md
+last_reviewed: 2026-05-30
+AI_DOC_META_END
+-->
 # Phase 2 Completion Checkpoint
 
 > **This document is the auditable readiness checkpoint for Phase 2 completion.**

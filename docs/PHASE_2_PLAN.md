@@ -1,3 +1,22 @@
+<!--
+AI_DOC_META
+status: HISTORICAL
+scope: Phase 2 planning, API-disconnected hardening goals, and completed Phase 2 constraints.
+use_for:
+  - understanding why Phase 2 was executed without API connection
+  - checking completed Phase 2 design intent
+  - background for Phase 3 entry conditions
+do_not_use_for:
+  - current task selection without checking docs/AI_ENTRYPOINT.md
+  - claiming Phase 3 has started
+  - enabling live_model_enabled
+related:
+  - docs/AI_ENTRYPOINT.md
+  - docs/PHASE_2_COMPLETION_CHECKPOINT.md
+  - docs/API_ACTIVATION_CHECKLIST.md
+last_reviewed: 2026-05-30
+AI_DOC_META_END
+-->
 # Cyber-Immunizer Phase 2 計画 — API未接続運用強化
 
 > **このドキュメントは Phase 2 の計画と制約を記録します。**  

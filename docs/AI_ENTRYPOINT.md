@@ -21,7 +21,7 @@ relative to the repository root.
 ## Status label definitions
 
 These labels describe how a document should be used. They appear in document
-headers in future PRs. For now, use this table as the authoritative definition.
+headers as AI_DOC_META comment blocks.
 
 | Label | Meaning |
 |---|---|
@@ -32,8 +32,10 @@ headers in future PRs. For now, use this table as the authoritative definition.
 | HISTORICAL | Background or completed-phase record. |
 | SUPERSEDED | Replaced by later work; do not use as current truth. |
 
-Note: existing docs do not yet carry these labels. Label addition is deferred
-to a future PR.
+Note: core existing docs now carry AI_DOC_META blocks with these labels.
+When auditing or planning work, use those metadata blocks together with this
+entrypoint to distinguish current sources of truth, canonical rules, runbooks,
+and historical background.
 
 ---
 
