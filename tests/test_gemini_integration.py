@@ -1006,9 +1006,10 @@ class TestCallGeminiApiResilience:
             )
 
         assert err == "", f"Expected success, got: {err}"
-        # Verify HttpOptions was constructed with the correct timeout
+        # Verify HttpOptions was constructed with the correct timeout in milliseconds.
+        # Google GenAI SDK HttpOptions.timeout is in ms: 30 s = 30,000 ms.
         mock_genai_types.HttpOptions.assert_called_once_with(
-            timeout=pm._GEMINI_API_TIMEOUT_SECONDS
+            timeout=pm._GEMINI_API_TIMEOUT_MS
         )
         # Verify Client was created with http_options
         mock_genai.Client.assert_called_once()

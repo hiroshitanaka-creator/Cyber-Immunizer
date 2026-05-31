@@ -455,6 +455,8 @@ def _build_user_prompt(genome: dict, detector_source: str) -> str:
 # ---------------------------------------------------------------------------
 
 _GEMINI_API_TIMEOUT_SECONDS = 30.0
+# Google GenAI SDK HttpOptions.timeout is in milliseconds.
+_GEMINI_API_TIMEOUT_MS = int(_GEMINI_API_TIMEOUT_SECONDS * 1000)  # 30,000 ms = 30 s
 _GEMINI_API_MAX_ATTEMPTS = 3
 _GEMINI_API_BACKOFF_INITIAL_SECONDS = 1.0
 _GEMINI_API_BACKOFF_MULTIPLIER = 2.0
@@ -541,10 +543,12 @@ def _call_gemini_api(
             "or: pip install 'google-genai>=1.0.0'"
         )
 
-    # Build client with explicit timeout.  Fail closed if HttpOptions is not
-    # supported by the installed SDK version rather than silently omitting it.
+    # Build client with explicit timeout.  Google GenAI SDK HttpOptions.timeout
+    # is in milliseconds, so pass _GEMINI_API_TIMEOUT_MS (30,000 ms = 30 s).
+    # Fail closed if HttpOptions is not supported by the installed SDK version
+    # rather than silently omitting the timeout.
     try:
-        http_opts = genai_types.HttpOptions(timeout=_GEMINI_API_TIMEOUT_SECONDS)
+        http_opts = genai_types.HttpOptions(timeout=_GEMINI_API_TIMEOUT_MS)
         client = genai.Client(api_key=api_key, http_options=http_opts)
     except (TypeError, AttributeError) as http_exc:
         return None, None, None, (
