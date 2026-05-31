@@ -1034,6 +1034,210 @@ class TestPaidCreditLedgerFailures:
         assert len(ledger) == 1
         assert ledger[0]["success"] is True
 
+    # ------------------------------------------------------------------ #
+    # PHASE2.5-HARDENING-EXTRA-001
+    # Stricter behavioral regressions: prove that when a mocked Gemini API
+    # call SUCCEEDS but append_usage_record() fails, propose_mutation refuses
+    # to return a patch.  Unlike the tests above, these also pin down:
+    #   - _call_gemini_api was invoked exactly once (failure is AFTER the
+    #     API call, not a pre-call gate rejection), and
+    #   - append_usage_record was attempted exactly once (the write was
+    #     genuinely tried, not skipped/swallowed).
+    # No real Gemini API call is made; no GEMINI_API_KEY secret is required.
+    # ------------------------------------------------------------------ #
+
+    # A valid patch JSON accepted by the schema/AST validators.  Uses only
+    # neutralized symbolic indicators — no raw exploit-looking payloads.
+    _VALID_RESPONSE_TEXT = json.dumps({
+        "mutation_rationale": "Improve detection coverage.",
+        "target_threats": ["THREAT-2024-001"],
+        "expected_improvement": "Higher TP rate.",
+        "risk": "Low.",
+        "replacement_code": (
+            "    surface = request.path.lower() + ' ' + request.body.lower()\n"
+            "    indicators = ['path_traversal_indicator', 'sqli_indicator']\n"
+            "    matched = [ind for ind in indicators if ind in surface]\n"
+            "    if matched:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='indicator: ' + matched[0],\n"
+            "            confidence=0.7,\n"
+            "            matched_signals=tuple(matched),\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        ),
+    })
+
+    def test_paid_credit_api_success_but_ledger_write_oserror_returns_no_patch(
+        self,
+        all_paths: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """API success + OSError on ledger write → no patch, fail-closed.
+
+        An OSError (e.g. disk full, permission denied) while recording usage
+        after a successful API call must NOT yield a patch: the budget cap
+        would otherwise become fail-open for future calls.
+        """
+        paths = all_paths
+        _patch_paths(
+            monkeypatch,
+            paths["genome_path"],
+            paths["detector_file"],
+            paths["threats_file"],
+            paths["ledger_path"],
+            paths["tmp_path"],
+        )
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        # Mocked API SUCCESS — valid patch JSON + actual token counts, no error.
+        mock_call = MagicMock(return_value=(self._VALID_RESPONSE_TEXT, 100, 50, ""))
+        monkeypatch.setattr(pm, "_call_gemini_api", mock_call)
+
+        # Ledger write raises OSError.  Patch on the api_budget module so the
+        # `from scripts import api_budget as budget` alias inside the function
+        # resolves to this mock.
+        mock_append = MagicMock(side_effect=OSError("simulated ledger write failure"))
+        monkeypatch.setattr(budget, "append_usage_record", mock_append)
+
+        result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+
+        assert result is None, "No patch may be returned when ledger write fails"
+        assert err != "", "A non-empty error must be returned on ledger write failure"
+        assert any(
+            phrase in err.lower()
+            for phrase in (
+                "ledger write failed",
+                "cannot confirm budget",
+                "recorded",
+                "refusing",
+            )
+        ), f"Error must describe ledger write failure, got: {err!r}"
+
+        # Failure occurred AFTER a single successful API call, not before it.
+        assert mock_call.call_count == 1, (
+            f"_call_gemini_api must be called exactly once, got {mock_call.call_count}"
+        )
+        assert mock_append.call_count == 1, (
+            f"append_usage_record must be attempted exactly once, "
+            f"got {mock_append.call_count}"
+        )
+
+    def test_paid_credit_api_success_but_ledger_write_valueerror_returns_no_patch(
+        self,
+        all_paths: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """API success + ValueError on ledger write → no patch, fail-closed.
+
+        append_usage_record() can raise ValueError for corrupt/malformed
+        ledger state.  The caller must treat it as a hard failure.
+        """
+        paths = all_paths
+        _patch_paths(
+            monkeypatch,
+            paths["genome_path"],
+            paths["detector_file"],
+            paths["threats_file"],
+            paths["ledger_path"],
+            paths["tmp_path"],
+        )
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        mock_call = MagicMock(return_value=(self._VALID_RESPONSE_TEXT, 100, 50, ""))
+        monkeypatch.setattr(pm, "_call_gemini_api", mock_call)
+
+        mock_append = MagicMock(side_effect=ValueError("simulated corrupt ledger"))
+        monkeypatch.setattr(budget, "append_usage_record", mock_append)
+
+        result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+
+        assert result is None, "No patch may be returned when ledger write fails"
+        assert err != "", "A non-empty error must be returned on ledger write failure"
+        assert any(
+            phrase in err.lower()
+            for phrase in (
+                "ledger write failed",
+                "cannot confirm budget",
+                "refusing",
+            )
+        ), f"Error must describe ledger write failure, got: {err!r}"
+
+        assert mock_call.call_count == 1, (
+            f"_call_gemini_api must be called exactly once, got {mock_call.call_count}"
+        )
+        assert mock_append.call_count == 1, (
+            f"append_usage_record must be attempted exactly once, "
+            f"got {mock_append.call_count}"
+        )
+
+    def test_paid_credit_api_error_and_ledger_write_failure_reports_both(
+        self,
+        all_paths: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """API error + ledger write failure → both causes preserved in error.
+
+        When both the API call and the usage-record write fail, diagnostics
+        must retain both the original API error and the ledger-write failure.
+        """
+        paths = all_paths
+        _patch_paths(
+            monkeypatch,
+            paths["genome_path"],
+            paths["detector_file"],
+            paths["threats_file"],
+            paths["ledger_path"],
+            paths["tmp_path"],
+        )
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        # Mocked API ERROR — no raw text, no token counts, non-empty api_err.
+        mock_call = MagicMock(
+            return_value=(None, None, None, "simulated Gemini API error")
+        )
+        monkeypatch.setattr(pm, "_call_gemini_api", mock_call)
+
+        mock_append = MagicMock(side_effect=OSError("simulated ledger write failure"))
+        monkeypatch.setattr(budget, "append_usage_record", mock_append)
+
+        result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+
+        assert result is None, "No patch may be returned when API and ledger both fail"
+        assert err != "", "A non-empty error must be returned"
+        # The original API error cause must be preserved.
+        assert "simulated gemini api error" in err.lower(), (
+            f"Error must preserve the API error cause, got: {err!r}"
+        )
+        # The ledger-write failure cause must also be preserved.
+        assert any(
+            phrase in err.lower()
+            for phrase in (
+                "ledger write failed",
+                "cannot confirm budget",
+                "refusing",
+            )
+        ), f"Error must also describe ledger write failure, got: {err!r}"
+
+        assert mock_call.call_count == 1, (
+            f"_call_gemini_api must be called exactly once, got {mock_call.call_count}"
+        )
+        assert mock_append.call_count == 1, (
+            f"append_usage_record must be attempted exactly once, "
+            f"got {mock_append.call_count}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # 18. api_usage_ledger missing / malformed → fail-closed in live paid path (#3)
