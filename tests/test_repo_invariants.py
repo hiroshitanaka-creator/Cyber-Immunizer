@@ -1808,7 +1808,7 @@ class TestAstPolicyWhitelistRoadmap:
     # 3. Policy source references required AST node types
 
     @pytest.mark.parametrize("construct", [
-        "Try", "With", "Lambda", "While", "Raise", "FunctionDef", "ClassDef", "Assert",
+        "Try", "With", "Lambda", "While", "Raise", "FunctionDef", "ClassDef", "Assert", "AsyncFor",
     ])
     def test_policy_references_required_ast_construct(self, construct: str) -> None:
         """core/policy.py must reference each required AST node type."""

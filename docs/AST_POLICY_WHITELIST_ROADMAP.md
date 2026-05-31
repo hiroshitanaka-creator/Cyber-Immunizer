@@ -82,6 +82,7 @@ Rejected node types:
 - `del` (`ast.Delete`)
 - walrus operator `:=` (`ast.NamedExpr`)
 - `assert` (`ast.Assert`) — can raise `AssertionError` and is silently stripped under `python -O`
+- `async for` (`ast.AsyncFor`) — outside an async function this is a `SyntaxError` at compile/import time; rejected as a policy violation before evaluation
 - `match` / `case` (`ast.Match`, Python 3.10+)
 - `async def` (`ast.AsyncFunctionDef`)
 - `class` (`ast.ClassDef`)
@@ -181,6 +182,7 @@ complexity or a meaningful attack surface:
 | `global` / `nonlocal` | Not needed; candidates must not modify enclosing scope |
 | `del` | Not needed |
 | `assert` | Not needed; can raise `AssertionError` instead of returning `DetectionResult`; behavior changes silently under `python -O` |
+| `async for` | Not needed for synchronous detector logic; causes `SyntaxError` at compile/import outside async function |
 | `match` / `case` | Not needed |
 | walrus operator `:=` | Not needed |
 | Any import except `from core.types import ...` | Not needed |

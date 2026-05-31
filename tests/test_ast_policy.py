@@ -905,6 +905,16 @@ return DetectionResult(False, "ok", 0.0, ())
 """)
         _assert_rejected(p, "disallowed AST construct")
 
+    def test_rejects_async_for(self):
+        # async for inside a synchronous function is structurally rejected by
+        # policy before it can reach the subprocess compile/import path.
+        p = _make_candidate("""\
+async for item in request.query.items():
+    pass
+return DetectionResult(False, "ok", 0.0, ())
+""")
+        _assert_rejected(p, "disallowed AST construct")
+
     @pytest.mark.skipif(sys.version_info < (3, 10), reason="match/case requires Python 3.10+")
     def test_rejects_match_statement_if_supported(self):
         p = _make_candidate("""\
