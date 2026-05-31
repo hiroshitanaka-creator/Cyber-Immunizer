@@ -1758,3 +1758,117 @@ class TestPersistLedgerRetrySafety:
             "persist-ledger must NOT reference GEMINI_API_KEY in non-comment lines. "
             "Write permissions and model secrets must remain in separate jobs."
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.5 Task 004 — AST policy whitelist roadmap invariants
+# ---------------------------------------------------------------------------
+
+
+class TestAstPolicyWhitelistRoadmap:
+    """Invariants pinning the Phase 2.5 Stage A AST policy hardening.
+
+    These tests verify that:
+    - check_disallowed_ast_constructs is defined and called in run_full_policy
+    - The policy source references each required AST node type
+    - The roadmap document exists and contains the required content
+    - The roadmap does not make false claims about completion
+    """
+
+    _POLICY_PATH = Path(__file__).parent.parent / "core" / "policy.py"
+    _ROADMAP_PATH = (
+        Path(__file__).parent.parent / "docs" / "AST_POLICY_WHITELIST_ROADMAP.md"
+    )
+
+    def _policy_source(self) -> str:
+        return self._POLICY_PATH.read_text(encoding="utf-8")
+
+    def _roadmap_source(self) -> str:
+        return self._ROADMAP_PATH.read_text(encoding="utf-8")
+
+    # 1. Function definition presence
+
+    def test_policy_contains_check_disallowed_ast_constructs(self) -> None:
+        """core/policy.py must define check_disallowed_ast_constructs."""
+        assert "check_disallowed_ast_constructs" in self._policy_source(), (
+            "core/policy.py must define check_disallowed_ast_constructs"
+        )
+
+    # 2. run_full_policy must call the new function
+
+    def test_run_full_policy_calls_check_disallowed_ast_constructs(self) -> None:
+        """run_full_policy() must call check_disallowed_ast_constructs (appears at least twice)."""
+        policy = self._policy_source()
+        count = policy.count("check_disallowed_ast_constructs")
+        assert count >= 2, (
+            f"core/policy.py must both define and call check_disallowed_ast_constructs "
+            f"(found {count} occurrence(s))"
+        )
+
+    # 3. Policy source references required AST node types
+
+    @pytest.mark.parametrize("construct", [
+        "Try", "With", "Lambda", "While", "Raise", "FunctionDef", "ClassDef", "Assert", "AsyncFor",
+    ])
+    def test_policy_references_required_ast_construct(self, construct: str) -> None:
+        """core/policy.py must reference each required AST node type."""
+        assert construct in self._policy_source(), (
+            f"core/policy.py must reference AST node type {construct!r} "
+            "in check_disallowed_ast_constructs"
+        )
+
+    # 4. Roadmap document exists
+
+    def test_roadmap_document_exists(self) -> None:
+        """docs/AST_POLICY_WHITELIST_ROADMAP.md must exist."""
+        assert self._ROADMAP_PATH.exists(), (
+            "docs/AST_POLICY_WHITELIST_ROADMAP.md must exist"
+        )
+
+    # 5. Roadmap contains required phrases
+
+    @pytest.mark.parametrize("phrase", [
+        "blacklist",
+        "whitelist",
+        "Phase 2.5",
+        "disallowed AST construct",
+    ])
+    def test_roadmap_contains_required_phrase(self, phrase: str) -> None:
+        """The roadmap document must contain each required phrase."""
+        assert phrase in self._roadmap_source(), (
+            f"docs/AST_POLICY_WHITELIST_ROADMAP.md must contain {phrase!r}"
+        )
+
+    def test_roadmap_contains_phase_3_reference(self) -> None:
+        """The roadmap must reference Phase 3 (in the non-goals section)."""
+        assert "Phase 3" in self._roadmap_source(), (
+            "docs/AST_POLICY_WHITELIST_ROADMAP.md must reference Phase 3"
+        )
+
+    # 6. Roadmap contains indirect dunder-access section
+
+    def test_roadmap_contains_indirect_keyword(self) -> None:
+        assert "indirect" in self._roadmap_source().lower(), (
+            "docs/AST_POLICY_WHITELIST_ROADMAP.md must discuss indirect dunder access"
+        )
+
+    def test_roadmap_contains_dunder_keyword(self) -> None:
+        assert "dunder" in self._roadmap_source().lower(), (
+            "docs/AST_POLICY_WHITELIST_ROADMAP.md must mention dunder"
+        )
+
+    def test_roadmap_references_check_dunder_access(self) -> None:
+        assert "check_dunder_access" in self._roadmap_source(), (
+            "docs/AST_POLICY_WHITELIST_ROADMAP.md must reference check_dunder_access"
+        )
+
+    # 7. Roadmap must not claim indirect dunder access is fully solved
+
+    def test_roadmap_does_not_claim_indirect_dunder_fully_solved(self) -> None:
+        roadmap = self._roadmap_source().lower()
+        assert "fully solved" not in roadmap, (
+            "docs/AST_POLICY_WHITELIST_ROADMAP.md must not claim indirect dunder is fully solved"
+        )
+        assert "complete solution" not in roadmap, (
+            "docs/AST_POLICY_WHITELIST_ROADMAP.md must not claim a complete solution"
+        )
