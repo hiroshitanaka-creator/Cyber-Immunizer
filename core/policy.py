@@ -43,6 +43,25 @@ ALLOWED_IMPORT_MODULE: str = "core.types"
 MUTATION_START: str = "# === MUTATION_START ==="
 MUTATION_END: str = "# === MUTATION_END ==="
 
+# ---------------------------------------------------------------------------
+# AST complexity limits — fail-closed DoS guard
+# ---------------------------------------------------------------------------
+
+#: Maximum source text length (characters) before ast.parse is attempted.
+MAX_POLICY_SOURCE_CHARS: int = 20_000
+
+#: Maximum number of AST nodes in a candidate.
+MAX_AST_NODES: int = 1_500
+
+#: Maximum AST nesting depth.
+MAX_AST_DEPTH: int = 50
+
+#: Maximum length (characters) of any single string or bytes literal.
+MAX_LITERAL_CHARS: int = 5_000
+
+#: Maximum number of elements in any single list/tuple/set/dict literal.
+MAX_COLLECTION_ITEMS: int = 1_000
+
 
 # ---------------------------------------------------------------------------
 # Individual check functions (each returns a list of violation strings)
@@ -200,6 +219,91 @@ def check_extra_defs(tree: ast.Module) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Complexity guards (DoS hardening)
+# ---------------------------------------------------------------------------
+
+def check_source_size(source: str) -> list[str]:
+    """Reject source text that exceeds MAX_POLICY_SOURCE_CHARS before parsing."""
+    if len(source) > MAX_POLICY_SOURCE_CHARS:
+        return [
+            f"source too large: {len(source)} chars "
+            f"(limit MAX_POLICY_SOURCE_CHARS={MAX_POLICY_SOURCE_CHARS})"
+        ]
+    return []
+
+
+def _ast_depth(tree: ast.AST) -> int:
+    """Return the maximum depth of the AST using an explicit stack (no recursion)."""
+    if tree is None:
+        return 0
+    max_depth = 0
+    # Stack entries: (node, depth)
+    stack: list[tuple[ast.AST, int]] = [(tree, 1)]
+    while stack:
+        node, depth = stack.pop()
+        if depth > max_depth:
+            max_depth = depth
+        for child in ast.iter_child_nodes(node):
+            stack.append((child, depth + 1))
+    return max_depth
+
+
+def check_ast_complexity(tree: ast.AST) -> list[str]:
+    """Reject ASTs that exceed node count or depth limits."""
+    violations: list[str] = []
+    try:
+        node_count = sum(1 for _ in ast.walk(tree))
+        if node_count > MAX_AST_NODES:
+            violations.append(
+                f"AST too complex: {node_count} nodes "
+                f"(limit MAX_AST_NODES={MAX_AST_NODES})"
+            )
+        depth = _ast_depth(tree)
+        if depth > MAX_AST_DEPTH:
+            violations.append(
+                f"AST too deep: depth={depth} "
+                f"(limit MAX_AST_DEPTH={MAX_AST_DEPTH})"
+            )
+    except Exception as exc:  # noqa: BLE001
+        violations.append(f"AST complexity check failed (fail-closed): {exc}")
+    return violations
+
+
+def check_literal_sizes(tree: ast.AST) -> list[str]:
+    """Reject giant string/bytes literals and oversized collection literals."""
+    violations: list[str] = []
+    try:
+        for node in ast.walk(tree):
+            # String / bytes literal size
+            if isinstance(node, ast.Constant):
+                if isinstance(node.value, (str, bytes)):
+                    length = len(node.value)
+                    if length > MAX_LITERAL_CHARS:
+                        violations.append(
+                            f"literal too large: {length} chars "
+                            f"(limit MAX_LITERAL_CHARS={MAX_LITERAL_CHARS})"
+                        )
+            # Collection element count
+            if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+                count = len(node.elts)
+                if count > MAX_COLLECTION_ITEMS:
+                    violations.append(
+                        f"{type(node).__name__} literal has {count} elements "
+                        f"(limit MAX_COLLECTION_ITEMS={MAX_COLLECTION_ITEMS})"
+                    )
+            if isinstance(node, ast.Dict):
+                count = len(node.keys)
+                if count > MAX_COLLECTION_ITEMS:
+                    violations.append(
+                        f"Dict literal has {count} keys "
+                        f"(limit MAX_COLLECTION_ITEMS={MAX_COLLECTION_ITEMS})"
+                    )
+    except Exception as exc:  # noqa: BLE001
+        violations.append(f"literal size check failed (fail-closed): {exc}")
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Unified policy runner
 # ---------------------------------------------------------------------------
 
@@ -215,6 +319,11 @@ def run_full_policy(candidate_path: Path) -> dict:
     source = candidate_path.read_text(encoding="utf-8")
     violations: list[str] = []
 
+    # 0. Source size — reject before ast.parse to prevent parse-time DoS
+    violations.extend(check_source_size(source))
+    if violations:
+        return {"valid": False, "violations": violations}
+
     # 1. Syntax — must pass before AST can be built
     violations.extend(check_syntax(source))
     if violations:
@@ -226,22 +335,32 @@ def run_full_policy(candidate_path: Path) -> dict:
     # Build AST for remaining checks
     tree = ast.parse(source)
 
-    # 3. Imports
+    # 3. AST complexity — fail-closed before any policy traversal
+    violations.extend(check_ast_complexity(tree))
+    if violations:
+        return {"valid": False, "violations": violations}
+
+    # 4. Literal sizes
+    violations.extend(check_literal_sizes(tree))
+    if violations:
+        return {"valid": False, "violations": violations}
+
+    # 5. Imports
     violations.extend(check_imports(tree))
 
-    # 4. Forbidden calls (eval, exec, type, dir, super, …)
+    # 6. Forbidden calls (eval, exec, type, dir, super, …)
     violations.extend(check_forbidden_calls(tree))
 
-    # 5. Any dunder attribute access
+    # 7. Any dunder attribute access
     violations.extend(check_dunder_access(tree))
 
-    # 6. Top-level structure
+    # 8. Top-level structure
     violations.extend(check_top_level_structure(tree))
 
-    # 7. inspect_request signature
+    # 9. inspect_request signature
     violations.extend(check_inspect_request_signature(tree))
 
-    # 8. Extra definitions
+    # 10. Extra definitions
     violations.extend(check_extra_defs(tree))
 
     return {"valid": len(violations) == 0, "violations": violations}
