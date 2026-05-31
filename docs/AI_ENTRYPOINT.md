@@ -46,8 +46,10 @@ and historical background.
 | PR audit / merge decision | docs/audit_gate/PR_AUDIT_PROTOCOL.md | docs/AUDIT_CHARTER.md, docs/audit_gate/CHANGELOG.md |
 | GPT drift / pullback prompt | docs/audit_gate/PULLBACK_PROMPT.md | docs/audit_gate/CHANGELOG.md |
 | Tool blocked / fallback / low-level GitHub operation | docs/audit_gate/TOOL_EXECUTION_ANOMALY_PROTOCOL.md | docs/audit_gate/PR_AUDIT_PROTOCOL.md |
-| Phase status check | docs/PHASE_2_COMPLETION_CHECKPOINT.md | docs/PHASE_2_PLAN.md |
-| Phase 3 readiness / Go-No-Go decision / activation decision | docs/PHASE_3_GO_NO_GO_CHECKLIST.md | docs/PHASE_2_COMPLETION_CHECKPOINT.md, docs/API_ACTIVATION_CHECKLIST.md |
+| Phase status check | docs/PHASE_2_5_CLOSEOUT_AUDIT.md | docs/PHASE_2_COMPLETION_CHECKPOINT.md, docs/PHASE_3_GO_NO_GO_CHECKLIST.md |
+| Phase 2.5 closeout / post-hardening audit | docs/PHASE_2_5_CLOSEOUT_AUDIT.md | docs/human用roadmap/phase3_to_phase7_roadmap.md, docs/PHASE_3_GO_NO_GO_CHECKLIST.md |
+| Human Owner roadmap / Phase 3–7 planning | docs/human用roadmap/phase3_to_phase7_roadmap.md | docs/PHASE_2_5_CLOSEOUT_AUDIT.md, docs/PHASE_3_GO_NO_GO_CHECKLIST.md |
+| Phase 3 readiness / Go-No-Go decision / activation decision | docs/PHASE_3_GO_NO_GO_CHECKLIST.md | docs/PHASE_2_5_CLOSEOUT_AUDIT.md, docs/API_ACTIVATION_CHECKLIST.md |
 | API activation (only after Go/No-Go checklist approved) | docs/API_ACTIVATION_CHECKLIST.md | docs/API_ACTIVATION_RUNBOOK.md |
 | Secret boundary / GEMINI_API_KEY wording | docs/API_ACTIVATION_CHECKLIST.md | docs/audit_gate/PR_AUDIT_PROTOCOL.md |
 | Rollback/backtrack design | docs/ROLLBACK_BACKTRACK_DESIGN.md | docs/EVOLUTION_HISTORY_AUDIT.md |
