@@ -271,14 +271,45 @@ jobs:
         # failing here prevents the monthly/daily budget cap from becoming
         # fail-open on future runs.
 
-      - name: Commit API usage ledger
+      - name: Commit and push API usage ledger (with rebase retry)
         run: |
           git config user.name "Cyber-Immunizer Bot"
           git config user.email "cyber-immunizer-bot@noreply.github.com"
+
           git add data/api_usage_ledger.json
-          git diff --cached --quiet || git commit -m \
-            "chore(ledger): record API usage $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          git push
+
+          if git diff --cached --quiet; then
+            echo "No ledger changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore(ledger): record API usage $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          max_attempts=5
+          attempt=1
+
+          while [ "$attempt" -le "$max_attempts" ]; do
+            echo "Attempt ${attempt}/${max_attempts}: pushing ledger commit..."
+            if git push origin HEAD:main; then
+              echo "Ledger push succeeded."
+              exit 0
+            fi
+
+            echo "Ledger push failed. Fetching and rebasing onto origin/main..."
+            git fetch origin main
+
+            if ! git rebase origin/main; then
+              echo "::error::Failed to rebase ledger commit onto origin/main. Manual intervention required."
+              git rebase --abort || true
+              exit 1
+            fi
+
+            attempt=$((attempt + 1))
+            sleep 3
+          done
+
+          echo "::error::Failed to persist API usage ledger after ${max_attempts} push attempts."
+          exit 1
 
   # -----------------------------------------------------------------------
   # Job 3: FINALIZE-PROPOSE-STATUS
