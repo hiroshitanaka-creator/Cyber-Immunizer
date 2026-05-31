@@ -62,6 +62,12 @@ MAX_LITERAL_CHARS: int = 5_000
 #: Maximum number of elements in any single list/tuple/set/dict literal.
 MAX_COLLECTION_ITEMS: int = 1_000
 
+#: Maximum integer constant allowed as a range() argument or sequence repeat multiplier.
+MAX_RANGE_CONSTANT: int = 1_000
+
+#: Maximum integer constant allowed on either side of a multiplication (sequence repeat).
+MAX_REPEAT_MULTIPLIER: int = 1_000
+
 
 # ---------------------------------------------------------------------------
 # Individual check functions (each returns a list of violation strings)
@@ -331,6 +337,372 @@ def check_literal_sizes(tree: ast.AST) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Runtime allocation risk guard
+# ---------------------------------------------------------------------------
+
+def _safe_int_const_expr(node: ast.expr, cap: int) -> int | None:
+    """Safely fold a constant integer expression up to *cap*, returning None if unknown.
+
+    Handles:
+      - ast.Constant(int)
+      - ast.UnaryOp(USub, ...)
+      - ast.BinOp with Add, Sub, Mult, Pow operators
+
+    Returns None for any non-constant sub-expression.
+    Short-circuits as soon as an intermediate absolute value exceeds *cap*,
+    so evaluation cannot itself cause excessive computation.
+    Does NOT use eval(), literal_eval(), or execute any code.
+    """
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, int):
+            return node.value
+        return None
+
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        inner = _safe_int_const_expr(node.operand, cap)
+        return -inner if inner is not None else None
+
+    if isinstance(node, ast.BinOp):
+        left = _safe_int_const_expr(node.left, cap)
+        if left is None:
+            return None
+        right = _safe_int_const_expr(node.right, cap)
+        if right is None:
+            return None
+
+        op = node.op
+        if isinstance(op, ast.Add):
+            result = left + right
+        elif isinstance(op, ast.Sub):
+            result = left - right
+        elif isinstance(op, ast.Mult):
+            # Guard against exponential growth before computing
+            if abs(left) > cap or abs(right) > cap:
+                return cap + 1  # signal: definitely exceeds cap
+            result = left * right
+        elif isinstance(op, ast.Pow):
+            # Even small bases with large exponents can be huge
+            if abs(left) > 1 and abs(right) > 30:
+                return cap + 1  # signal: definitely exceeds cap
+            try:
+                result = left ** right
+            except (OverflowError, ValueError):
+                return cap + 1
+        else:
+            return None  # FloorDiv, Mod, etc. — treat as unknown
+
+        if abs(result) > cap:
+            return cap + 1  # signal: definitely exceeds cap
+        return result
+
+    return None  # unknown expression type
+
+
+def _int_const(a: ast.expr) -> int | None:
+    """Return the integer value of a bare constant or negated-constant node, else None.
+
+    Kept for backward compatibility with _check_range_call().
+    For repeat-multiplier checking use _safe_int_const_expr() instead.
+    """
+    if isinstance(a, ast.Constant) and isinstance(a.value, int):
+        return a.value
+    if isinstance(a, ast.UnaryOp) and isinstance(a.op, ast.USub):
+        inner = _int_const(a.operand)
+        return -inner if inner is not None else None
+    return None
+
+
+def _check_range_call(node: ast.Call, violations: list[str]) -> None:
+    """Append a violation if range() call cannot be proven to iterate safely."""
+    args = node.args
+    if node.keywords:
+        violations.append(
+            "runtime allocation risk: range() with keyword arguments is not permitted"
+        )
+        return
+    if not args:
+        return  # range() with no args is a runtime TypeError — not our concern
+
+    consts = [_int_const(a) for a in args]
+    if any(c is None for c in consts):
+        violations.append(
+            "runtime allocation risk: range() with non-constant argument is not permitted"
+        )
+        return
+
+    # Estimate iteration count from constant arguments
+    if len(consts) == 1:
+        count = max(0, consts[0])
+    elif len(consts) == 2:
+        count = max(0, consts[1] - consts[0])
+    else:
+        start, stop, step = consts[0], consts[1], consts[2]
+        if step == 0:
+            violations.append(
+                "runtime allocation risk: range() with step=0 is invalid"
+            )
+            return
+        import math
+        count = max(0, math.ceil((stop - start) / step))
+
+    if count > MAX_RANGE_CONSTANT:
+        violations.append(
+            f"runtime allocation risk: range() estimated {count} iterations "
+            f"(limit MAX_RANGE_CONSTANT={MAX_RANGE_CONSTANT})"
+        )
+
+
+def _looks_like_int_expr(node: ast.expr) -> bool:
+    """Return True if the node is plausibly an integer expression.
+
+    Used to identify which side of a BinOp(Mult) is the multiplier.
+    A node 'looks like' an integer if it is:
+      - an integer Constant
+      - a UnaryOp(USub) of an integer-looking expression
+      - a BinOp whose operands look like integers
+      - a function call (e.g. len(), int()) that typically returns an int
+      - a Name or Attribute that might be an integer variable
+    This is intentionally broad so we err on the side of flagging unknowns.
+    """
+    if isinstance(node, ast.Constant):
+        return isinstance(node.value, int)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return _looks_like_int_expr(node.operand)
+    if isinstance(node, ast.BinOp):
+        return True  # arithmetic expression — assume integer for safety
+    if isinstance(node, ast.Call):
+        return True  # len(), int(), etc.
+    if isinstance(node, (ast.Name, ast.Attribute)):
+        return True  # could be an integer variable
+    return False
+
+
+def _check_repeat_mult(node: ast.BinOp, violations: list[str]) -> None:
+    """Append a violation if a multiplication node is an unsafe sequence/string repeat.
+
+    Uses _safe_int_const_expr() so computed constants like (10 ** 9) and
+    (500_000 + 500_000) are evaluated and rejected.
+
+    Strategy:
+    1. Try to fold both sides as integer constant expressions.
+    2. If both fold cleanly: check whichever is the larger absolute value.
+    3. If only one side folds:
+       - If the folded side exceeds MAX_REPEAT_MULTIPLIER: reject.
+       - If the folded side is small (could be the sequence) but the other
+         side looks like an integer expression: reject (non-constant multiplier).
+    4. If neither side folds but one looks like an integer expression: reject.
+    5. If neither side gives any signal (e.g. two string * string): skip.
+    """
+    left_val = _safe_int_const_expr(node.left, MAX_REPEAT_MULTIPLIER)
+    right_val = _safe_int_const_expr(node.right, MAX_REPEAT_MULTIPLIER)
+
+    if left_val is not None and right_val is not None:
+        # Both sides are constant integer expressions
+        multiplier = max(abs(left_val), abs(right_val))
+        if multiplier > MAX_REPEAT_MULTIPLIER:
+            violations.append(
+                f"runtime allocation risk: repeat multiplier exceeds limit "
+                f"MAX_REPEAT_MULTIPLIER={MAX_REPEAT_MULTIPLIER}"
+            )
+        return
+
+    if left_val is not None:
+        # Left is a known integer constant; right is non-constant
+        if abs(left_val) > MAX_REPEAT_MULTIPLIER:
+            violations.append(
+                f"runtime allocation risk: repeat multiplier exceeds limit "
+                f"MAX_REPEAT_MULTIPLIER={MAX_REPEAT_MULTIPLIER}"
+            )
+            return
+        # Left is a small integer; if right looks like an integer, it is the multiplier
+        if _looks_like_int_expr(node.right):
+            violations.append(
+                "runtime allocation risk: repeat multiplier is non-constant "
+                "(cannot bound statically) — fail-closed"
+            )
+        return
+
+    if right_val is not None:
+        # Right is a known integer constant; left is non-constant
+        if abs(right_val) > MAX_REPEAT_MULTIPLIER:
+            violations.append(
+                f"runtime allocation risk: repeat multiplier exceeds limit "
+                f"MAX_REPEAT_MULTIPLIER={MAX_REPEAT_MULTIPLIER}"
+            )
+            return
+        # Right is a small integer; if left looks like an integer, it is the multiplier
+        if _looks_like_int_expr(node.left):
+            violations.append(
+                "runtime allocation risk: repeat multiplier is non-constant "
+                "(cannot bound statically) — fail-closed"
+            )
+        return
+
+    # Neither side folds; if one looks like an integer it may be a repeat multiplier
+    left_int = _looks_like_int_expr(node.left)
+    right_int = _looks_like_int_expr(node.right)
+    if left_int and not right_int:
+        # left is probably the multiplier and right is the sequence
+        violations.append(
+            "runtime allocation risk: repeat multiplier is non-constant "
+            "(cannot bound statically) — fail-closed"
+        )
+    elif right_int and not left_int:
+        # right is probably the multiplier and left is the sequence
+        violations.append(
+            "runtime allocation risk: repeat multiplier is non-constant "
+            "(cannot bound statically) — fail-closed"
+        )
+    # Both or neither look like integers — ambiguous arithmetic, not a repeat concern
+
+
+def _extract_mutation_region(source: str) -> str | None:
+    """Return the source text between MUTATION_START and MUTATION_END, or None.
+
+    The returned snippet is wrapped in a minimal function so it can be parsed
+    as a valid Python module for AST analysis.
+    """
+    start_idx = source.find(MUTATION_START)
+    end_idx = source.find(MUTATION_END)
+    if start_idx == -1 or end_idx == -1 or end_idx <= start_idx:
+        return None
+    region = source[start_idx + len(MUTATION_START): end_idx]
+    # Wrap in a dummy function to make it parseable
+    return "def _region():\n" + (region if region.strip() else "    pass\n")
+
+
+def _is_join_of_generator(node: ast.Call) -> bool:
+    """Return True if this Call looks like '...'.join(generator_expr)."""
+    func = node.func
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr == "join"
+        and len(node.args) == 1
+        and isinstance(node.args[0], ast.GeneratorExp)
+    )
+
+
+def _is_baseline_bounded_items_iter(iter_node: ast.expr) -> bool:
+    """Return True only if the iterable is request.query.items() or request.headers.items().
+
+    These are the only join(generator) iterables that are statically bounded
+    in the baseline detector.  All other iterables are rejected.
+    """
+    # Must be a Call node: <something>.items()
+    if not (isinstance(iter_node, ast.Call) and not iter_node.args and not iter_node.keywords):
+        return False
+    func = iter_node.func
+    if not (isinstance(func, ast.Attribute) and func.attr == "items"):
+        return False
+    # receiver must be request.query or request.headers
+    receiver = func.value
+    return (
+        isinstance(receiver, ast.Attribute)
+        and receiver.attr in {"query", "headers"}
+        and isinstance(receiver.value, ast.Name)
+        and receiver.value.id == "request"
+    )
+
+
+def _generator_has_large_range(gen_node: ast.GeneratorExp) -> bool:
+    """Return True if any generator comprehension iterates over a large/non-constant range."""
+    for comp in gen_node.generators:
+        iter_ = comp.iter
+        if isinstance(iter_, ast.Call):
+            func = iter_.func
+            if isinstance(func, ast.Name) and func.id == "range":
+                # Collect the same violation check logic
+                scratch: list[str] = []
+                _check_range_call(iter_, scratch)
+                if scratch:
+                    return True
+    return False
+
+
+def _join_generator_is_permitted(gen_node: ast.GeneratorExp) -> bool:
+    """Return True only if every comprehension in the generator iterates over a
+    statically bounded, baseline-compatible iterable (request.query.items() or
+    request.headers.items()).  All other iterables are rejected.
+    """
+    if len(gen_node.generators) != 1:
+        return False
+    comp = gen_node.generators[0]
+    return _is_baseline_bounded_items_iter(comp.iter)
+
+
+def check_runtime_allocation_risks(tree: ast.AST) -> list[str]:
+    """Reject AST patterns that may trigger large runtime memory allocations.
+
+    Unconditionally rejects:
+      - list / set / dict comprehensions (ast.ListComp, ast.SetComp, ast.DictComp)
+      - standalone generator expressions not used as a join() argument
+
+    Conditionally rejects:
+      - join(generator) where the generator iterates over large/non-constant range()
+      - join(generator) where the iterable is non-constant (cannot bound statically)
+      - range() calls whose estimated iteration count exceeds MAX_RANGE_CONSTANT
+      - range() calls with non-constant arguments (cannot bound statically)
+      - BinOp(Mult) where either operand is a large integer constant
+
+    Small join(f"..." for k, v in dict.items()) patterns — as used in the
+    baseline detector — are permitted because they iterate over a bounded
+    dict (request.query / request.headers) rather than a range() bomb.
+
+    Fail-closed: any unexpected exception returns a violation rather than raising.
+    """
+    violations: list[str] = []
+
+    # Track GeneratorExp nodes that are permitted join() arguments.
+    # Only join(generator) over request.query.items() or request.headers.items()
+    # is allowed — all other join(generator) patterns are rejected.
+    permitted_generators: set[int] = set()
+
+    try:
+        # First pass: identify join(generator) calls and classify them
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and _is_join_of_generator(node):
+                gen = node.args[0]
+                if _join_generator_is_permitted(gen):
+                    permitted_generators.add(id(gen))
+                else:
+                    violations.append(
+                        "runtime allocation risk: join(generator) is not permitted "
+                        "(only request.query.items() or request.headers.items() iterables are allowed)"
+                    )
+
+        # Second pass: check all nodes
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ListComp):
+                violations.append(
+                    "runtime allocation risk: list comprehension is not permitted"
+                )
+            elif isinstance(node, ast.SetComp):
+                violations.append(
+                    "runtime allocation risk: set comprehension is not permitted"
+                )
+            elif isinstance(node, ast.DictComp):
+                violations.append(
+                    "runtime allocation risk: dict comprehension is not permitted"
+                )
+            elif isinstance(node, ast.GeneratorExp):
+                if id(node) not in permitted_generators:
+                    violations.append(
+                        "runtime allocation risk: generator expression is not permitted"
+                    )
+            elif isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Name) and func.id == "range":
+                    _check_range_call(node, violations)
+            elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+                _check_repeat_mult(node, violations)
+    except Exception as exc:  # noqa: BLE001
+        violations.append(
+            f"runtime allocation risk check failed (fail-closed): {exc}"
+        )
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Unified policy runner
 # ---------------------------------------------------------------------------
 
@@ -369,7 +741,23 @@ def run_full_policy(candidate_path: Path) -> dict:
     if violations:
         return {"valid": False, "violations": violations}
 
-    # 5. Imports
+    # 5. Runtime allocation risks (comprehensions, range bombs, repeat multipliers)
+    # Check only the mutation region so that the stable boilerplate outside the
+    # mutation markers (e.g. generator expressions in detector.py's header) is
+    # not incorrectly rejected.
+    mutation_source = _extract_mutation_region(source)
+    if mutation_source:
+        mutation_tree, parse_errs = parse_source_safely(mutation_source)
+        if mutation_tree is not None:
+            violations.extend(check_runtime_allocation_risks(mutation_tree))
+        # parse errors in the region are already caught by full-file parse above
+    else:
+        # No region found — fall back to full-tree check (fail-closed)
+        violations.extend(check_runtime_allocation_risks(tree))
+    if violations:
+        return {"valid": False, "violations": violations}
+
+    # 6. Imports
     violations.extend(check_imports(tree))
 
     # 6. Forbidden calls (eval, exec, type, dir, super, …)
