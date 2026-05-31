@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # Ensure project root on sys.path
@@ -203,6 +205,35 @@ def _apply_replacement(base_source: str, replacement_code: str) -> tuple[str | N
     return new_source, ""
 
 
+def _write_text_atomic(path: Path, content: str) -> tuple[Path | None, str]:
+    """Write content to a same-directory temp file; flush and fsync before returning.
+
+    Returns (temp_path, error).  On any OSError the temp file is cleaned up
+    and (None, error_message) is returned.  The caller must atomically replace
+    the final target with os.replace() after validation succeeds.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp.py",
+            delete=False,
+        ) as tmp_file:
+            tmp_path = Path(tmp_file.name)
+            tmp_file.write(content)
+            tmp_file.flush()
+            os.fsync(tmp_file.fileno())
+    except OSError as exc:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+        return None, f"failed to write temp candidate: {exc}"
+    return tmp_path, ""
+
+
 def apply_mutation(
     patch_path: Path,
     base_path: Path,
@@ -243,19 +274,24 @@ def apply_mutation(
     if path_err:
         return {"success": False, "candidate_path": None, "violations": [], "error": path_err}
 
-    # --- Write candidate ---
-    resolved_out.parent.mkdir(parents=True, exist_ok=True)
-    resolved_out.write_text(new_source, encoding="utf-8")
+    # --- Write candidate to a same-directory temp file ---
+    tmp_path, write_err = _write_text_atomic(resolved_out, new_source)
+    if write_err:
+        return {
+            "success": False,
+            "candidate_path": None,
+            "violations": [],
+            "error": write_err,
+        }
 
-    # --- Validate candidate ---
+    # --- Validate the temp candidate before replacing the final target ---
     # Wrap in try/except so any unexpected parser exception (MemoryError,
-    # RecursionError, etc.) is handled fail-closed here as well, removing the
-    # written candidate and returning a structured failure.
+    # RecursionError, etc.) is handled fail-closed here as well.
     # KeyboardInterrupt / SystemExit are not caught and propagate normally.
     try:
-        val_result = validate(resolved_out)
+        val_result = validate(tmp_path)
     except Exception as exc:  # noqa: BLE001
-        resolved_out.unlink(missing_ok=True)
+        tmp_path.unlink(missing_ok=True)
         return {
             "success": False,
             "candidate_path": None,
@@ -263,13 +299,24 @@ def apply_mutation(
             "error": "validation raised an unexpected exception; candidate removed",
         }
     if not val_result["valid"]:
-        # Remove invalid candidate
-        resolved_out.unlink(missing_ok=True)
+        tmp_path.unlink(missing_ok=True)
         return {
             "success": False,
             "candidate_path": None,
             "violations": val_result["violations"],
             "error": "candidate failed AST validation",
+        }
+
+    # --- Atomically replace final path only after successful validation ---
+    try:
+        os.replace(tmp_path, resolved_out)
+    except OSError as exc:
+        tmp_path.unlink(missing_ok=True)
+        return {
+            "success": False,
+            "candidate_path": None,
+            "violations": [],
+            "error": f"atomic replace of candidate failed: {exc}",
         }
 
     return {

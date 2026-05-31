@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+import scripts.apply_mutation as _am
 from scripts.apply_mutation import apply_mutation, _resolve_safe_output_path
 
 _PROJECT_ROOT = Path(__file__).parent.parent
@@ -636,3 +637,166 @@ class TestOutputRootSymlinkRejection:
         assert not (outside_dir / "candidate.py").exists(), (
             "File must not be created in symlink-escaped directory"
         )
+
+
+# ---------------------------------------------------------------------------
+# Atomic write tests (Phase 2.5 Task 005)
+# ---------------------------------------------------------------------------
+
+
+def _assert_no_atomic_temp_files(parent: Path, final_name: str) -> None:
+    """Assert no same-directory temp files from _write_text_atomic remain."""
+    leftovers = list(parent.glob(f".{final_name}.*.tmp.py"))
+    assert leftovers == [], f"Leftover atomic temp files: {leftovers}"
+
+
+class TestApplyMutationAtomicWrite:
+    """Verify that apply_mutation writes candidates atomically via temp-validate-replace."""
+
+    _VALID_REPLACEMENT = (
+        "    if '../' in request.path:\n"
+        "        return DetectionResult(True, 'traversal', 0.9, ('../',))\n"
+        "    return DetectionResult(False, 'ok', 0.0, ())\n"
+    )
+    _VALID_REPLACEMENT_ALT = (
+        "    if 'xss' in request.path.lower():\n"
+        "        return DetectionResult(True, 'xss', 0.9, ('xss',))\n"
+        "    return DetectionResult(False, 'ok', 0.0, ())\n"
+    )
+    _INVALID_REPLACEMENT = (
+        "    eval('1+1')\n"
+        "    return DetectionResult(False, 'bad', 0.0, ())\n"
+    )
+
+    def test_valid_candidate_replaces_final_path(self, tmp_path):
+        """Valid replacement must produce a file at the final path with no temp leftovers."""
+        output_root = tmp_path / ".cyber_immunizer"
+        out_path = output_root / "candidate.py"
+        patch_path = _make_patch(self._VALID_REPLACEMENT)
+
+        result = apply_mutation(patch_path, _BASE_DETECTOR, out_path, output_root=output_root)
+
+        assert result["success"], f"Expected success: {result}"
+        assert out_path.exists(), "Final candidate file must exist after success"
+        _assert_no_atomic_temp_files(output_root, "candidate.py")
+
+    def test_invalid_candidate_does_not_create_final_path(self, tmp_path):
+        """Invalid replacement must not create the final output path; no temp leftovers."""
+        output_root = tmp_path / ".cyber_immunizer"
+        out_path = output_root / "candidate.py"
+        patch_path = _make_patch(self._INVALID_REPLACEMENT)
+
+        result = apply_mutation(patch_path, _BASE_DETECTOR, out_path, output_root=output_root)
+
+        assert not result["success"], "eval() replacement must be rejected"
+        assert not out_path.exists(), "Final path must not exist after invalid replacement"
+        _assert_no_atomic_temp_files(output_root, "candidate.py")
+
+    def test_existing_final_file_survives_invalid_replacement(self, tmp_path):
+        """Existing valid final file must be unchanged after a failed invalid replacement.
+
+        This is the key atomicity regression test: direct write_text() would
+        destroy the previous final file; temp-validate-replace preserves it.
+        """
+        output_root = tmp_path / ".cyber_immunizer"
+        out_path = output_root / "candidate.py"
+
+        # First: apply a valid replacement to create the final file.
+        patch1 = _make_patch(self._VALID_REPLACEMENT)
+        result1 = apply_mutation(patch1, _BASE_DETECTOR, out_path, output_root=output_root)
+        assert result1["success"], f"First apply_mutation must succeed: {result1}"
+        assert out_path.exists()
+        original_content = out_path.read_text(encoding="utf-8")
+
+        # Second: attempt an invalid replacement to the same out_path.
+        patch2 = _make_patch(self._INVALID_REPLACEMENT)
+        result2 = apply_mutation(patch2, _BASE_DETECTOR, out_path, output_root=output_root)
+
+        assert not result2["success"], "Invalid replacement must fail"
+        assert out_path.exists(), "Final file must still exist after failed replacement"
+        assert out_path.read_text(encoding="utf-8") == original_content, (
+            "Final file content must be unchanged after invalid replacement attempt"
+        )
+        _assert_no_atomic_temp_files(output_root, "candidate.py")
+
+    def test_os_replace_failure_cleans_temp_and_preserves_existing_final(
+        self, tmp_path, monkeypatch
+    ):
+        """os.replace failure must clean up the temp file and leave existing final intact."""
+        output_root = tmp_path / ".cyber_immunizer"
+        out_path = output_root / "candidate.py"
+
+        # Create a valid existing final file.
+        patch1 = _make_patch(self._VALID_REPLACEMENT)
+        result1 = apply_mutation(patch1, _BASE_DETECTOR, out_path, output_root=output_root)
+        assert result1["success"], f"Setup apply_mutation must succeed: {result1}"
+        old_content = out_path.read_text(encoding="utf-8")
+
+        # Monkeypatch os.replace in the apply_mutation module to raise OSError.
+        def _fail_replace(*args, **kwargs):
+            raise OSError("simulated replace failure")
+
+        monkeypatch.setattr(_am.os, "replace", _fail_replace)
+
+        patch2 = _make_patch(self._VALID_REPLACEMENT_ALT)
+        result2 = apply_mutation(patch2, _BASE_DETECTOR, out_path, output_root=output_root)
+
+        assert not result2["success"], "os.replace failure must cause apply_mutation to fail"
+        assert out_path.read_text(encoding="utf-8") == old_content, (
+            "Existing final file must be unchanged after os.replace failure"
+        )
+        _assert_no_atomic_temp_files(output_root, "candidate.py")
+        err_lower = result2["error"].lower()
+        assert any(kw in err_lower for kw in ("replace", "write", "atomic")), (
+            f"Error must mention replace/write/atomic, got: {result2['error']!r}"
+        )
+
+    def test_temp_write_failure_returns_error_without_final_file(
+        self, tmp_path, monkeypatch
+    ):
+        """A write failure in _write_text_atomic must leave no final file and return failure."""
+        output_root = tmp_path / ".cyber_immunizer"
+        out_path = output_root / "candidate.py"
+
+        # Monkeypatch _write_text_atomic to simulate an OSError on write.
+        monkeypatch.setattr(
+            _am,
+            "_write_text_atomic",
+            lambda path, content: (None, "failed to write temp candidate: simulated OSError"),
+        )
+
+        patch_path = _make_patch(self._VALID_REPLACEMENT)
+        result = apply_mutation(patch_path, _BASE_DETECTOR, out_path, output_root=output_root)
+
+        assert not result["success"], "Write failure must cause apply_mutation to fail"
+        assert result["candidate_path"] is None, "candidate_path must be None on write failure"
+        assert not out_path.exists(), "Final file must not exist when write failed"
+
+    def test_validation_exception_cleans_temp_and_preserves_final(
+        self, tmp_path, monkeypatch
+    ):
+        """An exception from validate() must clean temp file and leave existing final intact."""
+        output_root = tmp_path / ".cyber_immunizer"
+        out_path = output_root / "candidate.py"
+
+        # Create a valid existing final file.
+        patch1 = _make_patch(self._VALID_REPLACEMENT)
+        result1 = apply_mutation(patch1, _BASE_DETECTOR, out_path, output_root=output_root)
+        assert result1["success"], f"Setup apply_mutation must succeed: {result1}"
+        old_content = out_path.read_text(encoding="utf-8")
+
+        # Monkeypatch validate to raise an unexpected exception.
+        def _raise_validate(path):
+            raise ValueError("simulated validation failure")
+
+        monkeypatch.setattr(_am, "validate", _raise_validate)
+
+        patch2 = _make_patch(self._VALID_REPLACEMENT_ALT)
+        result2 = apply_mutation(patch2, _BASE_DETECTOR, out_path, output_root=output_root)
+
+        assert not result2["success"], "Validation exception must cause apply_mutation to fail"
+        assert out_path.exists(), "Existing final file must still exist after validation exception"
+        assert out_path.read_text(encoding="utf-8") == old_content, (
+            "Existing final file content must be unchanged after validation exception"
+        )
+        _assert_no_atomic_temp_files(output_root, "candidate.py")

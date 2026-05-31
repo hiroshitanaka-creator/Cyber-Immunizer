@@ -1872,3 +1872,73 @@ class TestAstPolicyWhitelistRoadmap:
         assert "complete solution" not in roadmap, (
             "docs/AST_POLICY_WHITELIST_ROADMAP.md must not claim a complete solution"
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.5 Task 005 — apply_mutation atomic write invariants
+# ---------------------------------------------------------------------------
+
+
+class TestApplyMutationAtomicWriteInvariants:
+    """Invariants that verify scripts/apply_mutation.py uses atomic temp-validate-replace.
+
+    These tests pin the Phase 2.5 Task 005 hardening so that future refactors
+    cannot silently revert to direct write_text() on the final candidate path.
+    """
+
+    _APPLY_PATH = _ROOT / "scripts" / "apply_mutation.py"
+
+    @pytest.fixture(scope="class")
+    def apply_source(self) -> str:
+        assert self._APPLY_PATH.exists(), "scripts/apply_mutation.py must exist"
+        return self._APPLY_PATH.read_text(encoding="utf-8")
+
+    def test_uses_os_replace_for_atomic_final_write(self, apply_source: str) -> None:
+        """scripts/apply_mutation.py must use os.replace (atomic final-path replacement)."""
+        assert "os.replace(" in apply_source, (
+            "scripts/apply_mutation.py must call os.replace() to atomically replace "
+            "the final candidate path after validation succeeds."
+        )
+
+    def test_uses_named_temporary_file(self, apply_source: str) -> None:
+        """scripts/apply_mutation.py must use tempfile.NamedTemporaryFile for temp writes."""
+        assert "NamedTemporaryFile" in apply_source, (
+            "scripts/apply_mutation.py must use tempfile.NamedTemporaryFile (or equivalent) "
+            "to write candidates to a same-directory temp file before validation."
+        )
+
+    def test_does_not_write_text_directly_to_final_path(self, apply_source: str) -> None:
+        """scripts/apply_mutation.py must not call resolved_out.write_text(...)."""
+        assert "resolved_out.write_text(" not in apply_source, (
+            "scripts/apply_mutation.py must not call resolved_out.write_text() directly. "
+            "Candidate content must be written via _write_text_atomic and then "
+            "atomically replaced using os.replace()."
+        )
+
+    def test_does_not_catch_base_exception(self, apply_source: str) -> None:
+        """scripts/apply_mutation.py must not catch BaseException."""
+        assert "except BaseException" not in apply_source, (
+            "scripts/apply_mutation.py must not catch BaseException — "
+            "this would swallow KeyboardInterrupt and SystemExit."
+        )
+
+    def test_still_calls_validate(self, apply_source: str) -> None:
+        """scripts/apply_mutation.py must still call validate() on the candidate."""
+        assert "validate(" in apply_source, (
+            "scripts/apply_mutation.py must still call validate() to check the "
+            "candidate before atomically replacing the final path."
+        )
+
+    def test_still_unlinks_on_failure(self, apply_source: str) -> None:
+        """scripts/apply_mutation.py must still unlink temp/final candidates on failure."""
+        assert ".unlink(" in apply_source, (
+            "scripts/apply_mutation.py must call .unlink() to clean up the temp "
+            "candidate file on validation failure or unexpected exception."
+        )
+
+    def test_still_references_resolve_safe_output_path(self, apply_source: str) -> None:
+        """scripts/apply_mutation.py must still call _resolve_safe_output_path."""
+        assert "_resolve_safe_output_path" in apply_source, (
+            "scripts/apply_mutation.py must still call _resolve_safe_output_path "
+            "to enforce safe output root constraints before any write."
+        )
