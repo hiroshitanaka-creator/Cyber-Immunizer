@@ -98,9 +98,14 @@ Lessons that drove protocol additions:
 
 Lessons that drove protocol additions:
 
-- **Source-size guard before ast.parse**: Source-size and node-count guards must
-  occur before calling `ast.parse`. Oversized source can cause the parser itself
-  to exhaust memory before any AST-level check runs.
+- **Source-size guard before ast.parse**: Source-size guard must run before
+  calling `ast.parse`. Oversized source can cause the parser itself to exhaust
+  memory before any AST-level check runs. Source size is checkable without
+  building the AST.
+- **AST node-count and depth guards run after parsing succeeds**: Node-count is
+  not knowable before AST construction. AST node-count, depth, and related
+  structural guards run only after `ast.parse` succeeds, before evaluation,
+  promote, or other expensive policy processing.
 - **ast.parse raises MemoryError / RecursionError**: `ast.parse` may raise
   `MemoryError` or `RecursionError` in addition to `SyntaxError`. Protocol now
   requires that all three exception types are handled fail-closed.

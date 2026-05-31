@@ -423,6 +423,51 @@ class TestAuditGateChangelogLessons:
             "PR #40 section in CHANGELOG.md must mention MemoryError or RecursionError"
         )
 
+    def test_pr40_source_size_guard_before_parse(self) -> None:
+        """PR #40 section must state source-size guard runs before ast.parse."""
+        section = self._extract_pr_section("PR #40")
+        assert section, "PR #40 section must be extractable from CHANGELOG.md"
+        section_lower = section.lower()
+        assert (
+            "source-size" in section_lower or "source size" in section_lower
+        ) and (
+            "before" in section_lower
+        ), (
+            "PR #40 section must state source-size guard runs before ast.parse"
+        )
+
+    def test_pr40_node_count_guard_runs_after_parsing(self) -> None:
+        """PR #40 section must state node-count guard runs after parsing, not before."""
+        section = self._extract_pr_section("PR #40")
+        assert section, "PR #40 section must be extractable from CHANGELOG.md"
+        section_lower = section.lower()
+        assert (
+            "node-count" in section_lower or "node count" in section_lower
+        ) and (
+            "after" in section_lower
+        ), (
+            "PR #40 section must state node-count guard runs only after ast.parse succeeds"
+        )
+
+    def test_pr40_does_not_require_node_count_before_ast_parse(self) -> None:
+        """Regression guard: PR #40 section must NOT say node-count guard runs before ast.parse.
+
+        Node-count is not knowable before AST construction.
+        """
+        section = self._extract_pr_section("PR #40")
+        assert section, "PR #40 section must be extractable from CHANGELOG.md"
+        forbidden_phrases = [
+            "node-count guards must occur before",
+            "node-count and depth guards must occur before",
+            "source-size and node-count guards must occur before",
+        ]
+        section_lower = section.lower()
+        for phrase in forbidden_phrases:
+            assert phrase not in section_lower, (
+                f"PR #40 section in CHANGELOG.md must NOT contain '{phrase}'. "
+                "Node-count requires a built AST and can only run after ast.parse."
+            )
+
     def test_pr41_section_mentions_computed_repeat_multiplier(self) -> None:
         section = self._extract_pr_section("PR #41")
         assert section, "PR #41 section must be extractable from CHANGELOG.md"
