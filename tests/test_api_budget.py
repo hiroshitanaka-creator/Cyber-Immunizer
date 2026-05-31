@@ -112,17 +112,25 @@ class TestEstimateTokens:
         )
 
     def test_mixed_japanese_symbols_and_code_estimates_at_least_2x_chars(self) -> None:
-        """Multilingual/code/symbol prompt estimate must be >= 2x character count."""
+        """Multilingual/code/symbol prompt estimate must be >= 2x character count.
+
+        Uses only neutralized symbolic indicators — no raw payload strings.
+        """
         prompt = (
             "このコードはセキュリティの脆弱性を検出します。"
             "以下のPythonコードを分析してください:\n"
             "def check_request(req):\n"
-            "    # indicator: path-traversal, sqli, xss\n"
+            "    # neutralized indicators: path_traversal_indicator, sqli_indicator\n"
             "    surface = req.path.lower() + ' ' + req.body.lower()\n"
-            "    suspicious = ['../', 'select * from', '<script>', 'eval(']\n"
-            "    return any(s in surface for s in suspicious)\n"
+            "    indicators = [\n"
+            "        'path_traversal_indicator',\n"
+            "        'sqli_indicator',\n"
+            "        'script_injection_indicator',\n"
+            "        'command_delimiter_indicator',\n"
+            "    ]\n"
+            "    return any(s in surface for s in indicators)\n"
             "# 記号テスト !@#$%^&*()_+-=[]{}|;':\",./<>?\n"
-            "# 攻撃パターンの指標: path-traversal, sqli, xss, cmd-injection\n"
+            "# 攻撃パターンの指標: path_traversal_indicator, sqli_indicator\n"
         )
         n = len(prompt)
         result = budget.estimate_tokens_from_chars(n)

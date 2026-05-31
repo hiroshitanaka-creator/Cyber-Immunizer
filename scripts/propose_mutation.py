@@ -760,9 +760,14 @@ def _propose_via_gemini_paid_credit(
 
     # Cost estimation
     input_chars = len(full_prompt_for_scan)
-    output_chars = max_output_tokens * 4  # conservative: assume full output
+    # estimated_output_chars is kept for the ledger diagnostic record only.
+    # max_output_tokens is already a token cap — NOT a character count.
+    # Passing it through estimate_tokens_from_chars() would multiply the token
+    # cap by the char-to-token multiplier and make valid budgets fail.
+    # The conservative estimator applies only to character-counted inputs.
+    estimated_output_chars = max_output_tokens * 4  # ledger diagnostic only
     est_input_tokens = budget.estimate_tokens_from_chars(input_chars)
-    est_output_tokens = budget.estimate_tokens_from_chars(output_chars)
+    est_output_tokens = max_output_tokens  # token cap is already tokens
     est_cost = budget.estimate_cost_usd(est_input_tokens, est_output_tokens, model_name)
 
     # Load ledger and assert budget — FAIL CLOSED for missing/malformed ledger.
@@ -798,7 +803,7 @@ def _propose_via_gemini_paid_credit(
             api_mode=api_mode,
             model=model_name,
             estimated_input_chars=input_chars,
-            estimated_output_chars=output_chars,
+            estimated_output_chars=estimated_output_chars,
             actual_input_tokens=actual_input_tokens,
             actual_output_tokens=actual_output_tokens,
             success=(api_err == ""),
@@ -1085,9 +1090,13 @@ def run_gemini_paid_credit_preflight() -> tuple[dict, str]:
 
     # --- Step 16: Cost estimation ---
     input_chars = len(full_prompt)
-    output_chars = max_output_tokens * 4  # conservative: assume full output
+    # max_output_tokens is already a token cap — NOT a character count.
+    # The conservative char-to-token estimator applies only to character-counted
+    # inputs (like the prompt).  Re-estimating the token cap via
+    # estimate_tokens_from_chars would multiply it by the char multiplier,
+    # making valid budgets fail.
     est_input_tokens = budget.estimate_tokens_from_chars(input_chars)
-    est_output_tokens = budget.estimate_tokens_from_chars(output_chars)
+    est_output_tokens = max_output_tokens  # token cap is already tokens
     est_cost = budget.estimate_cost_usd(est_input_tokens, est_output_tokens, model_name)
 
     # --- Step 17: Budget availability check ---
