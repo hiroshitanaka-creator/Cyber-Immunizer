@@ -1766,3 +1766,105 @@ class TestConservativeMultilingualBudgetRefusal:
         )
         assert err == "", f"Expected no error, got: {err!r}"
         assert result.get("budget_available") is True
+
+    def test_paid_credit_ledger_uses_output_token_cap_not_char_reestimate(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Ledger estimated_output_tokens must match the pre-call gate, not a char-re-estimate.
+
+        Key invariant: ledger[0]["estimated_output_tokens"] == genome["max_output_tokens"]
+
+        With the old bug: estimate_tokens_from_chars(2048*4*2.0) = 16384 was stored.
+        With the fix: max_output_tokens = 2048 is stored directly.
+
+        This prevents accounting drift where future budget checks see inflated spend
+        because the ledger recorded 8x more output tokens than the gate estimated.
+        """
+        short_prompt = (
+            "# Improve detection for path_traversal_indicator and sqli_indicator.\n"
+        )
+        monkeypatch.setattr(pm, "_build_user_prompt", lambda g, d: short_prompt)
+
+        genome = {
+            **live_paid_genome,
+            "monthly_api_budget_usd": 0.01,
+            "daily_api_budget_usd": 0.01,
+            "max_output_tokens": 2048,
+            "live_model_enabled": True,
+            "max_model_requests_per_run": 1,
+        }
+        genome_path = tmp_path / "genome_ledger_check.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file, ledger_path, out_dir)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        valid_response = json.dumps({
+            "mutation_rationale": "Improve detection coverage.",
+            "target_threats": ["THREAT-2024-001"],
+            "expected_improvement": "Higher TP rate.",
+            "risk": "Low.",
+            "replacement_code": (
+                "    surface = request.path.lower() + ' ' + request.body.lower()\n"
+                "    indicators = ['path_traversal_indicator', 'sqli_indicator']\n"
+                "    matched = [ind for ind in indicators if ind in surface]\n"
+                "    if matched:\n"
+                "        return DetectionResult(\n"
+                "            blocked=True,\n"
+                "            reason='indicator: ' + matched[0],\n"
+                "            confidence=0.7,\n"
+                "            matched_signals=tuple(matched),\n"
+                "        )\n"
+                "    return DetectionResult(\n"
+                "        blocked=False,\n"
+                "        reason='no match',\n"
+                "        confidence=0.0,\n"
+                "        matched_signals=(),\n"
+                "    )\n"
+            ),
+        })
+        monkeypatch.setattr(
+            pm, "_call_gemini_api",
+            lambda *args, **kwargs: (valid_response, 400, 150, ""),
+        )
+
+        result, err = pm.propose_mutation(gemini_paid_credit=True, allow_live_model=True)
+
+        assert err == "", f"Expected success, got: {err!r}"
+        assert result is not None
+
+        ledger = json.loads(ledger_path.read_text())
+        assert len(ledger) == 1, f"Expected 1 ledger record, got {len(ledger)}"
+
+        rec = ledger[0]
+        # KEY INVARIANT: ledger output tokens must equal the token cap, not a
+        # char-derived re-estimate.  Before the fix, this was 16384 (8x inflated).
+        assert rec["estimated_output_tokens"] == genome["max_output_tokens"], (
+            f"Ledger estimated_output_tokens={rec['estimated_output_tokens']} "
+            f"must equal max_output_tokens={genome['max_output_tokens']}. "
+            "If 16384, the ledger accounting is using the buggy char re-estimate."
+        )
+        assert rec["estimated_output_tokens"] != 16384, (
+            "Ledger must NOT store 16384 output tokens — that is the Codex P2 bug "
+            "(estimate_tokens_from_chars(max_output_tokens * 4 * 2.0))."
+        )
+        # Cost in ledger must be consistent with output=2048 tokens, not 16384.
+        # gemini-2.0-flash output rate: $0.80/1M tokens
+        # With 16384 output tokens: cost contribution ≈ $0.0131 alone
+        # With 2048 output tokens:  cost contribution ≈ $0.0016
+        # Any cost above $0.005 for this prompt would indicate inflated output accounting.
+        assert rec["estimated_cost_usd"] < 0.005, (
+            f"Ledger cost ${rec['estimated_cost_usd']:.6f} is too high — likely caused by "
+            f"output token inflation from char re-estimation (expected < $0.005 for "
+            f"max_output_tokens=2048 with a short input prompt)."
+        )

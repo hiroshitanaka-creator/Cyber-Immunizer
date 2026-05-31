@@ -804,6 +804,8 @@ def _propose_via_gemini_paid_credit(
             model=model_name,
             estimated_input_chars=input_chars,
             estimated_output_chars=estimated_output_chars,
+            estimated_input_tokens=est_input_tokens,
+            estimated_output_tokens=est_output_tokens,
             actual_input_tokens=actual_input_tokens,
             actual_output_tokens=actual_output_tokens,
             success=(api_err == ""),
