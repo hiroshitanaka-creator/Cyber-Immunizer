@@ -723,6 +723,7 @@ DISALLOWED_AST_NODES: tuple[type, ...] = (
     ast.Nonlocal,
     ast.Delete,
     ast.NamedExpr,
+    ast.Assert,
     ast.AsyncFunctionDef,
     ast.ClassDef,
 )
@@ -814,6 +815,9 @@ def check_disallowed_ast_constructs(tree: ast.Module) -> list[str]:
 
         elif isinstance(node, ast.NamedExpr):
             violations.append("disallowed AST construct: NamedExpr (walrus operator)")
+
+        elif isinstance(node, ast.Assert):
+            violations.append("disallowed AST construct: Assert")
 
         elif _MATCH_NODE_TYPE is not None and isinstance(node, _MATCH_NODE_TYPE):
             violations.append("disallowed AST construct: Match")

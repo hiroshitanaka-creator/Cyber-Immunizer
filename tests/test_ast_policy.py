@@ -889,6 +889,22 @@ return DetectionResult(False, "ok", 0.0, ())
 """)
         _assert_rejected(p, "disallowed AST construct")
 
+    def test_rejects_assert_statement(self):
+        # assert can raise AssertionError instead of returning DetectionResult,
+        # and is silently stripped under python -O. Structural rejection is required.
+        p = _make_candidate("""\
+assert request.path
+return DetectionResult(False, "ok", 0.0, ())
+""")
+        _assert_rejected(p, "disallowed AST construct")
+
+    def test_rejects_assert_false(self):
+        p = _make_candidate("""\
+assert False
+return DetectionResult(False, "ok", 0.0, ())
+""")
+        _assert_rejected(p, "disallowed AST construct")
+
     @pytest.mark.skipif(sys.version_info < (3, 10), reason="match/case requires Python 3.10+")
     def test_rejects_match_statement_if_supported(self):
         p = _make_candidate("""\
