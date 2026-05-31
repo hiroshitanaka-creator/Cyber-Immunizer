@@ -512,6 +512,7 @@ def _call_gemini_api(
     max_output_tokens: int,
     temperature: float,
     *,
+    max_attempts: int = _GEMINI_API_MAX_ATTEMPTS,
     _sleep_fn=None,
 ) -> tuple[str | None, int | None, int | None, str]:
     """Issue a Gemini API call with explicit timeout and bounded transient retry.
@@ -523,15 +524,28 @@ def _call_gemini_api(
 
     Retry behaviour:
       - Transient errors (429, 5xx, timeout, network interruption) are retried
-        up to _GEMINI_API_MAX_ATTEMPTS times with exponential backoff.
+        with exponential backoff up to effective_attempts times, where
+        effective_attempts = min(max_attempts, _GEMINI_API_MAX_ATTEMPTS).
       - Non-transient errors (400, 401, 403, schema failures, etc.) are not
         retried; the function returns immediately.
       - The retry loop is fully contained here; callers see a single result.
+
+    max_attempts should be set by callers to genome["max_model_requests_per_run"]
+    so that the number of actual generate_content calls never exceeds the budget
+    allowed for this run.  _GEMINI_API_MAX_ATTEMPTS acts as a hard upper cap.
 
     _sleep_fn is injectable for tests (default: time.sleep).
     """
     if _sleep_fn is None:
         _sleep_fn = time.sleep
+
+    # Enforce caller-supplied attempt budget capped by the hard constant.
+    effective_attempts = min(max_attempts, _GEMINI_API_MAX_ATTEMPTS)
+    if effective_attempts < 1:
+        return None, None, None, (
+            f"Gemini API call failed: invalid max_attempts={max_attempts!r} — "
+            "request budget must be >= 1."
+        )
 
     try:
         from google import genai  # type: ignore[import]
@@ -563,7 +577,7 @@ def _call_gemini_api(
     attempt = 0
     backoff = _GEMINI_API_BACKOFF_INITIAL_SECONDS
 
-    for attempt in range(1, _GEMINI_API_MAX_ATTEMPTS + 1):
+    for attempt in range(1, effective_attempts + 1):
         try:
             response = client.models.generate_content(
                 model=model_name,
@@ -599,7 +613,7 @@ def _call_gemini_api(
                 # Non-transient: fail immediately, do not retry.
                 break
 
-            if attempt < _GEMINI_API_MAX_ATTEMPTS:
+            if attempt < effective_attempts:
                 _sleep_fn(backoff)
                 backoff = min(
                     backoff * _GEMINI_API_BACKOFF_MULTIPLIER,
@@ -660,6 +674,9 @@ def _propose_via_gemini_live(
     max_output_tokens: int = int(genome.get("max_output_tokens", 2048))
     temperature: float = float(genome.get("temperature", 0.2))
     max_prompt_chars: int = int(genome.get("max_prompt_chars", 12000))
+    # Pass genome's request budget so that retries never exceed the allowed
+    # number of generate_content calls for this run.
+    request_attempt_budget: int = int(genome.get("max_model_requests_per_run", 1))
 
     # Build user prompt (never includes secrets)
     user_prompt = _build_user_prompt(genome, detector_source)
@@ -679,7 +696,8 @@ def _propose_via_gemini_live(
         return None, scan_err
 
     raw_text, _inp_tok, _out_tok, api_err = _call_gemini_api(
-        api_key, model_name, user_prompt, max_output_tokens, temperature
+        api_key, model_name, user_prompt, max_output_tokens, temperature,
+        max_attempts=request_attempt_budget,
     )
     if api_err:
         return None, api_err
@@ -717,6 +735,11 @@ def _propose_via_gemini_paid_credit(
     temperature: float = float(genome.get("temperature", 0.2))
     max_prompt_chars: int = int(genome.get("max_prompt_chars", 12000))
     api_mode: str = genome.get("api_mode", "gemini_paid_credit")
+    # Pass genome's request budget so that retries never exceed the allowed
+    # number of generate_content calls for this run.  With the current default
+    # of max_model_requests_per_run=1 the effective retry count is 1 (no retry),
+    # keeping actual API calls in lockstep with the budget estimate.
+    request_attempt_budget: int = int(genome.get("max_model_requests_per_run", 1))
 
     # Build user prompt (never includes secrets)
     user_prompt = _build_user_prompt(genome, detector_source)
@@ -755,9 +778,11 @@ def _propose_via_gemini_paid_credit(
     if not budget_ok:
         return None, budget_err
 
-    # Single Gemini API call
+    # Single Gemini API call (retries up to request_attempt_budget attempts for
+    # transient errors, keeping total generate_content calls within budget).
     raw_text, actual_input_tokens, actual_output_tokens, api_err = _call_gemini_api(
-        api_key, model_name, user_prompt, max_output_tokens, temperature
+        api_key, model_name, user_prompt, max_output_tokens, temperature,
+        max_attempts=request_attempt_budget,
     )
 
     # Append usage record — HARD ERROR if ledger write fails.

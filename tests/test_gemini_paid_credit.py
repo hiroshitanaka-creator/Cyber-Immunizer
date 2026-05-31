@@ -1395,3 +1395,110 @@ class TestPaidCreditRetryDoesNotWriteLedgerPerAttempt:
         )
         ledger = json.loads(ledger_path.read_text())
         assert len(ledger) == 1, f"Ledger must have exactly 1 record, got {len(ledger)}"
+
+
+# ---------------------------------------------------------------------------
+# 20. paid-credit path passes max_model_requests_per_run as max_attempts
+# ---------------------------------------------------------------------------
+
+
+class TestPaidCreditMaxAttemptsFromGenome:
+    """Verify that max_model_requests_per_run controls generate_content call count.
+
+    With max_model_requests_per_run=1 (the current default gate), a transient
+    failure must NOT be retried — the actual generate_content call count is 1.
+    This keeps actual API calls in lockstep with the budget estimate and the
+    ledger record.
+    """
+
+    def test_paid_credit_max_requests_one_no_retry_on_transient(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """With max_model_requests_per_run=1, transient failure uses 1 attempt (no retry)."""
+        genome = {**live_paid_genome, "max_model_requests_per_run": 1}
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file, ledger_path, tmp_path)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+        monkeypatch.setattr(_time_module, "sleep", lambda _: None)
+
+        # Track actual _call_gemini_api invocations AND the max_attempts passed in.
+        captured_max_attempts: list[int] = []
+        original_call = pm._call_gemini_api
+
+        def tracking_call(*args: Any, **kwargs: Any) -> Any:
+            captured_max_attempts.append(kwargs.get("max_attempts", pm._GEMINI_API_MAX_ATTEMPTS))
+            # Simulate a transient failure that _call_gemini_api would handle internally.
+            # Since max_attempts=1 is passed, no retry should occur.
+            return None, None, None, "Gemini API call failed after 1 attempt: transient error TimeoutError"
+
+        monkeypatch.setattr(pm, "_call_gemini_api", tracking_call)
+
+        patch_result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+
+        assert patch_result is None
+        assert len(captured_max_attempts) == 1, (
+            "_call_gemini_api should be called exactly once by the paid-credit path"
+        )
+        assert captured_max_attempts[0] == 1, (
+            f"max_attempts passed to _call_gemini_api should be 1 "
+            f"(from max_model_requests_per_run=1), got {captured_max_attempts[0]}"
+        )
+        # Ledger must still be written (failure record)
+        ledger = json.loads(ledger_path.read_text())
+        assert len(ledger) == 1, "Failure record must be written even when transient"
+        assert ledger[0]["success"] is False
+
+    def test_live_path_passes_max_model_requests_as_max_attempts(
+        self,
+        tmp_path: Path,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """_propose_via_gemini_live passes max_model_requests_per_run to _call_gemini_api."""
+        genome = {
+            "project": "Test",
+            "generation": 1,
+            "model_provider": "gemini",
+            "model_name": "gemini-2.0-flash",
+            "max_prompt_chars": 12000,
+            "max_output_tokens": 2048,
+            "temperature": 0.2,
+            "live_model_enabled": True,
+            "max_model_requests_per_run": 1,
+            "allow_google_search_grounding": False,
+            "allow_code_execution_tool": False,
+            "monthly_api_budget_usd": 0,
+            "free_tier_only": True,
+        }
+        monkeypatch.setattr(pm, "_THREATS_PATH", threats_file)
+
+        captured_max_attempts: list[int] = []
+
+        def tracking_call(*args: Any, **kwargs: Any) -> Any:
+            captured_max_attempts.append(kwargs.get("max_attempts", pm._GEMINI_API_MAX_ATTEMPTS))
+            return None, None, None, "Gemini API call failed after 1 attempt: transient error TimeoutError"
+
+        monkeypatch.setattr(pm, "_call_gemini_api", tracking_call)
+
+        result, err = pm._propose_via_gemini_live(
+            genome, detector_file.read_text(), "fake-key"
+        )
+
+        assert result is None
+        assert len(captured_max_attempts) == 1
+        assert captured_max_attempts[0] == 1, (
+            f"max_attempts should be 1 (max_model_requests_per_run=1), "
+            f"got {captured_max_attempts[0]}"
+        )
