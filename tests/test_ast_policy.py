@@ -650,3 +650,114 @@ return DetectionResult(False, "", 0.0, ())
             result = validate(p)  # must not raise
             assert isinstance(result, dict)
             assert "valid" in result
+
+
+# ---------------------------------------------------------------------------
+# Tests: computed repeat multiplier guard (Codex P1 fix)
+# ---------------------------------------------------------------------------
+
+class TestComputedRepeatMultiplierGuard:
+    """Constant-expression repeat multipliers that evaluate to large values must
+    be rejected even when they are not bare integer literals."""
+
+    def test_rejects_power_expression_multiplier(self):
+        """x = "a" * (10 ** 9) must be rejected."""
+        p = _make_candidate("""\
+x = "a" * (10 ** 9)
+return DetectionResult(False, "", 0.0, ())
+""")
+        _assert_rejected(p, "MAX_REPEAT_MULTIPLIER")
+
+    def test_rejects_addition_expression_multiplier(self):
+        """x = "a" * (500_000 + 500_000) must be rejected."""
+        p = _make_candidate("""\
+x = "a" * (500000 + 500000)
+return DetectionResult(False, "", 0.0, ())
+""")
+        _assert_rejected(p, "MAX_REPEAT_MULTIPLIER")
+
+    def test_accepts_small_constant_expression_multiplier(self):
+        """x = "a" * (10 + 5) is small and must not be rejected for multiplier size."""
+        p = _make_candidate("""\
+x = "a" * (10 + 5)
+return DetectionResult(False, "", 0.0, ())
+""")
+        result = validate(p)
+        combined = " ".join(result.get("violations", []))
+        assert "MAX_REPEAT_MULTIPLIER" not in combined, (
+            f"Small computed multiplier must not trigger size guard; got: {combined}"
+        )
+
+    def test_rejects_unknown_multiplier_from_input(self):
+        """x = "a" * len(request.path) must be rejected (non-constant, fail-closed)."""
+        p = _make_candidate("""\
+x = "a" * len(request.path)
+return DetectionResult(False, "", 0.0, ())
+""")
+        _assert_rejected(p, "non-constant")
+
+
+# ---------------------------------------------------------------------------
+# Tests: join(generator) strict iterable guard (Codex P1 fix)
+# ---------------------------------------------------------------------------
+
+class TestJoinGeneratorStrictIterableGuard:
+    """join(generator) is only permitted for request.query.items() and
+    request.headers.items(). All other iterables must be rejected."""
+
+    def test_rejects_join_over_request_body(self):
+        """''.join('x' for _ in request.body) must be rejected (input-sized)."""
+        p = _make_candidate("""\
+x = "".join("x" for _ in request.body)
+return DetectionResult(False, "", 0.0, ())
+""")
+        _assert_rejected(p, "join(generator)")
+
+    def test_rejects_join_over_request_path(self):
+        """''.join('x' for _ in request.path) must be rejected (input-sized)."""
+        p = _make_candidate("""\
+x = "".join("x" for _ in request.path)
+return DetectionResult(False, "", 0.0, ())
+""")
+        _assert_rejected(p, "join(generator)")
+
+    def test_rejects_join_over_large_range(self):
+        """join over large range must still be rejected."""
+        p = _make_candidate("""\
+x = "".join(str(i) for i in range(1000000))
+return DetectionResult(False, "", 0.0, ())
+""")
+        _assert_rejected(p, "join(generator)")
+
+    def test_rejects_join_over_nonconstant_range(self):
+        """join over non-constant range must be rejected."""
+        p = _make_candidate("""\
+n = len(request.path)
+x = "".join(str(i) for i in range(n))
+return DetectionResult(False, "", 0.0, ())
+""")
+        _assert_rejected(p, "join(generator)")
+
+    def test_accepts_join_over_request_query_items(self):
+        """join(f'...' for k, v in request.query.items()) must be permitted (baseline pattern)."""
+        p = _make_candidate("""\
+q = " ".join(f"{k}={v}" for k, v in request.query.items()).lower()
+return DetectionResult(False, "", 0.0, ())
+""")
+        result = validate(p)
+        combined = " ".join(result.get("violations", []))
+        assert "join(generator)" not in combined, (
+            f"Baseline query.items() join must be allowed; got violations: {combined}"
+        )
+
+    def test_accepts_join_over_request_headers_items(self):
+        """join(f'...' for k, v in request.headers.items()) must be permitted (baseline pattern)."""
+        p = _make_candidate("""\
+h = " ".join(f"{k}:{v}" for k, v in request.headers.items()).lower()
+return DetectionResult(False, "", 0.0, ())
+""")
+        result = validate(p)
+        combined = " ".join(result.get("violations", []))
+        assert "join(generator)" not in combined, (
+            f"Baseline headers.items() join must be allowed; got violations: {combined}"
+        )
