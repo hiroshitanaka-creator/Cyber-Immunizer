@@ -359,3 +359,118 @@ class TestSymbolicIndicatorConsistency:
                             f"Indicator '{indicator}' appears in attack_requests.json "
                             f"but is not in core/detector.py _SUSPICIOUS_TOKENS"
                         )
+
+
+# ---------------------------------------------------------------------------
+# Audit Gate CHANGELOG lessons — PR #40–#43
+# ---------------------------------------------------------------------------
+
+
+class TestAuditGateChangelogLessons:
+    """Verify that docs/audit_gate/CHANGELOG.md records lessons from PR #40–#43."""
+
+    @pytest.fixture(autouse=True)
+    def _load(self) -> None:
+        self.changelog = _PROJECT_ROOT / "docs" / "audit_gate" / "CHANGELOG.md"
+        assert self.changelog.exists(), "docs/audit_gate/CHANGELOG.md must exist"
+        self.content = self.changelog.read_text(encoding="utf-8")
+
+    def _extract_pr_section(self, pr_label: str) -> str:
+        """Extract the section for a given PR label (e.g. 'PR #40')."""
+        lines = self.content.splitlines()
+        in_section = False
+        result: list[str] = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("##"):
+                if pr_label in stripped:
+                    in_section = True
+                    result.append(line)
+                    continue
+                if in_section:
+                    break
+            if in_section:
+                result.append(line)
+        return "\n".join(result)
+
+    def test_changelog_has_pr40_section(self) -> None:
+        assert "PR #40" in self.content, (
+            "docs/audit_gate/CHANGELOG.md must have a PR #40 section"
+        )
+
+    def test_changelog_has_pr41_section(self) -> None:
+        assert "PR #41" in self.content, (
+            "docs/audit_gate/CHANGELOG.md must have a PR #41 section"
+        )
+
+    def test_changelog_has_pr42_section(self) -> None:
+        assert "PR #42" in self.content, (
+            "docs/audit_gate/CHANGELOG.md must have a PR #42 section"
+        )
+
+    def test_changelog_has_pr43_section(self) -> None:
+        assert "PR #43" in self.content, (
+            "docs/audit_gate/CHANGELOG.md must have a PR #43 section"
+        )
+
+    def test_pr40_section_mentions_memoryerror_or_recursionerror(self) -> None:
+        section = self._extract_pr_section("PR #40")
+        assert section, "PR #40 section must be extractable from CHANGELOG.md"
+        section_lower = section.lower()
+        assert (
+            "memoryerror" in section_lower or "recursionerror" in section_lower
+        ), (
+            "PR #40 section in CHANGELOG.md must mention MemoryError or RecursionError"
+        )
+
+    def test_pr41_section_mentions_computed_repeat_multiplier(self) -> None:
+        section = self._extract_pr_section("PR #41")
+        assert section, "PR #41 section must be extractable from CHANGELOG.md"
+        section_lower = section.lower()
+        assert (
+            "computed repeat multiplier" in section_lower
+            or "repeat multiplier" in section_lower
+            or '10 ** 9' in section
+        ), (
+            "PR #41 section in CHANGELOG.md must mention computed repeat multiplier"
+        )
+
+    def test_pr41_section_mentions_join_generator(self) -> None:
+        section = self._extract_pr_section("PR #41")
+        assert section, "PR #41 section must be extractable from CHANGELOG.md"
+        section_lower = section.lower()
+        assert (
+            "join(generator)" in section_lower
+            or "join" in section_lower and "generator" in section_lower
+        ), (
+            "PR #41 section in CHANGELOG.md must mention join(generator)"
+        )
+
+    def test_pr42_section_mentions_timeout_unit(self) -> None:
+        section = self._extract_pr_section("PR #42")
+        assert section, "PR #42 section must be extractable from CHANGELOG.md"
+        section_lower = section.lower()
+        assert (
+            "timeout unit" in section_lower
+            or ("timeout" in section_lower and ("seconds" in section_lower or "milliseconds" in section_lower))
+        ), (
+            "PR #42 section in CHANGELOG.md must mention timeout unit (seconds vs milliseconds)"
+        )
+
+    def test_pr42_section_mentions_max_model_requests_per_run(self) -> None:
+        section = self._extract_pr_section("PR #42")
+        assert section, "PR #42 section must be extractable from CHANGELOG.md"
+        assert "max_model_requests_per_run" in section, (
+            "PR #42 section in CHANGELOG.md must mention max_model_requests_per_run"
+        )
+
+    def test_pr43_section_mentions_output_root_symlink(self) -> None:
+        section = self._extract_pr_section("PR #43")
+        assert section, "PR #43 section must be extractable from CHANGELOG.md"
+        section_lower = section.lower()
+        assert (
+            "output_root" in section_lower
+            and "symlink" in section_lower
+        ), (
+            "PR #43 section in CHANGELOG.md must mention output_root symlink"
+        )

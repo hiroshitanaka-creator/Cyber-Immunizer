@@ -1842,3 +1842,142 @@ class TestCritical1DocumentedAsUnresolved:
             "'Phase 3 activation PR must add promote_approved gate'."
         )
 
+
+# ---------------------------------------------------------------------------
+# 13. Pre-Phase-3 hardening completion (PR #37–#43) — new for PR #44
+# ---------------------------------------------------------------------------
+
+
+class TestPrePhase3HardeningCompletion:
+    """Verify that PHASE_2_COMPLETION_CHECKPOINT.md reflects PR #37–#43 completed state."""
+
+    @pytest.fixture(autouse=True)
+    def _load(self) -> None:
+        assert _CHECKPOINT.exists()
+        self.content = _CHECKPOINT.read_text(encoding="utf-8")
+
+    def test_mentions_pr37(self) -> None:
+        assert "PR #37" in self.content, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must mention PR #37"
+        )
+
+    def test_mentions_pr38(self) -> None:
+        assert "PR #38" in self.content, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must mention PR #38"
+        )
+
+    def test_mentions_pr39(self) -> None:
+        assert "PR #39" in self.content, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must mention PR #39"
+        )
+
+    def test_mentions_pr40(self) -> None:
+        assert "PR #40" in self.content, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must mention PR #40"
+        )
+
+    def test_mentions_pr41(self) -> None:
+        assert "PR #41" in self.content, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must mention PR #41"
+        )
+
+    def test_mentions_pr42(self) -> None:
+        assert "PR #42" in self.content, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must mention PR #42"
+        )
+
+    def test_mentions_pr43(self) -> None:
+        assert "PR #43" in self.content, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must mention PR #43"
+        )
+
+    def test_still_says_phase3_not_started(self) -> None:
+        content_lower = self.content.lower()
+        assert (
+            "phase 3 is not started" in content_lower
+            or "phase 3 not started" in content_lower
+            or "phase 3 still not started" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must still state Phase 3 is not started"
+        )
+
+    def test_still_says_api_not_connected(self) -> None:
+        content_lower = self.content.lower()
+        assert (
+            "api remains not connected" in content_lower
+            or "not connected" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must still state API is not connected"
+        )
+
+    def test_still_says_live_model_enabled_false(self) -> None:
+        content_lower = self.content.lower()
+        assert (
+            "live_model_enabled remains false" in content_lower
+            or "live_model_enabled | false" in content_lower
+            or "live_model_enabled: false" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must still state live_model_enabled remains false"
+        )
+
+    def test_mentions_apply_mutation_safe_output_path(self) -> None:
+        content_lower = self.content.lower()
+        assert (
+            "apply_mutation safe output path" in content_lower
+            or "apply_mutation output path" in content_lower
+            or "safe output path" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must mention apply_mutation safe output path"
+        )
+
+    def test_mentions_output_root_symlink_rejection(self) -> None:
+        content_lower = self.content.lower()
+        assert (
+            "output_root symlink" in content_lower
+            or "output_root itself must not be a symlink" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must mention output_root symlink rejection"
+        )
+
+    def test_mentions_gemini_api_timeout(self) -> None:
+        content_lower = self.content.lower()
+        assert (
+            "gemini api timeout" in content_lower
+            or "explicit timeout" in content_lower
+            or "timeout" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must mention Gemini API timeout"
+        )
+
+    def test_mentions_max_model_requests_per_run(self) -> None:
+        assert "max_model_requests_per_run" in self.content, (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must mention max_model_requests_per_run"
+        )
+
+    def test_mentions_ast_parser_guard(self) -> None:
+        content_lower = self.content.lower()
+        assert (
+            "ast" in content_lower
+            and ("parser" in content_lower or "dos" in content_lower or "node count" in content_lower)
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must mention AST/parser guard"
+        )
+
+    def test_mentions_memoryerror_or_recursionerror(self) -> None:
+        content_lower = self.content.lower()
+        assert (
+            "memoryerror" in content_lower
+            or "recursionerror" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must mention MemoryError or RecursionError"
+        )
+
+    def test_mentions_runtime_allocation_guard(self) -> None:
+        content_lower = self.content.lower()
+        assert (
+            "runtime allocation" in content_lower
+            or "runtime allocation risks" in content_lower
+        ), (
+            "PHASE_2_COMPLETION_CHECKPOINT.md must mention runtime allocation guard"
+        )
+
