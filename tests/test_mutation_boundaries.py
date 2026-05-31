@@ -229,3 +229,49 @@ class TestRejectedPatches:
         assert "double" in result["error"].lower() or "2" in result["error"], (
             f"Error should mention duplicate marker, got: {result['error']!r}"
         )
+
+
+class TestApplyMutationSourceSizeGuard:
+    def test_rejects_oversized_replacement_before_file_write(self, tmp_path):
+        """Oversized replacement_code must be rejected before out_path is created."""
+        from core.policy import MAX_POLICY_SOURCE_CHARS
+
+        # Build a replacement_code large enough to push projected candidate over the limit
+        giant_replacement = (
+            "    # " + "x" * 100 + "\n"
+        ) * (MAX_POLICY_SOURCE_CHARS // 100 + 10)
+        giant_replacement += "    return DetectionResult(False, '', 0.0, ())\n"
+
+        patch_path = _make_patch(giant_replacement)
+        out_path = tmp_path / "should_not_be_created.py"
+
+        result = apply_mutation(patch_path, _BASE_DETECTOR, out_path)
+
+        assert not result["success"], (
+            "apply_mutation must fail when replacement_code makes candidate too large"
+        )
+        error_lower = result["error"].lower()
+        assert (
+            "max_policy_source_chars" in error_lower
+            or "source too large" in error_lower
+            or "candidate source" in error_lower
+        ), f"Error must mention size limit, got: {result['error']!r}"
+        assert not out_path.exists(), (
+            "out_path must NOT be created when projected candidate exceeds size limit"
+        )
+
+    def test_normal_replacement_still_applies(self, tmp_path):
+        """A normal-sized replacement_code must still produce a valid candidate."""
+        patch_path = _make_patch(
+            "    if '../' in request.path:\n"
+            "        return DetectionResult(True, 'traversal', 0.9, ('../',))\n"
+            "    return DetectionResult(False, 'ok', 0.0, ())\n"
+        )
+        out_path = tmp_path / "candidate.py"
+
+        result = apply_mutation(patch_path, _BASE_DETECTOR, out_path)
+
+        assert result["success"], (
+            f"Normal replacement should succeed, got: {result}"
+        )
+        assert out_path.exists(), "out_path must be created for a valid candidate"
