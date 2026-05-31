@@ -152,17 +152,33 @@ def save_ledger(path: Path, records: list[dict]) -> None:
 # Token and cost estimation
 # ---------------------------------------------------------------------------
 
+# Conservative multiplier for pre-call token estimation.
+# Must be >= 2.0.  Falling back to chars/4 (i.e. multiplier 0.25) is
+# forbidden: it is unsafe for Japanese, CJK, symbol-heavy, and code-mixed
+# prompts where actual tokens per character can approach 1:1 or higher.
+_CONSERVATIVE_TOKENS_PER_CHAR: float = 2.0
+
 
 def estimate_tokens_from_chars(chars: int) -> int:
-    """Conservatively estimate token count from character count.
+    """Conservative pre-call budget gate estimate of token count from character count.
 
-    Uses ceil(chars / 4) as a conservative upper bound.
-    Real tokenisation is model-specific; this formula errs toward
-    over-counting to give a safe budget estimate.
+    This is a budget gate estimate only.  It intentionally overestimates to
+    remain safe across all input types:
+      - ASCII prose: actual ~1 token per 4 chars; this overestimates by ~8x.
+      - Japanese/CJK/symbol-heavy: actual tokens per char can approach or
+        exceed 1:1; the 2x multiplier keeps the estimate conservative.
+      - Code/mixed content: tokenisation varies widely; 2x is a safe floor.
+
+    Policy:
+      - Real tokenisation is model-specific and is not performed here.
+      - Future official token counting may supplement this, but any fallback
+        must remain at least as conservative as _CONSERVATIVE_TOKENS_PER_CHAR.
+      - Falling back to chars / 4 is forbidden: it makes the budget gate
+        fail-open for multilingual and code-mixed prompts.
     """
     if chars <= 0:
         return 0
-    return math.ceil(chars / 4)
+    return math.ceil(chars * _CONSERVATIVE_TOKENS_PER_CHAR)
 
 
 def estimate_cost_usd(

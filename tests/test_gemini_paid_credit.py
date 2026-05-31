@@ -1502,3 +1502,102 @@ class TestPaidCreditMaxAttemptsFromGenome:
             f"max_attempts should be 1 (max_model_requests_per_run=1), "
             f"got {captured_max_attempts[0]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 21. Conservative multilingual estimate refuses before API call
+# ---------------------------------------------------------------------------
+
+
+class TestConservativeMultilingualBudgetRefusal:
+    """Proves the 2x conservative token estimate participates in the pre-call budget gate.
+
+    This test verifies that a Japanese/code/symbol-heavy prompt produces a cost
+    estimate large enough to trigger budget refusal before _call_gemini_api is
+    reached.  It also documents that the old chars/4 formula would NOT have
+    triggered refusal at the same budget level.
+    """
+
+    def test_conservative_multilingual_estimate_refuses_before_api_call(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Conservative 2x estimate of multilingual/code prompt must refuse before API call.
+
+        Budget is set so:
+          - 2x estimate (conservative):  output_cost > $0.003  -> refused  ✓
+          - chars/4 estimate (old/unsafe): output_cost < $0.003 -> would have passed
+
+        _call_gemini_api must NOT be invoked; the pre-call budget gate must fire first.
+        """
+        # Multilingual/code/symbol-heavy prompt: Japanese text + Python-like code
+        # + neutralised symbolic indicator names + punctuation-heavy content.
+        multilingual_prompt = (
+            "このコードはセキュリティの脆弱性を検出します。\n"
+            "以下のPythonコードを分析してください:\n"
+            "def check_request(req):\n"
+            "    surface = req.path.lower() + ' ' + req.body.lower()\n"
+            "    indicators = [\n"
+            "        'path_traversal_indicator',\n"
+            "        'sqli_indicator',\n"
+            "        'script_injection_indicator',\n"
+            "        'command_delimiter_indicator',\n"
+            "    ]\n"
+            "    matched = [ind for ind in indicators if ind in surface]\n"
+            "    if matched:\n"
+            "        return True, matched[0]\n"
+            "    return False, ''\n"
+            "# 記号テスト !@#$%^&*()_+-=[]{}|;':\",./<>?\n"
+            "# 攻撃パターンの指標検出: path_traversal_indicator sqli_indicator\n"
+        )
+        monkeypatch.setattr(pm, "_build_user_prompt", lambda g, d: multilingual_prompt)
+
+        # Budget chosen to sit between the old (chars/4) and new (2x) output estimates.
+        # With max_output_tokens=2048: output_chars = 2048 * 4 = 8192.
+        #   Conservative 2x: ceil(8192 * 2.0) = 16384 tokens → ~$0.013  > $0.003 ✗
+        #   Old unsafe chars/4: ceil(8192 / 4)  =  2048 tokens → ~$0.002  < $0.003 ✓
+        genome = {
+            **live_paid_genome,
+            "monthly_api_budget_usd": 0.003,
+            "daily_api_budget_usd": 0.003,
+            "max_output_tokens": 2048,
+            "live_model_enabled": True,
+        }
+        genome_path = tmp_path / "genome_multilingual.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+
+        # Empty ledger — zero prior spend; the estimate alone must exceed the budget.
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file, ledger_path, out_dir)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        # Track whether _call_gemini_api is invoked — it must NOT be.
+        api_call_was_made: list[bool] = []
+
+        def mock_api_call(*args: Any, **kwargs: Any) -> Any:
+            api_call_was_made.append(True)
+            return None, None, None, "must not reach here"
+
+        monkeypatch.setattr(pm, "_call_gemini_api", mock_api_call)
+
+        result, err = pm.propose_mutation(gemini_paid_credit=True, allow_live_model=True)
+
+        assert result is None, (
+            "propose_mutation must return None when conservative estimate exceeds budget"
+        )
+        assert err, "Must produce a non-empty error message"
+        assert any(word in err.lower() for word in ("budget", "monthly", "daily")), (
+            f"Error must mention budget/monthly/daily, got: {err!r}"
+        )
+        assert not api_call_was_made, (
+            "_call_gemini_api must NOT be called when conservative estimate exceeds budget; "
+            "the pre-call budget gate must fire first"
+        )
