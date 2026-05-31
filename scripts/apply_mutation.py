@@ -38,6 +38,57 @@ _REQUIRED_PATCH_FIELDS = (
     "replacement_code",
 )
 
+# Safe output root: candidate files may only be written under this directory.
+_DEFAULT_OUTPUT_ROOT = _PROJECT_ROOT / ".cyber_immunizer"
+
+
+def _resolve_safe_output_path(
+    out_path: Path,
+    output_root: Path | None = None,
+) -> tuple[Path | None, str]:
+    """Validate that out_path resolves to a safe location under output_root.
+
+    Returns (resolved_path, error_message).  On error, resolved_path is None
+    and the candidate file must NOT be created.
+    """
+    if output_root is None:
+        output_root = _DEFAULT_OUTPUT_ROOT
+
+    # Ensure output_root exists so resolve() can canonicalise it correctly.
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    # Interpret relative paths relative to project root.
+    if not out_path.is_absolute():
+        out_path = _PROJECT_ROOT / out_path
+
+    # Resolve symlinks / ".." components in both paths before comparing.
+    resolved_output = out_path.resolve()
+    resolved_root = output_root.resolve()
+
+    # Only .py files are permitted as candidate output.
+    if resolved_output.suffix != ".py":
+        return None, (
+            "unsafe output path: only .py files are allowed as candidate output "
+            f"(got suffix {resolved_output.suffix!r})"
+        )
+
+    # Directories must not be used as the output target.
+    if resolved_output.is_dir():
+        return None, "unsafe output path: output path resolves to a directory"
+
+    # Containment check: resolved output must be strictly inside output_root.
+    # Path.is_relative_to() is available from Python 3.9; use try/except for
+    # broader compatibility.
+    try:
+        resolved_output.relative_to(resolved_root)
+    except ValueError:
+        return None, (
+            "unsafe output path: resolved path is outside allowed output root "
+            f"(allowed root: {resolved_root})"
+        )
+
+    return resolved_output, ""
+
 
 def _parse_patch(patch_path: Path) -> tuple[dict | None, str]:
     """Parse and validate the mutation patch JSON.
@@ -126,10 +177,16 @@ def apply_mutation(
     patch_path: Path,
     base_path: Path,
     out_path: Path,
+    *,
+    output_root: Path | None = None,
 ) -> dict:
     """Apply mutation patch and validate the resulting candidate.
 
     Returns a result dict with keys: success, candidate_path, violations, error.
+
+    The output_root parameter (default: _DEFAULT_OUTPUT_ROOT) constrains where
+    candidate files may be written.  Paths that resolve outside this root are
+    rejected fail-closed before any file is created.
     """
     # --- Parse patch ---
     patch, err = _parse_patch(patch_path)
@@ -146,14 +203,19 @@ def apply_mutation(
         }
     base_source = base_path.read_text(encoding="utf-8")
 
-    # --- Apply replacement ---
+    # --- Apply replacement (includes source-size projection guard) ---
     new_source, err = _apply_replacement(base_source, patch["replacement_code"])
     if err:
         return {"success": False, "candidate_path": None, "violations": [], "error": err}
 
+    # --- Validate output path (fail-closed before any write) ---
+    resolved_out, path_err = _resolve_safe_output_path(out_path, output_root)
+    if path_err:
+        return {"success": False, "candidate_path": None, "violations": [], "error": path_err}
+
     # --- Write candidate ---
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(new_source, encoding="utf-8")
+    resolved_out.parent.mkdir(parents=True, exist_ok=True)
+    resolved_out.write_text(new_source, encoding="utf-8")
 
     # --- Validate candidate ---
     # Wrap in try/except so any unexpected parser exception (MemoryError,
@@ -161,9 +223,9 @@ def apply_mutation(
     # written candidate and returning a structured failure.
     # KeyboardInterrupt / SystemExit are not caught and propagate normally.
     try:
-        val_result = validate(out_path)
+        val_result = validate(resolved_out)
     except Exception as exc:  # noqa: BLE001
-        out_path.unlink(missing_ok=True)
+        resolved_out.unlink(missing_ok=True)
         return {
             "success": False,
             "candidate_path": None,
@@ -172,7 +234,7 @@ def apply_mutation(
         }
     if not val_result["valid"]:
         # Remove invalid candidate
-        out_path.unlink(missing_ok=True)
+        resolved_out.unlink(missing_ok=True)
         return {
             "success": False,
             "candidate_path": None,
@@ -182,7 +244,7 @@ def apply_mutation(
 
     return {
         "success": True,
-        "candidate_path": str(out_path),
+        "candidate_path": str(resolved_out),
         "violations": [],
         "error": "",
         "mutation_rationale": patch.get("mutation_rationale", ""),
@@ -208,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
         patch_path=Path(args.patch),
         base_path=Path(args.base),
         out_path=Path(args.out),
+        # output_root defaults to _DEFAULT_OUTPUT_ROOT (.cyber_immunizer/)
     )
 
     if args.json:
