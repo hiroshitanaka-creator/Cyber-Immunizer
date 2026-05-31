@@ -214,7 +214,7 @@ The following items were identified as pre-Phase-3 hardening requirements and re
 | Hardening #37 | AI navigation / Audit Gate modularization — docs/AI_ENTRYPOINT.md modularized; docs navigation tests added. | **Resolved** — PR #37 |
 | Hardening #38 | Existing docs AI_DOC_META role labels — all key docs carry AI_DOC_META metadata blocks. | **Resolved** — PR #38 |
 | Hardening #39 | README AI docs map / navigation guard — README docs map includes AI entrypoint and audit_gate protocol files. | **Resolved** — PR #39 |
-| Hardening #40 | AST complexity / parser DoS guard — source-size and node-count guards enforced before ast.parse; MemoryError / RecursionError handled fail-closed. | **Resolved** — PR #40 |
+| Hardening #40 | AST complexity / parser DoS guard — source-size guard runs before ast.parse; parser MemoryError / RecursionError are handled fail-closed; node-count and depth guards run after parsing succeeds and before evaluation / promote. | **Resolved** — PR #40 |
 | Hardening #41 | Runtime allocation / comprehension DoS guard — computed repeat multipliers (e.g. "a" * (10 ** 9)) and unbounded join(generator) rejected before evaluation / promote. | **Resolved** — PR #41 |
 | Hardening #42 | Gemini API timeout / retry / max_model_requests_per_run alignment — explicit timeout, bounded transient retry, retry count capped by max_model_requests_per_run, paid-credit ledger not written per retry attempt. | **Resolved** — PR #42 |
 | Hardening #43 | apply_mutation safe output path / output_root symlink rejection — output path checked after resolving traversal and symlinks; output_root itself must not be a symlink; unsafe paths fail closed before write_text. | **Resolved** — PR #43 |
