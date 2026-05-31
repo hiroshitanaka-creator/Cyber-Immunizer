@@ -118,6 +118,7 @@ Cyber-Immunizer/
 │   ├── OFFLINE_SAMPLE_PROMOTE_SEPARATION.md    # offline-sample dry-run / promote 分離設計（Phase 2-D: design-only）
 │   ├── API_ACTIVATION_CHECKLIST.md             # API有効化チェックリスト・GEMINI_API_KEY用語正本
 │   ├── PHASE_2_COMPLETION_CHECKPOINT.md        # Phase 2完了チェックポイント・pre-Phase-3現在状態
+│   ├── PHASE_3_GO_NO_GO_CHECKLIST.md           # Phase 3 activation前のGo/No-Go readiness audit
 │   └── API_ACTIVATION_RUNBOOK.md               # API有効化手順書（Phase 3 runbook）
 ├── intelligence/
 │   └── threat_feeds.py     # 脅威インテリジェンスモジュール（スタブ）
