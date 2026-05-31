@@ -1521,17 +1521,26 @@ class TestPersistLedgerRetrySafety:
         )
 
     # ------------------------------------------------------------------
-    # 5. Explicit push ref
+    # 5. Explicit push ref, safe only with main checkout
     # ------------------------------------------------------------------
 
     def test_persist_ledger_pushes_explicit_ref(
         self, loop_workflow_text: str
     ) -> None:
-        """persist-ledger must use an explicit push ref (git push origin HEAD:main)."""
+        """persist-ledger must use git push origin HEAD:main AND checkout ref: main.
+
+        git push origin HEAD:main is safe only when the local HEAD is guaranteed
+        to be based on main.  Fix C (ref: main in checkout) provides that guarantee.
+        Both invariants must be present together.
+        """
         section = self._persist_ledger_section(loop_workflow_text)
         assert "git push origin HEAD:main" in section, (
             "persist-ledger must use 'git push origin HEAD:main' (explicit ref) "
             "rather than an ambiguous plain 'git push'."
+        )
+        assert "ref: main" in section, (
+            "persist-ledger checkout must pin 'ref: main' so that HEAD is "
+            "guaranteed to be on main before 'git push origin HEAD:main' runs."
         )
 
     # ------------------------------------------------------------------
@@ -1625,4 +1634,127 @@ class TestPersistLedgerRetrySafety:
         )
         assert "cancel-in-progress: false" in loop_workflow_text, (
             "concurrency.cancel-in-progress must remain false."
+        )
+
+    # ------------------------------------------------------------------
+    # 11. Codex P1 Fix A: paid-credit refused outside main
+    # ------------------------------------------------------------------
+
+    def test_paid_credit_mode_refused_outside_main(
+        self, loop_workflow_text: str
+    ) -> None:
+        """propose job must refuse gemini-paid-credit on non-main refs.
+
+        The guard step must:
+        - exist and be named 'Refuse paid-credit mode outside main'
+        - check github.ref against refs/heads/main
+        - exit 1
+        - appear before the 'Propose mutation patch — gemini-paid-credit' API-call step
+        """
+        import re as _re
+
+        # Guard step must exist
+        assert "Refuse paid-credit mode outside main" in loop_workflow_text, (
+            "propose job must have a 'Refuse paid-credit mode outside main' guard step."
+        )
+
+        # Extract guard step block
+        guard_m = _re.search(
+            r"- name: Refuse paid-credit mode outside main(.*?)(?=\n      - name:|\Z)",
+            loop_workflow_text,
+            _re.DOTALL,
+        )
+        assert guard_m is not None, "Could not extract 'Refuse paid-credit mode outside main' step block."
+        guard_block = guard_m.group(0)
+
+        # Guard must reference refs/heads/main
+        assert "refs/heads/main" in guard_block, (
+            "Guard step must check github.ref against refs/heads/main."
+        )
+
+        # Guard must exit 1
+        assert "exit 1" in guard_block, (
+            "Guard step must call exit 1 to refuse paid-credit on non-main."
+        )
+
+        # Guard must precede the gemini-paid-credit API-call step
+        paid_credit_m = _re.search(
+            r"Propose mutation patch — gemini-paid-credit(?!-preflight)",
+            loop_workflow_text,
+        )
+        assert paid_credit_m is not None, (
+            "Could not find 'Propose mutation patch — gemini-paid-credit' (non-preflight) step."
+        )
+        assert guard_m.start() < paid_credit_m.start(), (
+            "The main-only guard must appear before the 'gemini-paid-credit' API-call step."
+        )
+
+    # ------------------------------------------------------------------
+    # 12. Codex P1 Fix B: persist-ledger only runs on main
+    # ------------------------------------------------------------------
+
+    def test_persist_ledger_runs_only_on_main(
+        self, loop_workflow_text: str
+    ) -> None:
+        """persist-ledger job condition must restrict execution to refs/heads/main."""
+        section = self._persist_ledger_section(loop_workflow_text)
+        assert "refs/heads/main" in section, (
+            "persist-ledger job if condition must require github.ref == 'refs/heads/main' "
+            "to prevent branch-dispatched runs from pushing ledger to main."
+        )
+        assert "ledger_changed" in section, (
+            "persist-ledger must still gate on needs.propose.outputs.ledger_changed."
+        )
+
+    # ------------------------------------------------------------------
+    # 13. Codex P1 Fix C: persist-ledger checkout pins main
+    # ------------------------------------------------------------------
+
+    def test_persist_ledger_checkout_uses_main_ref(
+        self, loop_workflow_text: str
+    ) -> None:
+        """persist-ledger checkout step must pin ref: main and use GITHUB_TOKEN."""
+        section = self._persist_ledger_section(loop_workflow_text)
+        assert "ref: main" in section, (
+            "persist-ledger checkout must include 'ref: main' so HEAD is always "
+            "on main before the ledger commit and rebase retry run."
+        )
+        assert "secrets.GITHUB_TOKEN" in section, (
+            "persist-ledger checkout must use secrets.GITHUB_TOKEN for write auth."
+        )
+
+    # ------------------------------------------------------------------
+    # 14. No generated-code execution in persist-ledger
+    # ------------------------------------------------------------------
+
+    def test_persist_ledger_has_no_generated_code_execution(
+        self, loop_workflow_text: str
+    ) -> None:
+        """persist-ledger must not download or execute any generated candidate artifacts."""
+        section = self._persist_ledger_section(loop_workflow_text)
+        forbidden = [
+            "mutation-patch",
+            "candidate-detector",
+            "evaluate_candidate.py",
+            "apply_mutation.py",
+            "core.fitness",
+        ]
+        for token in forbidden:
+            assert token not in section, (
+                f"persist-ledger must NOT reference '{token}'. "
+                "Generated code must not be present in the write-permission ledger job."
+            )
+
+    # ------------------------------------------------------------------
+    # 15. No GEMINI_API_KEY in persist-ledger
+    # ------------------------------------------------------------------
+
+    def test_persist_ledger_has_no_gemini_api_key(
+        self, loop_workflow_text: str
+    ) -> None:
+        """persist-ledger must not receive GEMINI_API_KEY (raw or present signal)."""
+        section = self._persist_ledger_section(loop_workflow_text)
+        assert "GEMINI_API_KEY" not in _non_comment_content(section), (
+            "persist-ledger must NOT reference GEMINI_API_KEY in non-comment lines. "
+            "Write permissions and model secrets must remain in separate jobs."
         )
