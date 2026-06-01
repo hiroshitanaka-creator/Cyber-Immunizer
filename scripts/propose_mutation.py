@@ -523,7 +523,11 @@ def _sanitize_gemini_error_message(
     7. Mutation-region markers and trailing content.
     """
     # 1. Caller-supplied forbidden strings (user prompt text, system prompt).
-    #    Use verbatim replacement so no regex-special chars in prompt can cause issues.
+    #    Verbatim str.replace handles the raw Python string form.
+    #    JSON-encoded forms (e.g. "system_instruction": "...\n...") are handled
+    #    separately in step 5 via structural regex, because json.dumps converts
+    #    \n to \\n and adds surrounding quotes, making the encoded string
+    #    non-identical to the raw Python value and therefore unmatchable here.
     for forbidden in forbidden_substrings:
         if forbidden and forbidden in raw_msg:
             raw_msg = raw_msg.replace(forbidden, "[REDACTED]")
