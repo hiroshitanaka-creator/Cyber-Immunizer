@@ -657,7 +657,79 @@ class TestCodexP2JsonEncoding:
 
 
 # ---------------------------------------------------------------------------
-# 9. TestCodexP2IndexedFieldPaths
+# 9. TestCodexP2ReprStyle
+#    Python repr / bare-assignment text= and parts= forms must be redacted.
+# ---------------------------------------------------------------------------
+
+
+class TestCodexP2ReprStyle:
+    """Bare assignment-style text= and parts= in Python repr must be redacted.
+
+    The google-genai SDK may surface error strings that include a Python repr
+    of the request object, e.g.:
+
+        Part(text='You are a defensive security code assistant...')
+        GenerateContentConfig(..., parts=[Part(text='detector prompt...')])
+
+    Step 5 of _sanitize_gemini_error_message must catch bare text= / parts=
+    forms (in addition to JSON-quoted "text": / "parts": forms) so prompt text
+    in repr-style echoes never reaches the ledger or logs.
+    """
+
+    def test_bare_text_equals_single_quoted_redacted(self) -> None:
+        """text='...' (bare key, single-quoted value) is redacted."""
+        raw = "text='You are a defensive security code assistant.'"
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "You are a defensive" not in sanitized
+        assert "[text redacted]" in sanitized
+
+    def test_bare_text_equals_double_quoted_redacted(self) -> None:
+        """text=\"...\" (bare key, double-quoted value) is redacted."""
+        raw = 'text="You are a defensive security code assistant."'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "You are a defensive" not in sanitized
+        assert "[text redacted]" in sanitized
+
+    def test_part_repr_text_field_redacted(self) -> None:
+        """Part(text='...') Python repr form is redacted."""
+        sentinel = "detector mutation region sentinel XYZ"
+        raw = f"Part(text='{sentinel}')"
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert sentinel not in sanitized
+        assert "[text redacted]" in sanitized
+
+    def test_generate_content_config_parts_repr_redacted(self) -> None:
+        """GenerateContentConfig repr with parts=[Part(text='...')] is redacted."""
+        sentinel = "secret-prompt-content-ABC"
+        raw = f"GenerateContentConfig(system_instruction=..., parts=[Part(text='{sentinel}')])"
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert sentinel not in sanitized
+
+    def test_bare_parts_equals_list_redacted(self) -> None:
+        """parts=['...'] (bare key, list value) is redacted."""
+        raw = "parts=['prompt part one', 'prompt part two']"
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "prompt part one" not in sanitized
+        assert "[parts redacted]" in sanitized
+
+    def test_context_word_not_false_positive(self) -> None:
+        """The word 'context' in an error message is not incorrectly redacted."""
+        raw = "Error context: invalid parameter value for the request"
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "context" in sanitized
+        assert sanitized == raw
+
+    def test_status_code_survives_repr_redaction(self) -> None:
+        """HTTP status code and API error code survive repr-style text redaction."""
+        raw = "400 INVALID_ARGUMENT: Part(text='prompt text')"
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "prompt text" not in sanitized
+        assert "400" in sanitized
+        assert "INVALID_ARGUMENT" in sanitized
+
+
+# ---------------------------------------------------------------------------
+# 10. TestCodexP2IndexedFieldPaths
 #    Indexed request field path forms such as contents[0].parts[0].text must
 #    be redacted by _sanitize_gemini_error_message.
 # ---------------------------------------------------------------------------

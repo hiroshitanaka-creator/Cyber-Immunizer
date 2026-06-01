@@ -583,15 +583,18 @@ def _sanitize_gemini_error_message(
         )
 
     # "text" and "parts" carry per-part prompt content in the request body.
-    # Only match JSON-quoted keys to avoid false positives on common English words.
+    # Covers JSON-quoted key forms ("text": / 'text':) and bare assignment
+    # forms (text=, parts=) used in Python repr such as Part(text='...').
+    # Negative lookbehind (?<![.\w]) prevents matching words like "context"
+    # and avoids colliding with dotted-path forms handled in step 7.
     raw_msg = re.sub(
-        r'(?:"text"|\'text\')\s*:\s*' + _any_str,
+        r'(?:"text"|\'text\'|(?<![.\w])text)\s*[:=]\s*' + _any_str,
         '"text": "[text redacted]"',
         raw_msg,
         flags=re.IGNORECASE | re.DOTALL,
     )
     raw_msg = re.sub(
-        r'(?:"parts"|\'parts\')\s*:\s*\[.*?\]',
+        r'(?:"parts"|\'parts\'|(?<![.\w])parts)\s*[:=]\s*\[.*?\]',
         '"parts": "[parts redacted]"',
         raw_msg,
         flags=re.IGNORECASE | re.DOTALL,
