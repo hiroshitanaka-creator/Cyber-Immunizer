@@ -654,3 +654,125 @@ class TestCodexP2JsonEncoding:
 
         assert sentinel not in err
         assert "400" in err or "FakeClientError" in err
+
+
+# ---------------------------------------------------------------------------
+# 9. TestCodexP2IndexedFieldPaths
+#    Indexed request field path forms such as contents[0].parts[0].text must
+#    be redacted by _sanitize_gemini_error_message.
+# ---------------------------------------------------------------------------
+
+
+class TestCodexP2IndexedFieldPaths:
+    """Indexed field path echo from SDK/API errors must be redacted.
+
+    The google-genai SDK or HTTP layer may echo the submitted request body as
+    dotted/indexed paths in error messages, for example:
+
+        contents[0].parts[0].text = "You are a defensive security..."
+        request.contents[0].parts[0].text: "detector mutation region..."
+        system_instruction.parts[0].text = "You are..."
+
+    Step 7 of _sanitize_gemini_error_message must catch these forms so prompt
+    text and detector mutation regions never reach the ledger or logs.
+    """
+
+    # --- bracket-index, equals separator ---
+
+    def test_contents_bracket_equals_redacted(self) -> None:
+        """contents[0].parts[0].text = '...' is redacted."""
+        raw = 'contents[0].parts[0].text = "This is the detector prompt text."'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "detector prompt text" not in sanitized
+        assert "[text redacted]" in sanitized
+
+    # --- bracket-index, colon separator ---
+
+    def test_contents_bracket_colon_redacted(self) -> None:
+        """contents[0].parts[0].text: '...' (colon separator) is redacted."""
+        raw = 'contents[0].parts[0].text: "This is the detector prompt text."'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "detector prompt text" not in sanitized
+        assert "[text redacted]" in sanitized
+
+    # --- dot-numeric index notation ---
+
+    def test_contents_dot_numeric_index_redacted(self) -> None:
+        """contents.0.parts.0.text = '...' (dot-numeric index) is redacted."""
+        raw = 'contents.0.parts.0.text = "This is the detector prompt text."'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "detector prompt text" not in sanitized
+        assert "[text redacted]" in sanitized
+
+    # --- request.contents prefix ---
+
+    def test_request_contents_indexed_redacted(self) -> None:
+        """request.contents[0].parts[0].text = '...' is redacted."""
+        raw = 'request.contents[0].parts[0].text = "This is the detector prompt text."'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "detector prompt text" not in sanitized
+        assert "[text redacted]" in sanitized
+
+    # --- system_instruction path ---
+
+    def test_system_instruction_parts_text_redacted(self) -> None:
+        """system_instruction.parts[0].text = '...' yields [system instruction redacted]."""
+        sentinel = "You are a defensive security code assistant"
+        raw = f'system_instruction.parts[0].text = "{sentinel} — confidential"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert sentinel not in sanitized
+        assert "[system instruction redacted]" in sanitized
+        assert "[text redacted]" not in sanitized
+
+    # --- escaped characters in value ---
+
+    def test_escaped_chars_in_indexed_text_redacted(self) -> None:
+        """Escaped newlines/quotes inside an indexed text value are redacted."""
+        import json as _json
+        json_val = _json.dumps("Line1\nLine2 with \"quotes\"")
+        raw = "contents[0].parts[0].text = " + json_val
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "Line1" not in sanitized
+        assert "Line2" not in sanitized
+        assert "[text redacted]" in sanitized
+
+    # --- safe diagnostic fields survive ---
+
+    def test_status_code_survives_indexed_redaction(self) -> None:
+        """HTTP status code and API error code survive indexed text-field redaction."""
+        raw = '400 INVALID_ARGUMENT: contents[0].parts[0].text = "prompt text"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "prompt text" not in sanitized
+        assert "400" in sanitized
+        assert "INVALID_ARGUMENT" in sanitized
+
+    def test_permission_denied_survives_indexed_redaction(self) -> None:
+        """PERMISSION_DENIED API reason is preserved after indexed text-field redaction."""
+        raw = '403 PERMISSION_DENIED: request.contents[0].parts[0].text = "secret"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "secret" not in sanitized
+        assert "PERMISSION_DENIED" in sanitized
+
+    # --- _call_gemini_api end-to-end ---
+
+    def test_call_gemini_api_indexed_contents_text_not_in_error(self) -> None:
+        """_call_gemini_api: ClientError with indexed contents[0].parts[0].text → stripped."""
+        sentinel = "detector-mutation-region-sentinel-XYZ"
+
+        class FakeClientError(Exception):
+            status_code = 400
+
+        mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([
+            FakeClientError(
+                f'400 INVALID_ARGUMENT: contents[0].parts[0].text = "{sentinel}"'
+            ),
+        ])
+
+        with _patch_genai(mock_genai, mock_genai_types):
+            _, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "safe user prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert sentinel not in err
+        assert "[text redacted]" in err

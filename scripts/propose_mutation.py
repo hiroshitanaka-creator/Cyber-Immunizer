@@ -520,7 +520,14 @@ def _sanitize_gemini_error_message(
        Handles "key": "value", 'key': 'value', key="value", key='value'.
        Value patterns cover JSON escape sequences (\\n, \\", etc.).
     6. "contents" request-payload array sections.
-    7. Mutation-region markers and trailing content.
+    7. Indexed request field path forms — SDK/API diagnostic echoes may carry
+       submitted prompt as dotted/indexed paths ending in .text:
+         contents[0].parts[0].text = "..."
+         request.contents[0].parts[0].text: "..."
+         system_instruction.parts[0].text = "..."
+         parts[0].text = "..."
+       Both bracket ([N]) and dot-numeric (.N) index notations are covered.
+    8. Mutation-region markers and trailing content.
     """
     # 1. Caller-supplied forbidden strings (user prompt text, system prompt).
     #    Verbatim str.replace handles the raw Python string form.
@@ -597,7 +604,34 @@ def _sanitize_gemini_error_message(
         raw_msg,
     )
 
-    # 7. Mutation-region markers and everything that follows — prevents detector
+    # 7. Indexed request field path forms — SDK/API error diagnostics may echo the
+    #    submitted request as dotted/indexed paths (e.g. contents[0].parts[0].text).
+    #    Both bracket ([N]) and dot-numeric (.N) index notations are supported.
+    #    A single regex pass with a callable replacement avoids the case where
+    #    the bare "parts[N].text" sub-pattern would re-match inside a replacement
+    #    string that still contains "system_instruction.parts[N].text".
+    _idx_seg = r"(?:\[\d+\]|\.\d+)?"  # optional [N] or .N index segment
+    _indexed_path_pat = (
+        r"((?:system_instruction|(?:request\.)?contents" + _idx_seg + r")"
+        + r"\.parts" + _idx_seg + r"\.text"
+        + r"|parts" + _idx_seg + r"\.text"
+        + r")\s*[:=]\s*" + _any_str
+    )
+
+    def _replace_indexed_text_path(m: re.Match) -> str:  # type: ignore[type-arg]
+        path = m.group(1)
+        if path.lower().startswith("system_instruction"):
+            return path + ' = "[system instruction redacted]"'
+        return path + ' = "[text redacted]"'
+
+    raw_msg = re.sub(
+        _indexed_path_pat,
+        _replace_indexed_text_path,
+        raw_msg,
+        flags=re.IGNORECASE,
+    )
+
+    # 8. Mutation-region markers and everything that follows — prevents detector
     # source code from leaking out if the SDK echoes back the request payload.
     raw_msg = re.sub(
         r"(?is)(Current\s+mutation\s+region|===\s*MUTATION_START\s*===|===\s*MUTATION_END\s*===).*",
