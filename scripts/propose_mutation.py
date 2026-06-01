@@ -504,49 +504,94 @@ def _is_transient_gemini_error(exc: BaseException) -> bool:
 _GEMINI_ERROR_MAX_MSG_LEN = 500
 
 
-def _format_gemini_error_detail(exc: BaseException, max_len: int = _GEMINI_ERROR_MAX_MSG_LEN) -> str:
-    """Return a safe diagnostic string for a Gemini API exception.
+def _sanitize_gemini_error_message(
+    raw_msg: str,
+    forbidden_substrings: tuple[str, ...] = (),
+) -> str:
+    """Strip secret-like and prompt/request-payload material from a raw exception message.
 
-    Includes exception class name, HTTP status code (if present on the
-    exception), and a sanitized excerpt of str(exc).  Never exposes the raw
-    GEMINI_API_KEY value or common bearer-token patterns.
-
-    Redaction applied (in order):
-    1. Exact GEMINI_API_KEY env value replaced with [REDACTED].
-    2. Authorization: Bearer <token> patterns.
-    3. api_key= / apikey= style query-string assignments with long values.
-
-    The message is truncated to max_len characters to bound ledger entry size.
+    Applied in order:
+    1. Exact forbidden substrings (caller-supplied: user prompt, system prompt).
+    2. Exact GEMINI_API_KEY env value.
+    3. Authorization: Bearer <token> header patterns.
+    4. api_key= / apikey= long value patterns.
+    5. "contents" request-payload sections (submitted prompt body).
+    6. Mutation-region markers and trailing content.
     """
-    cls_name = type(exc).__name__
-    status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
-    status_part = f" (status={status})" if isinstance(status, int) else ""
+    # 1. Caller-supplied forbidden strings (user prompt text, system prompt).
+    #    Use verbatim replacement so no regex-special chars in prompt can cause issues.
+    for forbidden in forbidden_substrings:
+        if forbidden and forbidden in raw_msg:
+            raw_msg = raw_msg.replace(forbidden, "[REDACTED]")
 
-    raw_msg = str(exc)
-
-    # 1. Redact exact GEMINI_API_KEY value from the environment.
+    # 2. Exact GEMINI_API_KEY env value.
     api_key_val = os.environ.get("GEMINI_API_KEY", "")
     if api_key_val and api_key_val in raw_msg:
         raw_msg = raw_msg.replace(api_key_val, "[REDACTED]")
 
-    # 2. Redact Authorization: Bearer <token> header values.
+    # 3. Authorization: Bearer <token> header values.
     raw_msg = re.sub(
         r"(?i)(Authorization:\s*Bearer\s+)\S+",
         r"\1[REDACTED]",
         raw_msg,
     )
 
-    # 3. Redact api_key= / apikey= style assignments with token-like values.
+    # 4. api_key= / apikey= style long value assignments.
     raw_msg = re.sub(
         r"(?i)(api[_-]?key\s*[=:]\s*)[A-Za-z0-9\-_]{20,}",
         r"\1[REDACTED]",
         raw_msg,
     )
 
-    if len(raw_msg) > max_len:
-        raw_msg = raw_msg[:max_len] + "…"
+    # 5. "contents" JSON key with array value — carries submitted prompt payload.
+    raw_msg = re.sub(
+        r"(?is)'?\"?contents\"?'?\s*[:=]\s*\[.*?\]",
+        "[contents redacted]",
+        raw_msg,
+    )
 
-    return f"{cls_name}{status_part}: {raw_msg}"
+    # 6. Mutation-region markers and everything that follows — prevents detector
+    # source code from leaking out if the SDK echoes back the request payload.
+    raw_msg = re.sub(
+        r"(?is)(Current\s+mutation\s+region|===\s*MUTATION_START\s*===|===\s*MUTATION_END\s*===).*",
+        "[mutation region redacted]",
+        raw_msg,
+    )
+
+    return raw_msg
+
+
+def _format_gemini_error_detail(
+    exc: BaseException,
+    max_len: int = _GEMINI_ERROR_MAX_MSG_LEN,
+    *,
+    forbidden_substrings: tuple[str, ...] = (),
+) -> str:
+    """Return a safe diagnostic string for a Gemini API exception.
+
+    Includes exception class name, HTTP status code (if present on the
+    exception), and a sanitized excerpt of str(exc).
+
+    Never exposes: raw GEMINI_API_KEY value, Authorization/Bearer tokens,
+    api_key= patterns, submitted user prompt, system prompt, "contents"
+    payload sections, or detector mutation-region text.
+
+    forbidden_substrings should contain caller-known sensitive strings (e.g.
+    the submitted user prompt and system prompt) so they are stripped even if
+    the SDK echoes request payload in the exception message.
+
+    The message is truncated to max_len characters to bound ledger/log size.
+    """
+    cls_name = type(exc).__name__
+    status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    status_part = f" (status={status})" if isinstance(status, int) else ""
+
+    sanitized_msg = _sanitize_gemini_error_message(str(exc), forbidden_substrings)
+
+    if len(sanitized_msg) > max_len:
+        sanitized_msg = sanitized_msg[:max_len] + "…"
+
+    return f"{cls_name}{status_part}: {sanitized_msg}"
 
 
 # ---------------------------------------------------------------------------
@@ -657,7 +702,10 @@ def _call_gemini_api(
 
         except Exception as exc:
             last_exc_type_name = type(exc).__name__
-            last_exc_detail = _format_gemini_error_detail(exc)
+            last_exc_detail = _format_gemini_error_detail(
+                exc,
+                forbidden_substrings=(user_prompt, _LLM_SYSTEM_PROMPT),
+            )
             last_is_transient = _is_transient_gemini_error(exc)
 
             if not last_is_transient:

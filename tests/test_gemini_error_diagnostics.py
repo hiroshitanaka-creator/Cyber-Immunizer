@@ -322,3 +322,197 @@ class TestCallGeminiApiErrorDetail:
         assert "Gemini API call failed after 1 attempt:" in err
         assert "non-transient error" in err
         assert "Fake403" in err
+
+
+# ---------------------------------------------------------------------------
+# 7. Codex P2 — prompt / request-payload redaction
+# ---------------------------------------------------------------------------
+
+
+class TestCodexP2PromptRedaction:
+    """Codex P2: str(exc) must never expose submitted prompt text in error output.
+
+    If the google-genai SDK echoes back the request payload (user prompt,
+    system prompt, or contents array) in an exception message, the formatter
+    must strip those fragments before they reach the returned error string,
+    the ledger, or CI logs.
+    """
+
+    # --- _sanitize_gemini_error_message direct tests ---
+
+    def test_sanitizer_strips_exact_forbidden_user_prompt(self) -> None:
+        user_prompt = "Inspect this detector code and propose a mutation."
+        raw = f"400 Bad Request: field error in contents[0].parts[0].text='{user_prompt}'"
+        sanitized = pm._sanitize_gemini_error_message(raw, forbidden_substrings=(user_prompt,))
+        assert user_prompt not in sanitized
+
+    def test_sanitizer_strips_exact_forbidden_system_prompt(self) -> None:
+        system_prompt = "You are a defensive security code assistant."
+        raw = f"Request rejected — system_instruction='{system_prompt}' is too long"
+        sanitized = pm._sanitize_gemini_error_message(raw, forbidden_substrings=(system_prompt,))
+        assert system_prompt not in sanitized
+
+    def test_sanitizer_strips_contents_payload_section(self) -> None:
+        raw = 'Error: "contents": [{"role": "user", "parts": [{"text": "secret prompt"}]}]'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "secret prompt" not in sanitized
+        assert "[contents redacted]" in sanitized
+
+    def test_sanitizer_strips_current_mutation_region(self) -> None:
+        raw = (
+            "400 Bad Request — Current mutation region:\n"
+            "    return DetectionResult(blocked=False, reason='no match', "
+            "confidence=0.0, matched_signals=())\n"
+            "End of payload"
+        )
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "Current mutation region" not in sanitized
+        assert "DetectionResult" not in sanitized
+        assert "[mutation region redacted]" in sanitized
+
+    def test_sanitizer_strips_mutation_start_marker(self) -> None:
+        raw = "Payload too large: === MUTATION_START ===\n    pass\n=== MUTATION_END ==="
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "MUTATION_START" not in sanitized
+        assert "pass" not in sanitized
+
+    def test_sanitizer_preserves_status_code_after_forbidden_strip(self) -> None:
+        user_prompt = "very secret prompt text"
+        raw = f"403 PERMISSION_DENIED: contents contained '{user_prompt}'"
+        sanitized = pm._sanitize_gemini_error_message(raw, forbidden_substrings=(user_prompt,))
+        assert user_prompt not in sanitized
+        assert "403" in sanitized
+
+    def test_sanitizer_preserves_api_error_code_after_strip(self) -> None:
+        user_prompt = "detect path traversal"
+        raw = f"400 INVALID_ARGUMENT: schema mismatch in field from '{user_prompt}'"
+        sanitized = pm._sanitize_gemini_error_message(raw, forbidden_substrings=(user_prompt,))
+        assert user_prompt not in sanitized
+        assert "INVALID_ARGUMENT" in sanitized
+
+    def test_sanitizer_noop_when_no_forbidden_substrings(self) -> None:
+        raw = "403 PERMISSION_DENIED: API_KEY_INVALID"
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert sanitized == raw
+
+    # --- _format_gemini_error_detail with forbidden_substrings ---
+
+    def test_formatter_strips_user_prompt_from_exception_message(self) -> None:
+        user_prompt = "Please propose a mutation for this detector."
+        exc = RuntimeError(
+            f"400 Bad Request: contents[0].text = '{user_prompt}' is invalid"
+        )
+        detail = pm._format_gemini_error_detail(
+            exc, forbidden_substrings=(user_prompt,)
+        )
+        assert user_prompt not in detail
+
+    def test_formatter_strips_llm_system_prompt_from_exception_message(self) -> None:
+        system_prompt = pm._LLM_SYSTEM_PROMPT
+        # Embed the full system prompt in the exception message, then verify that
+        # neither the full string nor its opening sentinel survives in the output.
+        sentinel = system_prompt[:80] if len(system_prompt) >= 80 else system_prompt
+        exc = RuntimeError(f"Request rejected: system_instruction='{system_prompt}'")
+        detail = pm._format_gemini_error_detail(
+            exc, forbidden_substrings=(system_prompt,)
+        )
+        assert sentinel not in detail
+
+    def test_formatter_status_code_present_after_forbidden_strip(self) -> None:
+        class FakeClientError(Exception):
+            status_code = 403
+
+        user_prompt = "user prompt content that must not leak"
+        exc = FakeClientError(
+            f"PERMISSION_DENIED: prompt '{user_prompt}' was rejected"
+        )
+        detail = pm._format_gemini_error_detail(
+            exc, forbidden_substrings=(user_prompt,)
+        )
+        assert user_prompt not in detail
+        assert "status=403" in detail
+
+    def test_formatter_detector_mutation_region_stripped(self) -> None:
+        mutation_region = (
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no suspicious indicator matched',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )"
+        )
+        exc = RuntimeError(
+            f"400 Bad Request: Current mutation region:\n{mutation_region}\nEnd"
+        )
+        detail = pm._format_gemini_error_detail(exc)
+        assert "DetectionResult" not in detail
+        assert "blocked=False" not in detail
+
+    # --- _call_gemini_api end-to-end: prompt must not appear in error ---
+
+    def test_call_gemini_api_does_not_expose_user_prompt_in_error(self) -> None:
+        """If the SDK echoes back the user prompt in the exception, it is stripped."""
+        user_prompt = "TOP SECRET DETECTOR PROMPT CONTENT MUST NOT LEAK"
+
+        class FakeClientError(Exception):
+            status_code = 400
+
+        mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([
+            FakeClientError(
+                f"400 INVALID_ARGUMENT: contents[0].text = '{user_prompt}'"
+            ),
+        ])
+
+        with _patch_genai(mock_genai, mock_genai_types):
+            _, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", user_prompt, 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert user_prompt not in err
+        assert "400" in err or "FakeClientError" in err
+
+    def test_call_gemini_api_does_not_expose_system_prompt_in_error(self) -> None:
+        """If the SDK echoes back the full system prompt in the exception, it is stripped."""
+        # Embed the full system prompt in the exception so forbidden_substrings
+        # can match and replace it.  Then verify the opening sentinel is gone.
+        system_sentinel = pm._LLM_SYSTEM_PROMPT[:60]
+
+        class FakeClientError(Exception):
+            status_code = 400
+
+        mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([
+            FakeClientError(
+                f"400 INVALID_ARGUMENT: system_instruction='{pm._LLM_SYSTEM_PROMPT}'"
+            ),
+        ])
+
+        with _patch_genai(mock_genai, mock_genai_types):
+            _, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "safe prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert system_sentinel not in err
+
+    def test_call_gemini_api_status_code_still_present_after_prompt_strip(self) -> None:
+        """Status code remains in the error even when prompt text is stripped."""
+        user_prompt = "secret prompt that must not appear in logs"
+
+        class FakeClientError(Exception):
+            status_code = 403
+
+        mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([
+            FakeClientError(
+                f"403 PERMISSION_DENIED: prompt '{user_prompt}' rejected"
+            ),
+        ])
+
+        with _patch_genai(mock_genai, mock_genai_types):
+            _, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", user_prompt, 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert user_prompt not in err
+        assert "403" in err
