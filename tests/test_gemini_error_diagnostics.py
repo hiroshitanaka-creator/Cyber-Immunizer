@@ -516,3 +516,141 @@ class TestCodexP2PromptRedaction:
 
         assert user_prompt not in err
         assert "403" in err
+
+
+# ---------------------------------------------------------------------------
+# 8. Codex P2 (extended) — JSON/repr-encoded prompt-carrying fields
+# ---------------------------------------------------------------------------
+
+
+class TestCodexP2JsonEncoding:
+    """JSON/repr-encoded system_instruction and related request fields must be redacted.
+
+    If the google-genai SDK echoes a JSON request body in an error message, the
+    system prompt may appear as:
+        "system_instruction": "You are a defensive security code assistant..."
+    with \\n sequences for newlines.  The verbatim forbidden_substrings pass
+    (step 1) cannot match JSON-encoded forms; the structural JSON key-value
+    patterns (step 5) must catch them.
+    """
+
+    # --- _sanitize_gemini_error_message: JSON double-quoted form ---
+
+    def test_json_double_quoted_system_instruction_redacted(self) -> None:
+        """JSON "system_instruction": "..." containing a prompt fragment is redacted."""
+        sentinel = pm._LLM_SYSTEM_PROMPT[:60]
+        raw = f'"system_instruction": "{sentinel}"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert sentinel not in sanitized
+        assert "[system instruction redacted]" in sanitized
+
+    def test_json_escaped_newlines_in_system_instruction_redacted(self) -> None:
+        """JSON-encoded system_instruction with \\n escape sequences is redacted."""
+        import json as _json
+        # A multi-line system-prompt-like value — json.dumps adds outer quotes
+        # and converts real newlines to \\n sequences.
+        multi_line = "Security assistant.\nStrict rules.\nNever expose secrets."
+        json_encoded = _json.dumps(multi_line)  # e.g. '"Security assistant.\\nStrict rules.\\n..."'
+        raw = '"system_instruction": ' + json_encoded
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "Security assistant" not in sanitized
+        assert "Strict rules" not in sanitized
+        assert "[system instruction redacted]" in sanitized
+
+    # --- _sanitize_gemini_error_message: Python single-quoted form ---
+
+    def test_single_quoted_system_instruction_redacted(self) -> None:
+        """Python repr 'system_instruction': '...' is redacted."""
+        sentinel = "You are a defensive security"
+        raw = f"'system_instruction': '{sentinel}'"
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert sentinel not in sanitized
+        assert "[system instruction redacted]" in sanitized
+
+    # --- _sanitize_gemini_error_message: assignment-style ---
+
+    def test_assignment_style_system_instruction_redacted(self) -> None:
+        """Assignment-style system_instruction="..." is redacted."""
+        sentinel = "You are a defensive assistant"
+        raw = f'system_instruction="{sentinel} — with details"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert sentinel not in sanitized
+        assert "[system instruction redacted]" in sanitized
+
+    # --- "parts" and "text" fields ---
+
+    def test_parts_array_redacted(self) -> None:
+        """JSON "parts": [...] payload is redacted."""
+        raw = '"parts": [{"text": "This is the submitted prompt content"}]'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "submitted prompt content" not in sanitized
+        assert "[parts redacted]" in sanitized
+
+    def test_text_field_redacted(self) -> None:
+        """JSON "text": "..." field carrying prompt text is redacted."""
+        raw = '"text": "Improve coverage for path-traversal patterns."'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "Improve coverage" not in sanitized
+        assert "[text redacted]" in sanitized
+
+    def test_single_quoted_text_field_redacted(self) -> None:
+        """Python repr 'text': '...' field is redacted."""
+        raw = "'text': 'Detect SQL injection patterns.'"
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "Detect SQL injection" not in sanitized
+        assert "[text redacted]" in sanitized
+
+    # --- Safe API diagnostics must survive ---
+
+    def test_permission_denied_survives_redaction(self) -> None:
+        """PERMISSION_DENIED API error reason is preserved after field redaction."""
+        sentinel = pm._LLM_SYSTEM_PROMPT[:50]
+        raw = f'403 PERMISSION_DENIED: "system_instruction": "{sentinel}"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert sentinel not in sanitized
+        assert "PERMISSION_DENIED" in sanitized
+
+    def test_status_code_and_error_code_survive_redaction(self) -> None:
+        """Status code and API error code survive JSON field redaction."""
+        raw = '400 INVALID_ARGUMENT: "system_instruction": "some prompt text"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "some prompt text" not in sanitized
+        assert "400" in sanitized
+        assert "INVALID_ARGUMENT" in sanitized
+
+    def test_api_key_invalid_message_not_over_redacted(self) -> None:
+        """API_KEY_INVALID and short API error messages are not over-redacted."""
+        raw = "401 UNAUTHENTICATED: API_KEY_INVALID"
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "API_KEY_INVALID" in sanitized
+        assert "UNAUTHENTICATED" in sanitized
+
+    def test_safe_message_with_no_prompt_fields_unchanged(self) -> None:
+        """A message with no prompt-carrying fields passes through unchanged."""
+        raw = "403 PERMISSION_DENIED: billing account required"
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert sanitized == raw
+
+    # --- _call_gemini_api end-to-end ---
+
+    def test_call_gemini_api_json_system_instruction_not_in_error(self) -> None:
+        """_call_gemini_api: ClientError echoing JSON system_instruction → stripped."""
+        sentinel = pm._LLM_SYSTEM_PROMPT[:60]
+
+        class FakeClientError(Exception):
+            status_code = 400
+
+        mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([
+            FakeClientError(
+                f'400 INVALID_ARGUMENT: {{"system_instruction": "{sentinel}"}}'
+            ),
+        ])
+
+        with _patch_genai(mock_genai, mock_genai_types):
+            _, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "safe user prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert sentinel not in err
+        assert "400" in err or "FakeClientError" in err

@@ -515,8 +515,12 @@ def _sanitize_gemini_error_message(
     2. Exact GEMINI_API_KEY env value.
     3. Authorization: Bearer <token> header patterns.
     4. api_key= / apikey= long value patterns.
-    5. "contents" request-payload sections (submitted prompt body).
-    6. Mutation-region markers and trailing content.
+    5. JSON/repr/assignment-style prompt-carrying fields:
+       system_instruction, user_prompt, prompt, text (JSON only), parts (JSON only).
+       Handles "key": "value", 'key': 'value', key="value", key='value'.
+       Value patterns cover JSON escape sequences (\\n, \\", etc.).
+    6. "contents" request-payload array sections.
+    7. Mutation-region markers and trailing content.
     """
     # 1. Caller-supplied forbidden strings (user prompt text, system prompt).
     #    Use verbatim replacement so no regex-special chars in prompt can cause issues.
@@ -543,14 +547,53 @@ def _sanitize_gemini_error_message(
         raw_msg,
     )
 
-    # 5. "contents" JSON key with array value — carries submitted prompt payload.
+    # 5. JSON/repr/assignment-style prompt-carrying fields.
+    #    Conservative fail-closed: if a known prompt-carrying key appears in any
+    #    common encoding, replace the entire quoted value with a safe marker.
+    #    The JSON string pattern handles escape sequences (\\n, \\", etc.) so
+    #    JSON-encoded system prompts are caught even when verbatim match (step 1)
+    #    cannot find them due to encoding differences.
+    _dbl_str = r'"(?:[^"\\]|\\.)*"'           # JSON double-quoted string value
+    _sgl_str = r"'(?:[^'\\]|\\.)*'"           # Python single-quoted string value
+    _any_str = "(?:" + _dbl_str + "|" + _sgl_str + ")"  # either form
+
+    for _fk, _fl in (
+        ("system_instruction", "[system instruction redacted]"),
+        ("user_prompt",        "[user prompt redacted]"),
+        ("prompt",             "[prompt redacted]"),
+    ):
+        # Key forms: "key", 'key', bare key (for assignment-style)
+        _kp = '(?:"' + _fk + '"|' + "'" + _fk + "'|" + _fk + ')'
+        raw_msg = re.sub(
+            _kp + r"\s*[:=]\s*" + _any_str,
+            '"' + _fk + '": "' + _fl + '"',
+            raw_msg,
+            flags=re.IGNORECASE,
+        )
+
+    # "text" and "parts" carry per-part prompt content in the request body.
+    # Only match JSON-quoted keys to avoid false positives on common English words.
+    raw_msg = re.sub(
+        r'(?:"text"|\'text\')\s*:\s*' + _any_str,
+        '"text": "[text redacted]"',
+        raw_msg,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    raw_msg = re.sub(
+        r'(?:"parts"|\'parts\')\s*:\s*\[.*?\]',
+        '"parts": "[parts redacted]"',
+        raw_msg,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    # 6. "contents" JSON key with array value — carries submitted prompt payload.
     raw_msg = re.sub(
         r"(?is)'?\"?contents\"?'?\s*[:=]\s*\[.*?\]",
         "[contents redacted]",
         raw_msg,
     )
 
-    # 6. Mutation-region markers and everything that follows — prevents detector
+    # 7. Mutation-region markers and everything that follows — prevents detector
     # source code from leaking out if the SDK echoes back the request payload.
     raw_msg = re.sub(
         r"(?is)(Current\s+mutation\s+region|===\s*MUTATION_START\s*===|===\s*MUTATION_END\s*===).*",
