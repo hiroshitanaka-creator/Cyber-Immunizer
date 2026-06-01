@@ -13,7 +13,7 @@
   "api_mode": "gemini_paid_credit",
   "model_name": "gemini-2.0-flash",
   "fallback_model_name": "gemini-2.0-flash-lite",
-  "live_model_enabled": false,
+  "live_model_enabled": true,
   "require_paid_tier": true,
   "free_tier_only": false,
   "monthly_api_budget_usd": 10.0,

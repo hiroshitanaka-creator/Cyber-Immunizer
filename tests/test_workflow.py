@@ -1450,19 +1450,6 @@ def propose_preflight_step(propose_section: str) -> str:
     return match.group(0)
 
 
-@pytest.fixture(scope="module")
-def propose_live_model_step(propose_section: str) -> str:
-    """Extract the 'Propose mutation patch — live-model' step block."""
-    match = re.search(
-        r"- name: Propose mutation patch — live-model\b(.*?)(?=\n      - name:|\Z)",
-        propose_section,
-        re.DOTALL,
-    )
-    assert match is not None, (
-        "Could not find 'Propose mutation patch — live-model' step. "
-        "PR-D requires a dedicated live-model step with GEMINI_API_KEY."
-    )
-    return match.group(0)
 
 
 @pytest.fixture(scope="module")
@@ -1501,8 +1488,49 @@ def propose_aggregate_step(propose_section: str) -> str:
     return match.group(0)
 
 
+class TestPhase3LiveModelGate:
+    """Phase 3: live-model is blocked at both workflow and script levels."""
+
+    def test_dispatch_options_do_not_include_live_model(
+        self, workflow_dispatch_inputs_section: str
+    ) -> None:
+        """workflow_dispatch mode options must NOT include live-model.
+
+        Phase 3 removes live-model from the allowed dispatch modes. Only
+        gemini-paid-credit enforces budget caps and ledger tracking.
+        """
+        assert "live-model" not in workflow_dispatch_inputs_section, (
+            "Phase 3: live-model must not be a workflow_dispatch mode option. "
+            "Use gemini-paid-credit for live API calls."
+        )
+
+    def test_live_model_step_absent_from_workflow(self, propose_section: str) -> None:
+        """Phase 3: 'Propose mutation patch — live-model' step must NOT exist in the workflow."""
+        assert "Propose mutation patch — live-model" not in propose_section, (
+            "Phase 3: live-model step must be removed from the workflow propose section."
+        )
+
+    def test_gemini_paid_credit_still_present(self, propose_section: str) -> None:
+        """gemini-paid-credit step must still exist after live-model removal."""
+        assert "Propose mutation patch — gemini-paid-credit" in propose_section, (
+            "gemini-paid-credit step must remain present as the only live API path."
+        )
+
+    def test_gemini_paid_credit_preflight_still_present(
+        self, propose_section: str
+    ) -> None:
+        """gemini-paid-credit-preflight step must still exist after live-model removal."""
+        assert "Propose mutation patch — gemini-paid-credit-preflight" in propose_section, (
+            "gemini-paid-credit-preflight step must remain present."
+        )
+
+
 class TestModeSpecificStepsExist:
-    """Verify all five mode-specific propose steps are present in the workflow."""
+    """Verify four mode-specific propose steps are present in the workflow.
+
+    Phase 3: live-model step is removed. Only noop, offline-sample,
+    gemini-paid-credit-preflight, and gemini-paid-credit are present.
+    """
 
     def test_noop_step_exists(self, propose_noop_step: str) -> None:
         """'Propose mutation patch — noop' step must exist."""
@@ -1516,9 +1544,16 @@ class TestModeSpecificStepsExist:
         """'Propose mutation patch — gemini-paid-credit-preflight' step must exist."""
         assert "gemini-paid-credit-preflight" in propose_preflight_step
 
-    def test_live_model_step_exists(self, propose_live_model_step: str) -> None:
-        """'Propose mutation patch — live-model' step must exist."""
-        assert "Propose mutation patch — live-model" in propose_live_model_step
+    def test_live_model_step_absent(self, propose_section: str) -> None:
+        """Phase 3: 'Propose mutation patch — live-model' step must NOT exist.
+
+        The legacy live-model path is blocked for Phase 3. Only gemini-paid-credit
+        is allowed as the live API path because it enforces budget and ledger tracking.
+        """
+        assert "Propose mutation patch — live-model" not in propose_section, (
+            "Phase 3: live-model step must be removed from the workflow. "
+            "Use gemini-paid-credit for live API calls."
+        )
 
     def test_paid_credit_step_exists(self, propose_paid_credit_step: str) -> None:
         """'Propose mutation patch — gemini-paid-credit' step must exist."""
@@ -1649,22 +1684,10 @@ class TestPreflightStepUsesBooleanSignal:
 
 
 class TestApiModeStepsHaveRawApiKey:
-    """Verify live-model and gemini-paid-credit steps DO receive GEMINI_API_KEY.
+    """Verify gemini-paid-credit step receives GEMINI_API_KEY.
 
-    These modes call the Gemini API and therefore need the raw key.
+    Phase 3: live-model step is removed. Only gemini-paid-credit calls the Gemini API.
     """
-
-    def test_live_model_step_has_gemini_api_key(
-        self, propose_live_model_step: str
-    ) -> None:
-        """live-model step must inject secrets.GEMINI_API_KEY.
-
-        live-model mode calls _propose_via_live_model which requires the API key.
-        """
-        assert "secrets.GEMINI_API_KEY" in propose_live_model_step, (
-            "live-model step must pass secrets.GEMINI_API_KEY. "
-            "The Gemini API call requires the raw key to be present."
-        )
 
     def test_paid_credit_step_has_gemini_api_key(
         self, propose_paid_credit_step: str
@@ -1711,13 +1734,6 @@ class TestModeStepsHaveCorrectIfConditions:
         ), (
             "preflight step must have if: condition for "
             "effective_mode == 'gemini-paid-credit-preflight'."
-        )
-
-    def test_live_model_step_if_condition(self, propose_live_model_step: str) -> None:
-        """live-model step must only run when effective_mode == 'live-model'."""
-        assert "effective_mode == 'live-model'" in propose_live_model_step or \
-               'effective_mode == "live-model"' in propose_live_model_step, (
-            "live-model step must have if: condition for effective_mode == 'live-model'."
         )
 
     def test_paid_credit_step_if_condition(self, propose_paid_credit_step: str) -> None:
@@ -1816,12 +1832,6 @@ class TestModeStepsWriteExitCodeToFile:
             "preflight step must write its exit code to the propose_exit_code file."
         )
 
-    def test_live_model_step_writes_exit_code(self, propose_live_model_step: str) -> None:
-        """live-model step must write PROPOSE_EXIT to propose_exit_code file."""
-        assert "propose_exit_code" in propose_live_model_step, (
-            "live-model step must write its exit code to the propose_exit_code file."
-        )
-
     def test_paid_credit_step_writes_exit_code(self, propose_paid_credit_step: str) -> None:
         """gemini-paid-credit step must write PROPOSE_EXIT to propose_exit_code file."""
         assert "propose_exit_code" in propose_paid_credit_step, (
@@ -1845,10 +1855,6 @@ class TestModeStepsUseSetPlusE:
     def test_preflight_step_uses_set_plus_e(self, propose_preflight_step: str) -> None:
         """preflight step must use set +e."""
         assert "set +e" in propose_preflight_step
-
-    def test_live_model_step_uses_set_plus_e(self, propose_live_model_step: str) -> None:
-        """live-model step must use set +e."""
-        assert "set +e" in propose_live_model_step
 
     def test_paid_credit_step_uses_set_plus_e(self, propose_paid_credit_step: str) -> None:
         """gemini-paid-credit step must use set +e."""
@@ -1894,16 +1900,13 @@ class TestStepLevelSecretScopingRegressionGuards:
         )
 
     def test_gemini_api_key_present_only_in_api_steps(
-        self, propose_live_model_step: str, propose_paid_credit_step: str
+        self, propose_paid_credit_step: str
     ) -> None:
-        """live-model and gemini-paid-credit steps must retain secrets.GEMINI_API_KEY.
+        """gemini-paid-credit step must retain secrets.GEMINI_API_KEY.
 
-        Regression guard: verifies API steps were not accidentally stripped of
-        the key they need.
+        Regression guard: verifies the paid-credit step was not accidentally
+        stripped of the key it needs. Phase 3: live-model step is removed.
         """
-        assert "secrets.GEMINI_API_KEY" in propose_live_model_step, (
-            "REGRESSION: secrets.GEMINI_API_KEY was removed from live-model step."
-        )
         assert "secrets.GEMINI_API_KEY" in propose_paid_credit_step, (
             "REGRESSION: secrets.GEMINI_API_KEY was removed from gemini-paid-credit step."
         )

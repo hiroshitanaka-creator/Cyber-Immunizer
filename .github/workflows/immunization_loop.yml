@@ -11,7 +11,6 @@ on:
         options:
           - noop
           - offline-sample
-          - live-model
           - gemini-paid-credit
           - gemini-paid-credit-preflight
       promote_approved:
@@ -24,8 +23,8 @@ on:
           - "true"
   schedule:
     # Scheduled runs always use noop to avoid unintended API calls.
-    # Trigger a manual workflow_dispatch with mode=offline-sample,
-    # mode=live-model, or mode=gemini-paid-credit to run an evolution cycle.
+    # Trigger a manual workflow_dispatch with mode=offline-sample or
+    # mode=gemini-paid-credit to run an evolution cycle.
     - cron: "0 2 * * *"
 
 # Prevent concurrent runs on the same branch from racing to write the
@@ -38,12 +37,12 @@ concurrency:
 jobs:
   # -----------------------------------------------------------------------
   # Job 1: PROPOSE
-  # Runs the mutation proposer (noop / offline sample / live model / paid).
+  # Runs the mutation proposer (noop / offline sample / paid).
   # Has read-only permissions.  GEMINI_API_KEY is scoped at step level
   # (minimum privilege — PR-D):
   #   noop, offline-sample           — no API key injected
   #   gemini-paid-credit-preflight   — GEMINI_API_KEY_PRESENT boolean only
-  #   live-model, gemini-paid-credit — raw GEMINI_API_KEY
+  #   gemini-paid-credit             — raw GEMINI_API_KEY
   # GEMINI_API_KEY is intentionally absent from ALL other jobs.
   # Does NOT execute candidate code.
   #
@@ -90,10 +89,8 @@ jobs:
             echo "effective_mode=${{ github.event.inputs.mode || 'noop' }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install Gemini dependencies (live-model and gemini-paid-credit)
-        if: >
-          steps.mode.outputs.effective_mode == 'live-model' ||
-          steps.mode.outputs.effective_mode == 'gemini-paid-credit'
+      - name: Install Gemini dependencies (gemini-paid-credit)
+        if: steps.mode.outputs.effective_mode == 'gemini-paid-credit'
         run: pip install "google-genai>=1.0.0" "pydantic>=2.0"
 
       - name: Capture ledger checksum before proposal
@@ -155,16 +152,6 @@ jobs:
         run: |
           set +e
           python scripts/propose_mutation.py --gemini-paid-credit-preflight --json
-          PROPOSE_EXIT=$?
-          echo "$PROPOSE_EXIT" > .cyber_immunizer/propose_exit_code
-
-      - name: Propose mutation patch — live-model
-        if: steps.mode.outputs.effective_mode == 'live-model'
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          set +e
-          python scripts/propose_mutation.py --live-model --allow-live-model --json
           PROPOSE_EXIT=$?
           echo "$PROPOSE_EXIT" > .cyber_immunizer/propose_exit_code
 

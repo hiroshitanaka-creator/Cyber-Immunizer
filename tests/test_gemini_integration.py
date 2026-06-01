@@ -284,15 +284,72 @@ class TestLiveModelRequiresGenomeEnabled:
         assert patch_result is None
         assert "live_model_enabled" in err
 
-    def test_default_genome_has_live_disabled(self) -> None:
-        """The real data/genome.json must have live_model_enabled=false by default."""
+    def test_phase3_genome_has_live_enabled(self) -> None:
+        """Phase 3 activation: real data/genome.json must have live_model_enabled=true with safe limits."""
         genome_path = _PROJECT_ROOT / "data" / "genome.json"
-        if genome_path.exists():
-            genome = json.loads(genome_path.read_text(encoding="utf-8"))
-            # The default must be safe
-            assert genome.get("live_model_enabled", False) is False, (
-                "data/genome.json live_model_enabled must default to false"
-            )
+        if not genome_path.exists():
+            pytest.skip("data/genome.json not found")
+        genome = json.loads(genome_path.read_text(encoding="utf-8"))
+        assert genome.get("live_model_enabled") is True, (
+            "data/genome.json live_model_enabled must be true for Phase 3 activation"
+        )
+        assert genome.get("max_model_requests_per_run") == 1, (
+            "data/genome.json max_model_requests_per_run must be 1 for Phase 3 activation"
+        )
+        assert genome.get("send_repository_full_text") is False, (
+            "data/genome.json send_repository_full_text must remain false"
+        )
+        assert genome.get("send_raw_payloads") is False, (
+            "data/genome.json send_raw_payloads must remain false"
+        )
+        assert genome.get("send_secrets") is False, (
+            "data/genome.json send_secrets must remain false"
+        )
+
+    def test_phase3_live_model_explicitly_blocked(
+        self,
+        tmp_path: Path,
+        genome_live_enabled: dict,
+        test_detector_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Phase 3: live-model path is blocked even when live_model_enabled=true.
+
+        propose_mutation(live_model=True, allow_live_model=True) must fail closed
+        with a message directing the operator to use gemini-paid-credit.
+        """
+        genome_path = tmp_path / "genome_phase3.json"
+        genome_path.write_text(json.dumps(genome_live_enabled), encoding="utf-8")
+        monkeypatch.setattr(pm, "_GENOME_PATH", genome_path)
+        monkeypatch.setattr(pm, "_DETECTOR_PATH", test_detector_file)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        patch_result, err = pm.propose_mutation(live_model=True, allow_live_model=True)
+        assert patch_result is None, "Phase 3 live-model gate must return no patch"
+        assert "disabled" in err.lower() or "gemini-paid-credit" in err, (
+            f"Phase 3 live-model gate must mention it is disabled and direct to "
+            f"gemini-paid-credit. Got: {err!r}"
+        )
+
+    def test_phase3_live_model_cli_exits_nonzero(
+        self,
+        tmp_path: Path,
+        genome_live_enabled: dict,
+        test_detector_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Phase 3: CLI invocation --live-model --allow-live-model exits nonzero."""
+        import sys as _sys
+        genome_path = tmp_path / "genome_phase3_cli.json"
+        genome_path.write_text(json.dumps(genome_live_enabled), encoding="utf-8")
+        monkeypatch.setattr(pm, "_GENOME_PATH", genome_path)
+        monkeypatch.setattr(pm, "_DETECTOR_PATH", test_detector_file)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        exit_code = pm.main(["--live-model", "--allow-live-model", "--json"])
+        assert exit_code != 0, (
+            "CLI --live-model --allow-live-model must exit nonzero in Phase 3."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -330,33 +387,30 @@ class TestLiveModelRefusesProModel:
         assert patch_result is None
         assert "pro" in err.lower() or "free_tier_only" in err
 
-    def test_flash_model_allowed_when_free_tier(
+    def test_flash_model_blocked_by_phase3_gate(
         self,
         tmp_path: Path,
         genome_live_enabled: dict,
         test_detector_file: Path,
-        test_threats_file: Path,
-        valid_patch: dict,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Flash model is allowed when free_tier_only=true (mocked call)."""
+        """Phase 3: live-model is blocked even for Flash model with free_tier_only=true.
+
+        The Phase 3 gate fires before the pro-model gate, so even a valid Flash
+        model configuration cannot reach _propose_via_gemini_live.
+        """
         genome = {**genome_live_enabled, "model_name": "gemini-2.0-flash", "free_tier_only": True}
         genome_path = tmp_path / "genome_flash.json"
         genome_path.write_text(json.dumps(genome), encoding="utf-8")
         monkeypatch.setattr(pm, "_GENOME_PATH", genome_path)
         monkeypatch.setattr(pm, "_DETECTOR_PATH", test_detector_file)
-        monkeypatch.setattr(pm, "_THREATS_PATH", test_threats_file)
         monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
 
-        # Mock the Gemini call so we don't need the real library
-        monkeypatch.setattr(
-            pm, "_propose_via_gemini_live",
-            lambda genome, detector_source, api_key: (valid_patch, ""),
-        )
-
         patch_result, err = pm.propose_mutation(live_model=True, allow_live_model=True)
-        assert err == "", f"Expected no error, got: {err}"
-        assert patch_result is not None
+        assert patch_result is None, "Phase 3 gate must block live-model"
+        assert "disabled" in err.lower() or "gemini-paid-credit" in err, (
+            f"Phase 3 gate must mention disabled / gemini-paid-credit. Got: {err!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -736,7 +790,7 @@ class TestNoDependencyOnGemini:
 
 
 class TestLiveModelWithMockedGemini:
-    def test_live_model_success_with_mock(
+    def test_live_model_blocked_by_phase3_gate_with_mock(
         self,
         tmp_path: Path,
         test_genome_file: Path,
@@ -745,7 +799,11 @@ class TestLiveModelWithMockedGemini:
         valid_patch: dict,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Live model succeeds when Gemini returns a valid patch (mocked)."""
+        """Phase 3: CLI --live-model exits nonzero even when _propose_via_gemini_live is mocked.
+
+        The Phase 3 gate fires before _propose_via_gemini_live is called, so even
+        a mocked implementation is never reached. No patch file is written.
+        """
         patch_path = tmp_path / "mutation_patch.json"
         monkeypatch.setattr(pm, "_GENOME_PATH", test_genome_file)
         monkeypatch.setattr(pm, "_DETECTOR_PATH", test_detector_file)
@@ -754,7 +812,6 @@ class TestLiveModelWithMockedGemini:
         monkeypatch.setattr(pm, "_OUT_PATCH", patch_path)
         monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-test")
 
-        # Mock _propose_via_gemini_live to return a valid patch
         monkeypatch.setattr(
             pm,
             "_propose_via_gemini_live",
@@ -762,10 +819,8 @@ class TestLiveModelWithMockedGemini:
         )
 
         result = pm.main(["--live-model", "--allow-live-model", "--json"])
-        assert result == 0
-        assert patch_path.exists()
-        data = json.loads(patch_path.read_text(encoding="utf-8"))
-        assert data["mutation_rationale"] == valid_patch["mutation_rationale"]
+        assert result != 0, "Phase 3 gate must cause CLI to exit nonzero"
+        assert not patch_path.exists(), "Phase 3 gate must not produce a patch file"
 
     def test_live_model_schema_validation_applied(
         self,
