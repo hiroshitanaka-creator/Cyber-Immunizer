@@ -530,7 +530,7 @@ def _sanitize_gemini_error_message(
     #    non-identical to the raw Python value and therefore unmatchable here.
     for forbidden in forbidden_substrings:
         if forbidden and forbidden in raw_msg:
-            raw_msg = raw_msg.replace(forbidden, "[REDACTED]")
+            raw_msg = raw_msg.replace(forbidden, "[REDACTED]")  # raw form; see step 5 for JSON-encoded form
 
     # 2. Exact GEMINI_API_KEY env value.
     api_key_val = os.environ.get("GEMINI_API_KEY", "")
