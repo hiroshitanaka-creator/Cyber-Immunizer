@@ -589,13 +589,13 @@ def _sanitize_gemini_error_message(
     # and avoids colliding with dotted-path forms handled in step 7.
     raw_msg = re.sub(
         r'(?:"text"|\'text\'|(?<![.\w])text)\s*[:=]\s*' + _any_str,
-        '"text": "[text redacted]"',
+        '"text": "[text redacted]"',  # covers "text":, 'text':, text= repr forms
         raw_msg,
         flags=re.IGNORECASE | re.DOTALL,
     )
     raw_msg = re.sub(
         r'(?:"parts"|\'parts\'|(?<![.\w])parts)\s*[:=]\s*\[.*?\]',
-        '"parts": "[parts redacted]"',
+        '"parts": "[parts redacted]"',  # covers "parts":, 'parts':, parts= repr forms
         raw_msg,
         flags=re.IGNORECASE | re.DOTALL,
     )
