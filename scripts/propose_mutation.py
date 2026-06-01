@@ -53,6 +53,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -500,6 +501,54 @@ def _is_transient_gemini_error(exc: BaseException) -> bool:
     return any(frag in msg for frag in _TRANSIENT_MESSAGE_FRAGMENTS)
 
 
+_GEMINI_ERROR_MAX_MSG_LEN = 500
+
+
+def _format_gemini_error_detail(exc: BaseException, max_len: int = _GEMINI_ERROR_MAX_MSG_LEN) -> str:
+    """Return a safe diagnostic string for a Gemini API exception.
+
+    Includes exception class name, HTTP status code (if present on the
+    exception), and a sanitized excerpt of str(exc).  Never exposes the raw
+    GEMINI_API_KEY value or common bearer-token patterns.
+
+    Redaction applied (in order):
+    1. Exact GEMINI_API_KEY env value replaced with [REDACTED].
+    2. Authorization: Bearer <token> patterns.
+    3. api_key= / apikey= style query-string assignments with long values.
+
+    The message is truncated to max_len characters to bound ledger entry size.
+    """
+    cls_name = type(exc).__name__
+    status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    status_part = f" (status={status})" if isinstance(status, int) else ""
+
+    raw_msg = str(exc)
+
+    # 1. Redact exact GEMINI_API_KEY value from the environment.
+    api_key_val = os.environ.get("GEMINI_API_KEY", "")
+    if api_key_val and api_key_val in raw_msg:
+        raw_msg = raw_msg.replace(api_key_val, "[REDACTED]")
+
+    # 2. Redact Authorization: Bearer <token> header values.
+    raw_msg = re.sub(
+        r"(?i)(Authorization:\s*Bearer\s+)\S+",
+        r"\1[REDACTED]",
+        raw_msg,
+    )
+
+    # 3. Redact api_key= / apikey= style assignments with token-like values.
+    raw_msg = re.sub(
+        r"(?i)(api[_-]?key\s*[=:]\s*)[A-Za-z0-9\-_]{20,}",
+        r"\1[REDACTED]",
+        raw_msg,
+    )
+
+    if len(raw_msg) > max_len:
+        raw_msg = raw_msg[:max_len] + "…"
+
+    return f"{cls_name}{status_part}: {raw_msg}"
+
+
 # ---------------------------------------------------------------------------
 # Raw Gemini API call (shared by both live-model and gemini-paid-credit)
 # ---------------------------------------------------------------------------
@@ -573,6 +622,7 @@ def _call_gemini_api(
         )
 
     last_exc_type_name = "UnknownError"
+    last_exc_detail = "UnknownError"
     last_is_transient = False
     attempt = 0
     backoff = _GEMINI_API_BACKOFF_INITIAL_SECONDS
@@ -607,6 +657,7 @@ def _call_gemini_api(
 
         except Exception as exc:
             last_exc_type_name = type(exc).__name__
+            last_exc_detail = _format_gemini_error_detail(exc)
             last_is_transient = _is_transient_gemini_error(exc)
 
             if not last_is_transient:
@@ -624,7 +675,7 @@ def _call_gemini_api(
     plural = "s" if attempt != 1 else ""
     return None, None, None, (
         f"Gemini API call failed after {attempt} attempt{plural}: "
-        f"{classification} error {last_exc_type_name}"
+        f"{classification} error {last_exc_detail}"
     )
 
 
