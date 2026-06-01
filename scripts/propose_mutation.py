@@ -1328,7 +1328,13 @@ def propose_mutation(
                 "Code execution tool is disabled for safety; set it to false."
             )
 
-        return _propose_via_gemini_live(genome, detector_source, api_key)
+        # Phase 3 gate: legacy live-model path is disabled.
+        # gemini-paid-credit is the only allowed live API path because it
+        # enforces budget caps and ledger tracking on every call.
+        return None, (
+            "live-model mode is disabled for Phase 3. "
+            "Use gemini-paid-credit so budget and ledger enforcement are applied."
+        )
 
     # ---- No mode selected ----
     return None, (
