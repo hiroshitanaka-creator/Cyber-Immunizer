@@ -776,3 +776,75 @@ class TestCodexP2IndexedFieldPaths:
 
         assert sentinel not in err
         assert "[text redacted]" in err
+
+    # --- additional coverage: dot-numeric index forms ---
+
+    def test_request_contents_dot_numeric_colon_redacted(self) -> None:
+        """request.contents.0.parts.0.text: '...' (dot-numeric index, colon) is redacted."""
+        raw = 'request.contents.0.parts.0.text: "detector prompt text"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "detector prompt text" not in sanitized
+        assert "[text redacted]" in sanitized
+
+    def test_system_instruction_parts_dot_numeric_colon_redacted(self) -> None:
+        """system_instruction.parts.0.text: '...' (dot-numeric index, colon) is redacted."""
+        sentinel = "You are a defensive security code assistant"
+        raw = f'system_instruction.parts.0.text: "{sentinel} — top secret"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert sentinel not in sanitized
+        assert "[system instruction redacted]" in sanitized
+        assert "[text redacted]" not in sanitized
+
+    def test_parts_bracket_equals_redacted(self) -> None:
+        """Standalone parts[0].text = '...' is redacted."""
+        raw = 'parts[0].text = "prompt text here"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "prompt text here" not in sanitized
+        assert "[text redacted]" in sanitized
+
+    def test_parts_dot_numeric_colon_redacted(self) -> None:
+        """Standalone parts.0.text: '...' (dot-numeric, colon) is redacted."""
+        raw = 'parts.0.text: "prompt text here"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "prompt text here" not in sanitized
+        assert "[text redacted]" in sanitized
+
+    # --- mutation region markers inside indexed text values ---
+
+    def test_mutation_region_marker_in_indexed_text_redacted(self) -> None:
+        """Mutation region marker inside an indexed text value is redacted."""
+        raw = r'contents[0].parts[0].text = "Current mutation region: import os; os.system(\"rm\")"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "import os" not in sanitized
+        assert "Current mutation region" not in sanitized
+
+    def test_mutation_start_marker_in_indexed_text_redacted(self) -> None:
+        """MUTATION_START marker inside an indexed text value is redacted."""
+        raw = r'contents[0].parts[0].text = "=== MUTATION_START === some injected code"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "some injected code" not in sanitized
+        assert "MUTATION_START" not in sanitized
+
+    # --- _call_gemini_api end-to-end with system_instruction path ---
+
+    def test_call_gemini_api_system_instruction_parts_text_not_in_error(self) -> None:
+        """_call_gemini_api: ClientError with system_instruction.parts[0].text → stripped."""
+        sentinel = pm._LLM_SYSTEM_PROMPT[:60]
+
+        class FakeClientError(Exception):
+            status_code = 400
+
+        mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([
+            FakeClientError(
+                f'400 INVALID_ARGUMENT: system_instruction.parts[0].text = "{sentinel}"'
+            ),
+        ])
+
+        with _patch_genai(mock_genai, mock_genai_types):
+            _, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "safe user prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert sentinel not in err
+        assert "[system instruction redacted]" in err
