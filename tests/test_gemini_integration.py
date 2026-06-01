@@ -284,6 +284,28 @@ class TestLiveModelRequiresGenomeEnabled:
         assert patch_result is None
         assert "live_model_enabled" in err
 
+    def test_phase3_genome_has_live_enabled(self) -> None:
+        """Phase 3 activation: real data/genome.json must have live_model_enabled=true with safe limits."""
+        genome_path = _PROJECT_ROOT / "data" / "genome.json"
+        if not genome_path.exists():
+            pytest.skip("data/genome.json not found")
+        genome = json.loads(genome_path.read_text(encoding="utf-8"))
+        assert genome.get("live_model_enabled") is True, (
+            "data/genome.json live_model_enabled must be true for Phase 3 activation"
+        )
+        assert genome.get("max_model_requests_per_run") == 1, (
+            "data/genome.json max_model_requests_per_run must be 1 for Phase 3 activation"
+        )
+        assert genome.get("send_repository_full_text") is False, (
+            "data/genome.json send_repository_full_text must remain false"
+        )
+        assert genome.get("send_raw_payloads") is False, (
+            "data/genome.json send_raw_payloads must remain false"
+        )
+        assert genome.get("send_secrets") is False, (
+            "data/genome.json send_secrets must remain false"
+        )
+
 
 # ---------------------------------------------------------------------------
 # 5. live-model refuses Pro model when free_tier_only=true

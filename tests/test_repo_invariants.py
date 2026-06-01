@@ -297,6 +297,14 @@ class TestGenomeSafety:
                 "A corrupted genome prevents the evolution loop from running."
             )
 
+    def test_live_model_enabled_is_strictly_true_for_phase3_activation(self, genome: dict) -> None:
+        """Phase 3 activation requires live_model_enabled to be exactly True."""
+        val = genome.get("live_model_enabled")
+        assert type(val) is bool and val is True, (  # noqa: E721
+            f"genome.json live_model_enabled must be exactly true (bool) for Phase 3 activation. "
+            f"Got: {val!r} (type={type(val).__name__})."
+        )
+
     def test_send_repository_full_text_is_false(self, genome: dict) -> None:
         """send_repository_full_text must be false — prevents full repo exfiltration."""
         val = genome.get("send_repository_full_text")
@@ -332,6 +340,20 @@ class TestGenomeSafety:
             f"genome.json allow_url_context must be exactly false. Got: {val!r}"
         )
 
+    def test_allow_google_search_grounding_is_false(self, genome: dict) -> None:
+        """allow_google_search_grounding must be false — prevents uncontrolled web search via Gemini."""
+        val = genome.get("allow_google_search_grounding")
+        assert type(val) is bool and val is False, (  # noqa: E721
+            f"genome.json allow_google_search_grounding must be exactly false. Got: {val!r}"
+        )
+
+    def test_max_model_requests_per_run_is_one(self, genome: dict) -> None:
+        """max_model_requests_per_run must be exactly 1 for Phase 3 first run — limits API exposure."""
+        val = genome.get("max_model_requests_per_run")
+        assert val == 1, (
+            f"genome.json max_model_requests_per_run must be 1 for Phase 3 activation. Got: {val!r}"
+        )
+
     def test_monthly_api_budget_exists(self, genome: dict) -> None:
         """monthly_api_budget_usd must be present."""
         assert "monthly_api_budget_usd" in genome, (
@@ -354,6 +376,13 @@ class TestGenomeSafety:
             "Exceeding this cap indicates an unauthorized budget increase."
         )
 
+    def test_monthly_api_budget_is_exactly_10(self, genome: dict) -> None:
+        """monthly_api_budget_usd must be exactly 10.0 for Phase 3 activation."""
+        val = genome.get("monthly_api_budget_usd")
+        assert val == 10.0, (
+            f"genome.json monthly_api_budget_usd must be exactly 10.0 for Phase 3 activation. Got: {val!r}"
+        )
+
     def test_daily_api_budget_exists(self, genome: dict) -> None:
         """daily_api_budget_usd must be present."""
         assert "daily_api_budget_usd" in genome, (
@@ -374,6 +403,13 @@ class TestGenomeSafety:
         assert isinstance(val, (int, float)) and val <= 0.25, (
             f"genome.json daily_api_budget_usd must be <= 0.25 USD. Got: {val!r}. "
             "Exceeding this cap indicates an unauthorized daily budget increase."
+        )
+
+    def test_daily_api_budget_is_exactly_0_25(self, genome: dict) -> None:
+        """daily_api_budget_usd must be exactly 0.25 for Phase 3 activation."""
+        val = genome.get("daily_api_budget_usd")
+        assert val == 0.25, (
+            f"genome.json daily_api_budget_usd must be exactly 0.25 for Phase 3 activation. Got: {val!r}"
         )
 
 
