@@ -1,1 +1,20 @@
-[]
+[
+  {
+    "timestamp": "2026-06-01T05:58:42.423435+00:00",
+    "provider": "gemini",
+    "api_mode": "gemini_paid_credit",
+    "model": "gemini-2.0-flash",
+    "estimated_input_chars": 4988,
+    "estimated_output_chars": 8192,
+    "estimated_input_tokens": 9976,
+    "estimated_output_tokens": 2048,
+    "actual_input_tokens": null,
+    "actual_output_tokens": null,
+    "estimated_cost_usd": 0.0036336000000000003,
+    "budget_month": "2026-06",
+    "budget_day": "2026-06-01",
+    "request_count": 1,
+    "success": false,
+    "error": "Gemini API call failed after 1 attempt: non-transient error ClientError"
+  }
+]
