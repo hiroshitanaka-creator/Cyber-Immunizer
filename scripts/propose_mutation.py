@@ -600,11 +600,16 @@ def _sanitize_gemini_error_message(
         flags=re.IGNORECASE | re.DOTALL,
     )
 
-    # 6. "contents" JSON key with array value — carries submitted prompt payload.
+    # 6. "contents" key — array value OR scalar quoted string value.
+    #    Covers contents=[...], "contents": [...], contents="prompt text",
+    #    "contents": "prompt text", 'contents': 'prompt text', etc.
+    #    Scalar form catches SDK echoes where contents is passed as a string
+    #    (e.g. contents=user_prompt in _call_gemini_api) rather than a list.
     raw_msg = re.sub(
-        r"(?is)'?\"?contents\"?'?\s*[:=]\s*\[.*?\]",
+        r"(?:'?\"?contents\"?'?)\s*[:=]\s*(?:\[.*?\]|" + _any_str + ")",
         "[contents redacted]",
         raw_msg,
+        flags=re.IGNORECASE | re.DOTALL,
     )
 
     # 7. Indexed request field path forms — SDK/API error diagnostics may echo the

@@ -657,7 +657,131 @@ class TestCodexP2JsonEncoding:
 
 
 # ---------------------------------------------------------------------------
-# 9. TestCodexP2ReprStyle
+# 9. TestCodexP2ScalarContents
+#    Scalar quoted string values for contents= must be redacted, in addition
+#    to the existing array-value coverage.
+# ---------------------------------------------------------------------------
+
+
+class TestCodexP2ScalarContents:
+    """Scalar quoted contents values must be redacted by the sanitizer.
+
+    Step 6 of _sanitize_gemini_error_message previously only handled
+    contents=[...] array forms.  SDK/API exceptions may echo the submitted
+    payload as a scalar quoted string, e.g. contents="prompt text", when the
+    request was built with contents=user_prompt as a bare string rather than
+    a list of Part objects.
+    """
+
+    def test_contents_eq_double_quoted_redacted(self) -> None:
+        """contents="detector prompt text" is redacted."""
+        raw = 'contents="This is the detector prompt text."'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "detector prompt text" not in sanitized
+        assert "[contents redacted]" in sanitized
+
+    def test_contents_eq_single_quoted_redacted(self) -> None:
+        """contents='detector prompt text' is redacted."""
+        raw = "contents='This is the detector prompt text.'"
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "detector prompt text" not in sanitized
+        assert "[contents redacted]" in sanitized
+
+    def test_contents_colon_double_quoted_redacted(self) -> None:
+        """contents: "detector prompt text" is redacted."""
+        raw = 'contents: "This is the detector prompt text."'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "detector prompt text" not in sanitized
+        assert "[contents redacted]" in sanitized
+
+    def test_json_key_contents_double_quoted_redacted(self) -> None:
+        """"contents": "detector prompt text" (JSON form) is redacted."""
+        raw = '"contents": "This is the detector prompt text."'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "detector prompt text" not in sanitized
+        assert "[contents redacted]" in sanitized
+
+    def test_single_key_contents_single_quoted_redacted(self) -> None:
+        """'contents': 'detector prompt text' (single-quoted form) is redacted."""
+        raw = "'contents': 'This is the detector prompt text.'"
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "detector prompt text" not in sanitized
+        assert "[contents redacted]" in sanitized
+
+    def test_contents_escaped_newline_redacted(self) -> None:
+        """contents="line1\\nline2" (JSON-escaped newline) is redacted."""
+        import json as _json
+        json_val = _json.dumps("line1\nline2")
+        raw = "contents=" + json_val
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "line1" not in sanitized
+        assert "line2" not in sanitized
+        assert "[contents redacted]" in sanitized
+
+    def test_contents_escaped_quote_redacted(self) -> None:
+        """contents="say \\"hello\\"" (JSON-escaped quote) is redacted."""
+        import json as _json
+        json_val = _json.dumps('say "hello"')
+        raw = "contents=" + json_val
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "hello" not in sanitized
+        assert "[contents redacted]" in sanitized
+
+    def test_contents_mutation_region_marker_redacted(self) -> None:
+        """contents="Current mutation region: ..." is redacted."""
+        raw = 'contents="Current mutation region: import os; os.exec()"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "import os" not in sanitized
+        assert "Current mutation region" not in sanitized
+
+    def test_contents_mutation_start_marker_redacted(self) -> None:
+        """contents="=== MUTATION_START === ..." is redacted."""
+        raw = 'contents="=== MUTATION_START === some injected code here"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "some injected code" not in sanitized
+        assert "MUTATION_START" not in sanitized
+
+    def test_permission_denied_survives_scalar_contents_redaction(self) -> None:
+        """PERMISSION_DENIED API reason survives scalar contents redaction."""
+        raw = '403 PERMISSION_DENIED: contents="secret user prompt"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "secret user prompt" not in sanitized
+        assert "PERMISSION_DENIED" in sanitized
+        assert "[contents redacted]" in sanitized
+
+    def test_status_code_survives_scalar_contents_redaction(self) -> None:
+        """HTTP status code and INVALID_ARGUMENT survive scalar contents redaction."""
+        raw = '400 INVALID_ARGUMENT: "contents": "prompt text here"'
+        sanitized = pm._sanitize_gemini_error_message(raw)
+        assert "prompt text here" not in sanitized
+        assert "400" in sanitized
+        assert "INVALID_ARGUMENT" in sanitized
+
+    def test_call_gemini_api_scalar_contents_not_in_error(self) -> None:
+        """_call_gemini_api: ClientError with contents="prompt" does not return prompt."""
+        sentinel = "scalar-contents-prompt-sentinel-XYZ"
+
+        class FakeClientError(Exception):
+            status_code = 400
+
+        mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([
+            FakeClientError(
+                f'400 INVALID_ARGUMENT: contents="{sentinel}"'
+            ),
+        ])
+
+        with _patch_genai(mock_genai, mock_genai_types):
+            _, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "safe user prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert sentinel not in err
+        assert "[contents redacted]" in err
+
+
+# ---------------------------------------------------------------------------
+# 10. TestCodexP2ReprStyle
 #    Python repr / bare-assignment text= and parts= forms must be redacted.
 # ---------------------------------------------------------------------------
 
