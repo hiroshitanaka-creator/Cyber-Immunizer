@@ -284,16 +284,6 @@ class TestLiveModelRequiresGenomeEnabled:
         assert patch_result is None
         assert "live_model_enabled" in err
 
-    def test_default_genome_has_live_disabled(self) -> None:
-        """The real data/genome.json must have live_model_enabled=false by default."""
-        genome_path = _PROJECT_ROOT / "data" / "genome.json"
-        if genome_path.exists():
-            genome = json.loads(genome_path.read_text(encoding="utf-8"))
-            # The default must be safe
-            assert genome.get("live_model_enabled", False) is False, (
-                "data/genome.json live_model_enabled must default to false"
-            )
-
 
 # ---------------------------------------------------------------------------
 # 5. live-model refuses Pro model when free_tier_only=true

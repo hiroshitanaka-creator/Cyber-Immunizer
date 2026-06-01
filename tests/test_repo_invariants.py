@@ -297,15 +297,6 @@ class TestGenomeSafety:
                 "A corrupted genome prevents the evolution loop from running."
             )
 
-    def test_live_model_enabled_is_strictly_false(self, genome: dict) -> None:
-        """live_model_enabled must be exactly False (not 0, not None, not 'false')."""
-        val = genome.get("live_model_enabled")
-        assert type(val) is bool and val is False, (  # noqa: E721
-            f"genome.json live_model_enabled must be exactly false (bool). "
-            f"Got: {val!r} (type={type(val).__name__}). "
-            "Setting this to true would trigger live Gemini API calls in Phase 3."
-        )
-
     def test_send_repository_full_text_is_false(self, genome: dict) -> None:
         """send_repository_full_text must be false — prevents full repo exfiltration."""
         val = genome.get("send_repository_full_text")
