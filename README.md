@@ -119,6 +119,9 @@ Cyber-Immunizer/
 │   ├── API_ACTIVATION_CHECKLIST.md             # API有効化チェックリスト・GEMINI_API_KEY用語正本
 │   ├── PHASE_2_COMPLETION_CHECKPOINT.md        # Phase 2完了チェックポイント・pre-Phase-3現在状態
 │   ├── PHASE_3_GO_NO_GO_CHECKLIST.md           # Phase 3 activation前のGo/No-Go readiness audit
+│   ├── PHASE_2_5_CLOSEOUT_AUDIT.md             # Phase 2.5 hardening closeout audit（PR #46–#53 ledger）
+│   ├── human用roadmap/
+│   │   └── phase3_to_phase7_roadmap.md         # Human Owner roadmap for Phase 3–7（thread handoff）
 │   └── API_ACTIVATION_RUNBOOK.md               # API有効化手順書（Phase 3 runbook）
 ├── intelligence/
 │   └── threat_feeds.py     # 脅威インテリジェンスモジュール（スタブ）
