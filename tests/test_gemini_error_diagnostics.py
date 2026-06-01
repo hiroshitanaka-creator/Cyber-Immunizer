@@ -128,9 +128,12 @@ class TestFormatGeminiErrorDetailMessage:
         class FakeError(Exception):
             status_code = 400
 
-        detail = pm._format_gemini_error_detail(FakeError("Bad Request: invalid schema"))
-        assert "Bad Request" in detail
-        assert "invalid schema" in detail
+        # A payload-free message (no request/prompt/contents indicators) is
+        # surfaced as a sanitized excerpt alongside the status code.
+        detail = pm._format_gemini_error_detail(FakeError("schema rejected: unexpected field"))
+        assert "status=400" in detail
+        assert "schema rejected" in detail
+        assert "unexpected field" in detail
 
     def test_empty_exception_message_handled(self) -> None:
         detail = pm._format_gemini_error_detail(RuntimeError(""))
@@ -149,7 +152,10 @@ class TestFormatGeminiErrorDetailRedactsApiKey:
         secret = "AIza_super_secret_key_value_12345"
         monkeypatch.setenv("GEMINI_API_KEY", secret)
 
-        exc = RuntimeError(f"Request failed: key={secret} was rejected")
+        # Payload-free wording so this exercises the sanitized-excerpt branch
+        # where GEMINI_API_KEY redaction applies ("request" would force the
+        # generic payload redaction marker instead).
+        exc = RuntimeError(f"auth failed: key={secret} was rejected")
         detail = pm._format_gemini_error_detail(exc)
         assert secret not in detail
         assert "[REDACTED]" in detail
@@ -169,7 +175,9 @@ class TestFormatGeminiErrorDetailRedactsApiKey:
         assert "[REDACTED]" in detail
 
     def test_redacts_api_key_assignment_pattern(self) -> None:
-        exc = RuntimeError("request rejected: api_key=AIzaSyVeryLongTokenValue12345abcdef")
+        # Payload-free wording ("auth" not "request") so the sanitized-excerpt
+        # branch runs and the api_key= pattern is redacted to [REDACTED].
+        exc = RuntimeError("auth rejected: api_key=AIzaSyVeryLongTokenValue12345abcdef")
         detail = pm._format_gemini_error_detail(exc)
         assert "AIzaSyVeryLongTokenValue12345abcdef" not in detail
         assert "[REDACTED]" in detail
@@ -262,10 +270,13 @@ class TestCallGeminiApiErrorDetail:
         class Fake429(Exception):
             status_code = 429
 
+        # Payload-free message so the sanitized-excerpt branch surfaces it
+        # ("Too Many Requests" contains the "request" payload indicator, which
+        # would force the generic redaction marker).
         mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([
-            Fake429("Too Many Requests: quota exceeded"),
-            Fake429("Too Many Requests: quota exceeded"),
-            Fake429("Too Many Requests: quota exceeded"),
+            Fake429("rate limit exceeded, slow down"),
+            Fake429("rate limit exceeded, slow down"),
+            Fake429("rate limit exceeded, slow down"),
         ])
 
         with _patch_genai(mock_genai, mock_genai_types):
@@ -278,7 +289,7 @@ class TestCallGeminiApiErrorDetail:
         assert "transient" in err
         assert "Fake429" in err
         assert "429" in err
-        assert "quota exceeded" in err
+        assert "rate limit exceeded" in err
 
     def test_error_does_not_expose_api_key_in_exception_message(
         self, monkeypatch: pytest.MonkeyPatch
@@ -777,7 +788,9 @@ class TestCodexP2ScalarContents:
             )
 
         assert sentinel not in err
-        assert "[contents redacted]" in err
+        # Allowlist diagnostics: the safe code is surfaced, the scalar contents
+        # payload is dropped entirely (no raw value reaches the error string).
+        assert "INVALID_ARGUMENT" in err
 
 
 # ---------------------------------------------------------------------------
@@ -971,7 +984,8 @@ class TestCodexP2IndexedFieldPaths:
             )
 
         assert sentinel not in err
-        assert "[text redacted]" in err
+        # Allowlist diagnostics: safe code surfaced, indexed path payload dropped.
+        assert "INVALID_ARGUMENT" in err
 
     # --- additional coverage: dot-numeric index forms ---
 
@@ -1043,4 +1057,157 @@ class TestCodexP2IndexedFieldPaths:
             )
 
         assert sentinel not in err
-        assert "[system instruction redacted]" in err
+        # Allowlist diagnostics: safe code surfaced, system_instruction payload dropped.
+        assert "INVALID_ARGUMENT" in err
+
+
+# ---------------------------------------------------------------------------
+# 11. TestAllowlistedGeminiDiagnostics
+#     _format_gemini_error_detail switched from regex-sanitizing arbitrary
+#     str(exc) to a fail-closed allowlist: only class name, integer status,
+#     and allowlisted API error codes are surfaced; any payload indicator in
+#     the message forces a fixed redaction marker.
+# ---------------------------------------------------------------------------
+
+
+class TestAllowlistedGeminiDiagnostics:
+    """Allowlisted diagnostics: raw payload echoes never reach the error string."""
+
+    def _exc(self, message: str, status: int | None = None) -> Exception:
+        class FakeClientError(Exception):
+            pass
+
+        e = FakeClientError(message)
+        if status is not None:
+            e.status_code = status  # type: ignore[attr-defined]
+        return e
+
+    # --- allowlisted error codes are surfaced ---
+
+    def test_permission_denied_code_surfaced(self) -> None:
+        detail = pm._format_gemini_error_detail(self._exc("403 PERMISSION_DENIED", 403))
+        assert "PERMISSION_DENIED" in detail
+        assert "status=403" in detail
+
+    def test_api_key_invalid_code_surfaced(self) -> None:
+        detail = pm._format_gemini_error_detail(self._exc("401 API_KEY_INVALID", 401))
+        assert "API_KEY_INVALID" in detail
+        assert "status=401" in detail
+
+    def test_invalid_argument_code_surfaced(self) -> None:
+        detail = pm._format_gemini_error_detail(self._exc("400 INVALID_ARGUMENT", 400))
+        assert "INVALID_ARGUMENT" in detail
+        assert "status=400" in detail
+
+    def test_quota_exceeded_code_surfaced(self) -> None:
+        detail = pm._format_gemini_error_detail(self._exc("429 QUOTA_EXCEEDED", 429))
+        assert "QUOTA_EXCEEDED" in detail
+        assert "status=429" in detail
+
+    # --- safe code surfaced even when payload present, payload dropped ---
+
+    def test_safe_code_surfaced_and_payload_dropped(self) -> None:
+        secret = "detector mutation region content MUST NOT LEAK"
+        detail = pm._format_gemini_error_detail(
+            self._exc(f'403 PERMISSION_DENIED: contents="{secret}"', 403)
+        )
+        assert "PERMISSION_DENIED" in detail
+        assert "status=403" in detail
+        assert secret not in detail
+        assert "contents" not in detail  # surrounding raw text dropped
+
+    # --- payload indicators force generic redaction (no safe code) ---
+
+    def test_scalar_contents_double_quoted_redacted(self) -> None:
+        secret = "detector prompt text"
+        detail = pm._format_gemini_error_detail(self._exc(f'contents="{secret}"', 400))
+        assert secret not in detail
+        assert "message redacted because request payload was present" in detail
+        assert "status=400" in detail
+
+    def test_json_key_contents_redacted(self) -> None:
+        secret = "detector prompt text"
+        detail = pm._format_gemini_error_detail(self._exc(f'"contents": "{secret}"', 400))
+        assert secret not in detail
+        assert "message redacted because request payload was present" in detail
+
+    def test_scalar_contents_single_quoted_redacted(self) -> None:
+        secret = "detector prompt text"
+        detail = pm._format_gemini_error_detail(self._exc(f"contents='{secret}'", 400))
+        assert secret not in detail
+        assert "message redacted because request payload was present" in detail
+
+    def test_scalar_contents_escaped_newline_redacted(self) -> None:
+        detail = pm._format_gemini_error_detail(self._exc('contents="line1\\nline2"', 400))
+        assert "line1" not in detail
+        assert "line2" not in detail
+        assert "message redacted because request payload was present" in detail
+
+    def test_system_instruction_indicator_redacted(self) -> None:
+        detail = pm._format_gemini_error_detail(
+            self._exc('system_instruction="You are a defensive assistant"', 400)
+        )
+        assert "You are a defensive" not in detail
+        assert "message redacted because request payload was present" in detail
+
+    def test_mutation_region_indicator_redacted(self) -> None:
+        detail = pm._format_gemini_error_detail(
+            self._exc("Current mutation region: import os; os.system()", 400)
+        )
+        assert "import os" not in detail
+        assert "message redacted because request payload was present" in detail
+
+    # --- status preserved with redaction; status from 400/403 ---
+
+    def test_status_400_present_with_payload_redaction(self) -> None:
+        detail = pm._format_gemini_error_detail(self._exc('contents="x"', 400))
+        assert "status=400" in detail
+
+    def test_status_403_present_with_payload_redaction(self) -> None:
+        detail = pm._format_gemini_error_detail(self._exc('prompt="x"', 403))
+        assert "status=403" in detail
+
+    # --- payload-free messages still surface a useful (sanitized) excerpt ---
+
+    def test_payload_free_message_surfaced(self) -> None:
+        detail = pm._format_gemini_error_detail(self._exc("Deadline exceeded", 504))
+        assert "Deadline exceeded" in detail
+        assert "status=504" in detail
+
+    def test_payload_free_message_has_no_redaction_marker(self) -> None:
+        detail = pm._format_gemini_error_detail(self._exc("connection reset by peer"))
+        assert "connection reset by peer" in detail
+        assert "message redacted" not in detail
+
+    # --- defense-in-depth: secrets still stripped in payload-free branch ---
+
+    def test_payload_free_message_still_strips_api_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        secret = "AIza_secret_env_key_value_67890"
+        monkeypatch.setenv("GEMINI_API_KEY", secret)
+        detail = pm._format_gemini_error_detail(self._exc(f"auth failed key={secret}"))
+        assert secret not in detail
+        assert "[REDACTED]" in detail
+
+    # --- _call_gemini_api end-to-end: scalar contents echo never leaks ---
+
+    def test_call_gemini_api_scalar_contents_echo_redacted(self) -> None:
+        sentinel = "scalar-echo-prompt-sentinel-ABC"
+
+        class FakeClientError(Exception):
+            status_code = 400
+
+        mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([
+            FakeClientError(f'contents="{sentinel}"'),
+        ])
+
+        with _patch_genai(mock_genai, mock_genai_types):
+            _, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "safe user prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert sentinel not in err
+        assert "message redacted because request payload was present" in err
+        assert "400" in err

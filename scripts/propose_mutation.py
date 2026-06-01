@@ -503,6 +503,50 @@ def _is_transient_gemini_error(exc: BaseException) -> bool:
 
 _GEMINI_ERROR_MAX_MSG_LEN = 500
 
+# Allowlisted, non-secret API error codes that may be surfaced verbatim in
+# diagnostics. These are a fixed, enumerated set of uppercase tokens — they are
+# never request/prompt payload, so it is safe to include them even when the
+# surrounding message is redacted.
+_SAFE_GEMINI_ERROR_CODES = (
+    "PERMISSION_DENIED",
+    "INVALID_ARGUMENT",
+    "API_KEY_INVALID",
+    "UNAUTHENTICATED",
+    "NOT_FOUND",
+    "RESOURCE_EXHAUSTED",
+    "FAILED_PRECONDITION",
+    "QUOTA_EXCEEDED",
+)
+
+# If any of these substrings appears (case-insensitively) in a raw exception
+# message, the message is assumed to potentially carry request/prompt payload
+# and is NOT surfaced raw. Only the exception class, the integer status, and any
+# allowlisted error code are returned. This is a deliberate fail-closed guard:
+# rather than chasing every new SDK payload-echo encoding with more sanitiser
+# regexes, any payload indicator forces a generic redaction so prompt/request
+# text can never reach logs or the paid-credit ledger.
+_GEMINI_PAYLOAD_INDICATORS = (
+    "contents",
+    "system_instruction",
+    "parts",
+    "text=",
+    '"text"',
+    "'text'",
+    "prompt",
+    "user_prompt",
+    "request",
+    "payload",
+    "body",
+    "current mutation region",
+    "mutation_start",
+    "mutation_end",
+)
+
+# Fixed marker used when payload indicators are detected in a raw message.
+_GEMINI_PAYLOAD_REDACTED_DETAIL = (
+    "message redacted because request payload was present"
+)
+
 
 def _sanitize_gemini_error_message(
     raw_msg: str,
@@ -656,30 +700,55 @@ def _format_gemini_error_detail(
     *,
     forbidden_substrings: tuple[str, ...] = (),
 ) -> str:
-    """Return a safe diagnostic string for a Gemini API exception.
+    """Return an allowlisted, payload-safe diagnostic string for a Gemini exception.
 
-    Includes exception class name, HTTP status code (if present on the
-    exception), and a sanitized excerpt of str(exc).
+    The output contains only:
+      - the exception class name,
+      - the integer status_code / code attribute (if present),
+      - any allowlisted API error code extracted from the message
+        (PERMISSION_DENIED, INVALID_ARGUMENT, API_KEY_INVALID, …), and
+      - otherwise a sanitized, length-bounded excerpt — but ONLY when the raw
+        message shows no request/prompt payload indicators.
 
-    Never exposes: raw GEMINI_API_KEY value, Authorization/Bearer tokens,
-    api_key= patterns, submitted user prompt, system prompt, "contents"
-    payload sections, or detector mutation-region text.
+    The raw str(exc) is never returned verbatim once a payload indicator is
+    detected; a fixed redaction marker is used instead. This is a deliberate
+    move away from regex-sanitizing arbitrary payload echoes (which proved
+    fragile against new encodings — JSON, repr, indexed paths, scalar contents)
+    toward a fail-closed allowlist. Allowlisted error codes are still surfaced
+    because they are a fixed, non-secret enumeration.
 
-    forbidden_substrings should contain caller-known sensitive strings (e.g.
-    the submitted user prompt and system prompt) so they are stripped even if
-    the SDK echoes request payload in the exception message.
+    forbidden_substrings are still applied (in the payload-free branch) as
+    defense-in-depth so caller-known prompt/system strings are stripped.
 
-    The message is truncated to max_len characters to bound ledger/log size.
+    The excerpt is truncated to max_len characters to bound ledger/log size.
     """
     cls_name = type(exc).__name__
     status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
     status_part = f" (status={status})" if isinstance(status, int) else ""
 
-    sanitized_msg = _sanitize_gemini_error_message(str(exc), forbidden_substrings)
+    raw_msg = str(exc)
+    lowered = raw_msg.lower()
 
+    # Allowlisted, non-secret error codes may always be surfaced — but ONLY the
+    # code tokens themselves, never the surrounding text (which could be payload).
+    found_codes = [code for code in _SAFE_GEMINI_ERROR_CODES if code in raw_msg]
+    if found_codes:
+        detail = ", ".join(dict.fromkeys(found_codes))  # de-dup, preserve order
+        return f"{cls_name}{status_part}: {detail}"
+
+    # No allowlisted code. If the message looks like it carries request/prompt
+    # payload, do not surface it at all — return a fixed redaction marker.
+    if any(indicator in lowered for indicator in _GEMINI_PAYLOAD_INDICATORS):
+        return f"{cls_name}{status_part}: {_GEMINI_PAYLOAD_REDACTED_DETAIL}"
+
+    # Payload-free and no recognized code: surface a sanitized, bounded excerpt
+    # as defense-in-depth (strips GEMINI_API_KEY, bearer tokens, api_key=, and
+    # any caller-supplied forbidden substrings).
+    sanitized_msg = _sanitize_gemini_error_message(raw_msg, forbidden_substrings)
     if len(sanitized_msg) > max_len:
         sanitized_msg = sanitized_msg[:max_len] + "…"
-
+    if not sanitized_msg:
+        return f"{cls_name}{status_part}"
     return f"{cls_name}{status_part}: {sanitized_msg}"
 
 
