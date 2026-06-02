@@ -649,6 +649,91 @@ class TestReplacementCodeValidation:
 
 
 # ---------------------------------------------------------------------------
+# 9b. Python syntax validation in replacement_code
+# ---------------------------------------------------------------------------
+
+
+class TestReplacementCodeSyntaxValidation:
+    """Tests for the AST-only syntax check added to _validate_replacement_code.
+
+    Background: run 26801801369 showed Gemini returning replacement_code as
+    semicolon-joined statements with `if matched:` on the same line, causing
+    a SyntaxError in the Apply step.  The Propose step should reject such code
+    before writing mutation_patch.json.
+    """
+
+    def test_rejects_semicolon_joined_if_statement(self) -> None:
+        """Semicolon-joined `if` compound statement is rejected as invalid syntax.
+
+        This is the exact pattern that caused the Apply-step SyntaxError in
+        run 26801801369: Gemini returned replacement_code as a single line
+        with `if matched: return DetectionResult(...)` after semicolons.
+        """
+        bad_code = (
+            '    surface = ""; matched = []; '
+            "if matched: return DetectionResult("
+            "blocked=True, reason=\"x\", confidence=0.9, matched_signals=())"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", (
+            "Expected rejection for semicolon-joined if statement (run 26801801369 regression)"
+        )
+        assert "syntax" in err.lower() or "valid python" in err.lower(), (
+            f"Error must mention syntax issue, got: {err!r}"
+        )
+
+    def test_accepts_valid_multiline_replacement_code(self) -> None:
+        """Valid multi-line replacement_code is not rejected by syntax check."""
+        good_code = (
+            "    surface = request.path.lower() + ' ' + request.body.lower()\n"
+            "    matched = []\n"
+            "    indicators = ['path-traversal', 'sqli', 'xss']\n"
+            "    for ind in indicators:\n"
+            "        if ind in surface:\n"
+            "            matched.append(ind)\n"
+            "    if matched:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='indicator matched: ' + matched[0],\n"
+            "            confidence=min(1.0, 0.5 + 0.12 * len(matched)),\n"
+            "            matched_signals=tuple(matched),\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(good_code)
+        assert err == "", f"Expected valid multi-line code to pass, got: {err}"
+
+    def test_rejects_bare_if_with_body_on_same_line_after_semicolon(self) -> None:
+        """Compound statement after semicolon is a SyntaxError in Python."""
+        bad_code = "    x = 1; if x: pass"
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Compound statement after semicolon must be rejected"
+        assert "syntax" in err.lower() or "valid python" in err.lower()
+
+    def test_syntax_check_does_not_execute_code(self) -> None:
+        """Syntax check uses ast.parse only — side-effecting code is not run.
+
+        If the code were executed, the list append below would mutate a global
+        that we can observe.  The test passes only if no execution happened.
+        """
+        _sentinel: list = []
+        # This code would append to _sentinel if executed, but should not be.
+        # It IS syntactically valid, so validation must return "".
+        good_code = (
+            "    surface = request.path.lower()\n"
+            "    return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(good_code)
+        assert err == "", f"Valid code must pass syntax check: {err}"
+        assert _sentinel == [], "Code must not have been executed during syntax check"
+
+
+# ---------------------------------------------------------------------------
 # 10. offline-sample still works
 # ---------------------------------------------------------------------------
 

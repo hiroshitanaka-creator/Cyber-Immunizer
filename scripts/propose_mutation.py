@@ -51,6 +51,7 @@ SAFETY CONSTRAINTS (all modes):
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -333,6 +334,7 @@ def _validate_replacement_code(code: str) -> str:
     """Return an error message if replacement_code contains forbidden tokens.
 
     Also rejects mutation markers (which would break apply_mutation.py).
+    Also rejects code that is not valid Python syntax (AST parse only — never executed).
     Returns empty string if the code is clean.
     """
     # Reject mutation markers in replacement code
@@ -348,6 +350,18 @@ def _validate_replacement_code(code: str) -> str:
                 f"replacement_code contains forbidden token {token!r}. "
                 "Unsafe replacement_code rejected before writing patch."
             )
+    # Validate Python syntax by wrapping as a function body and AST-parsing.
+    # The code is never executed — ast.parse() only builds the parse tree.
+    # This catches semicolon-joined compound statements (e.g. `if x: return y`
+    # on the same line after `;`) that the Apply step would reject with SyntaxError.
+    lines = code.splitlines()
+    wrapped = "def _candidate_body():\n" + "\n".join("    " + line for line in lines)
+    if not lines:
+        wrapped += "    pass"
+    try:
+        ast.parse(wrapped)
+    except SyntaxError as exc:
+        return f"replacement_code is not valid Python syntax: {exc}"
     return ""
 
 
