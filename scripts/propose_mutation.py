@@ -862,6 +862,10 @@ def _call_gemini_api(
     # thinking_level="low" to request the lowest thinking mode.
     # Gemini 2.x models do not accept this field, so only include it for gemini-3.
     # thinking_level and thinking_budget must not be specified together.
+    #
+    # Guard: older google-genai SDKs may not expose ThinkingConfig or may not
+    # accept thinking_level.  Fail closed with a controlled error rather than
+    # raising an unhandled exception before generate_content is even called.
     _generate_config_kwargs: dict = dict(
         system_instruction=_LLM_SYSTEM_PROMPT,
         response_mime_type="application/json",
@@ -870,9 +874,16 @@ def _call_gemini_api(
         temperature=temperature,
     )
     if model_name.startswith("gemini-3"):
-        _generate_config_kwargs["thinking_config"] = genai_types.ThinkingConfig(
-            thinking_level="low"
-        )
+        try:
+            _generate_config_kwargs["thinking_config"] = genai_types.ThinkingConfig(
+                thinking_level="low"
+            )
+        except (AttributeError, TypeError):
+            return None, None, None, (
+                "Gemini API call failed: installed google-genai SDK does not support "
+                "ThinkingConfig(thinking_level=...). "
+                "Upgrade google-genai before using gemini-3 models."
+            )
 
     for attempt in range(1, effective_attempts + 1):
         try:
