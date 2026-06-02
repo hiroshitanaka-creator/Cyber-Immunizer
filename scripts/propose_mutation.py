@@ -53,6 +53,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -500,6 +501,257 @@ def _is_transient_gemini_error(exc: BaseException) -> bool:
     return any(frag in msg for frag in _TRANSIENT_MESSAGE_FRAGMENTS)
 
 
+_GEMINI_ERROR_MAX_MSG_LEN = 500
+
+# Allowlisted, non-secret API error codes that may be surfaced verbatim in
+# diagnostics. These are a fixed, enumerated set of uppercase tokens — they are
+# never request/prompt payload, so it is safe to include them even when the
+# surrounding message is redacted.
+_SAFE_GEMINI_ERROR_CODES = (
+    "PERMISSION_DENIED",
+    "INVALID_ARGUMENT",
+    "API_KEY_INVALID",
+    "UNAUTHENTICATED",
+    "NOT_FOUND",
+    "RESOURCE_EXHAUSTED",
+    "FAILED_PRECONDITION",
+    "QUOTA_EXCEEDED",
+)
+
+# If any of these substrings appears (case-insensitively) in a raw exception
+# message, the message is assumed to potentially carry request/prompt payload
+# and is NOT surfaced raw. Only the exception class, the integer status, and any
+# allowlisted error code are returned. This is a deliberate fail-closed guard:
+# rather than chasing every new SDK payload-echo encoding with more sanitiser
+# regexes, any payload indicator forces a generic redaction so prompt/request
+# text can never reach logs or the paid-credit ledger.
+_GEMINI_PAYLOAD_INDICATORS = (
+    "contents",
+    "system_instruction",
+    "parts",
+    "text=",
+    '"text"',
+    "'text'",
+    "prompt",
+    "user_prompt",
+    "request",
+    "payload",
+    "body",
+    "current mutation region",
+    "mutation_start",
+    "mutation_end",
+)
+
+# Fixed marker used when payload indicators are detected in a raw message.
+_GEMINI_PAYLOAD_REDACTED_DETAIL = (
+    "message redacted because request payload was present"
+)
+
+
+def _sanitize_gemini_error_message(
+    raw_msg: str,
+    forbidden_substrings: tuple[str, ...] = (),
+) -> str:
+    """Strip secret-like and prompt/request-payload material from a raw exception message.
+
+    Applied in order:
+    1. Exact forbidden substrings (caller-supplied: user prompt, system prompt).
+    2. Exact GEMINI_API_KEY env value.
+    3. Authorization: Bearer <token> header patterns.
+    4. api_key= / apikey= long value patterns.
+    5. JSON/repr/assignment-style prompt-carrying fields:
+       system_instruction, user_prompt, prompt, text (JSON only), parts (JSON only).
+       Handles "key": "value", 'key': 'value', key="value", key='value'.
+       Value patterns cover JSON escape sequences (\\n, \\", etc.).
+    6. "contents" request-payload array sections.
+    7. Indexed request field path forms — SDK/API diagnostic echoes may carry
+       submitted prompt as dotted/indexed paths ending in .text:
+         contents[0].parts[0].text = "..."
+         request.contents[0].parts[0].text: "..."
+         system_instruction.parts[0].text = "..."
+         parts[0].text = "..."
+       Both bracket ([N]) and dot-numeric (.N) index notations are covered.
+    8. Mutation-region markers and trailing content.
+    """
+    # 1. Caller-supplied forbidden strings (user prompt text, system prompt).
+    #    Verbatim str.replace handles the raw Python string form.
+    #    JSON-encoded forms (e.g. "system_instruction": "...\n...") are handled
+    #    separately in step 5 via structural regex, because json.dumps converts
+    #    \n to \\n and adds surrounding quotes, making the encoded string
+    #    non-identical to the raw Python value and therefore unmatchable here.
+    for forbidden in forbidden_substrings:
+        if forbidden and forbidden in raw_msg:
+            raw_msg = raw_msg.replace(forbidden, "[REDACTED]")  # raw form; see step 5 for JSON-encoded form
+
+    # 2. Exact GEMINI_API_KEY env value.
+    api_key_val = os.environ.get("GEMINI_API_KEY", "")
+    if api_key_val and api_key_val in raw_msg:
+        raw_msg = raw_msg.replace(api_key_val, "[REDACTED]")
+
+    # 3. Authorization: Bearer <token> header values.
+    raw_msg = re.sub(
+        r"(?i)(Authorization:\s*Bearer\s+)\S+",
+        r"\1[REDACTED]",
+        raw_msg,
+    )
+
+    # 4. api_key= / apikey= style long value assignments.
+    raw_msg = re.sub(
+        r"(?i)(api[_-]?key\s*[=:]\s*)[A-Za-z0-9\-_]{20,}",
+        r"\1[REDACTED]",
+        raw_msg,
+    )
+
+    # 5. JSON/repr/assignment-style prompt-carrying fields.
+    #    Conservative fail-closed: if a known prompt-carrying key appears in any
+    #    common encoding, replace the entire quoted value with a safe marker.
+    #    The JSON string pattern handles escape sequences (\\n, \\", etc.) so
+    #    JSON-encoded system prompts are caught even when verbatim match (step 1)
+    #    cannot find them due to encoding differences.
+    _dbl_str = r'"(?:[^"\\]|\\.)*"'           # JSON double-quoted string value
+    _sgl_str = r"'(?:[^'\\]|\\.)*'"           # Python single-quoted string value
+    _any_str = "(?:" + _dbl_str + "|" + _sgl_str + ")"  # either form
+
+    for _fk, _fl in (
+        ("system_instruction", "[system instruction redacted]"),
+        ("user_prompt",        "[user prompt redacted]"),
+        ("prompt",             "[prompt redacted]"),
+    ):
+        # Key forms: "key", 'key', bare key (for assignment-style)
+        _kp = '(?:"' + _fk + '"|' + "'" + _fk + "'|" + _fk + ')'
+        raw_msg = re.sub(
+            _kp + r"\s*[:=]\s*" + _any_str,
+            '"' + _fk + '": "' + _fl + '"',
+            raw_msg,
+            flags=re.IGNORECASE,
+        )
+
+    # "text" and "parts" carry per-part prompt content in the request body.
+    # Covers JSON-quoted key forms ("text": / 'text':) and bare assignment
+    # forms (text=, parts=) used in Python repr such as Part(text='...').
+    # Negative lookbehind (?<![.\w]) prevents matching words like "context"
+    # and avoids colliding with dotted-path forms handled in step 7.
+    raw_msg = re.sub(
+        r'(?:"text"|\'text\'|(?<![.\w])text)\s*[:=]\s*' + _any_str,
+        '"text": "[text redacted]"',  # covers "text":, 'text':, text= repr forms
+        raw_msg,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    raw_msg = re.sub(
+        r'(?:"parts"|\'parts\'|(?<![.\w])parts)\s*[:=]\s*\[.*?\]',
+        '"parts": "[parts redacted]"',  # covers "parts":, 'parts':, parts= repr forms
+        raw_msg,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    # 6. "contents" key — array value OR scalar quoted string value.
+    #    Covers contents=[...], "contents": [...], contents="prompt text",
+    #    "contents": "prompt text", 'contents': 'prompt text', etc.
+    #    Scalar form catches SDK echoes where contents is passed as a string
+    #    (e.g. contents=user_prompt in _call_gemini_api) rather than a list.
+    raw_msg = re.sub(
+        r"(?:'?\"?contents\"?'?)\s*[:=]\s*(?:\[.*?\]|" + _any_str + ")",
+        "[contents redacted]",
+        raw_msg,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    # 7. Indexed request field path forms — SDK/API error diagnostics may echo the
+    #    submitted request as dotted/indexed paths (e.g. contents[0].parts[0].text).
+    #    Both bracket ([N]) and dot-numeric (.N) index notations are supported.
+    #    A single regex pass with a callable replacement avoids the case where
+    #    the bare "parts[N].text" sub-pattern would re-match inside a replacement
+    #    string that still contains "system_instruction.parts[N].text".
+    _idx_seg = r"(?:\[\d+\]|\.\d+)?"  # optional [N] or .N index segment
+    _indexed_path_pat = (
+        r"((?:system_instruction|(?:request\.)?contents" + _idx_seg + r")"
+        + r"\.parts" + _idx_seg + r"\.text"
+        + r"|parts" + _idx_seg + r"\.text"
+        + r")\s*[:=]\s*" + _any_str
+    )
+
+    def _replace_indexed_text_path(m: re.Match) -> str:  # type: ignore[type-arg]
+        path = m.group(1)
+        if path.lower().startswith("system_instruction"):
+            return path + ' = "[system instruction redacted]"'
+        return path + ' = "[text redacted]"'
+
+    raw_msg = re.sub(
+        _indexed_path_pat,
+        _replace_indexed_text_path,
+        raw_msg,
+        flags=re.IGNORECASE,
+    )
+
+    # 8. Mutation-region markers and everything that follows — prevents detector
+    # source code from leaking out if the SDK echoes back the request payload.
+    raw_msg = re.sub(
+        r"(?is)(Current\s+mutation\s+region|===\s*MUTATION_START\s*===|===\s*MUTATION_END\s*===).*",
+        "[mutation region redacted]",
+        raw_msg,
+    )
+
+    return raw_msg
+
+
+def _format_gemini_error_detail(
+    exc: BaseException,
+    max_len: int = _GEMINI_ERROR_MAX_MSG_LEN,
+    *,
+    forbidden_substrings: tuple[str, ...] = (),
+) -> str:
+    """Return an allowlisted, payload-safe diagnostic string for a Gemini exception.
+
+    The output contains only:
+      - the exception class name,
+      - the integer status_code / code attribute (if present),
+      - any allowlisted API error code extracted from the message
+        (PERMISSION_DENIED, INVALID_ARGUMENT, API_KEY_INVALID, …), and
+      - otherwise a sanitized, length-bounded excerpt — but ONLY when the raw
+        message shows no request/prompt payload indicators.
+
+    The raw str(exc) is never returned verbatim once a payload indicator is
+    detected; a fixed redaction marker is used instead. This is a deliberate
+    move away from regex-sanitizing arbitrary payload echoes (which proved
+    fragile against new encodings — JSON, repr, indexed paths, scalar contents)
+    toward a fail-closed allowlist. Allowlisted error codes are still surfaced
+    because they are a fixed, non-secret enumeration.
+
+    forbidden_substrings are still applied (in the payload-free branch) as
+    defense-in-depth so caller-known prompt/system strings are stripped.
+
+    The excerpt is truncated to max_len characters to bound ledger/log size.
+    """
+    cls_name = type(exc).__name__
+    status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    status_part = f" (status={status})" if isinstance(status, int) else ""
+
+    raw_msg = str(exc)
+    lowered = raw_msg.lower()
+
+    # Allowlisted, non-secret error codes may always be surfaced — but ONLY the
+    # code tokens themselves, never the surrounding text (which could be payload).
+    found_codes = [code for code in _SAFE_GEMINI_ERROR_CODES if code in raw_msg]
+    if found_codes:
+        detail = ", ".join(dict.fromkeys(found_codes))  # de-dup, preserve order
+        return f"{cls_name}{status_part}: {detail}"
+
+    # No allowlisted code. If the message looks like it carries request/prompt
+    # payload, do not surface it at all — return a fixed redaction marker.
+    if any(indicator in lowered for indicator in _GEMINI_PAYLOAD_INDICATORS):
+        return f"{cls_name}{status_part}: {_GEMINI_PAYLOAD_REDACTED_DETAIL}"
+
+    # Payload-free and no recognized code: surface a sanitized, bounded excerpt
+    # as defense-in-depth (strips GEMINI_API_KEY, bearer tokens, api_key=, and
+    # any caller-supplied forbidden substrings).
+    sanitized_msg = _sanitize_gemini_error_message(raw_msg, forbidden_substrings)
+    if len(sanitized_msg) > max_len:
+        sanitized_msg = sanitized_msg[:max_len] + "…"
+    if not sanitized_msg:
+        return f"{cls_name}{status_part}"
+    return f"{cls_name}{status_part}: {sanitized_msg}"
+
+
 # ---------------------------------------------------------------------------
 # Raw Gemini API call (shared by both live-model and gemini-paid-credit)
 # ---------------------------------------------------------------------------
@@ -573,6 +825,7 @@ def _call_gemini_api(
         )
 
     last_exc_type_name = "UnknownError"
+    last_exc_detail = "UnknownError"
     last_is_transient = False
     attempt = 0
     backoff = _GEMINI_API_BACKOFF_INITIAL_SECONDS
@@ -607,6 +860,10 @@ def _call_gemini_api(
 
         except Exception as exc:
             last_exc_type_name = type(exc).__name__
+            last_exc_detail = _format_gemini_error_detail(
+                exc,
+                forbidden_substrings=(user_prompt, _LLM_SYSTEM_PROMPT),
+            )
             last_is_transient = _is_transient_gemini_error(exc)
 
             if not last_is_transient:
@@ -624,7 +881,7 @@ def _call_gemini_api(
     plural = "s" if attempt != 1 else ""
     return None, None, None, (
         f"Gemini API call failed after {attempt} attempt{plural}: "
-        f"{classification} error {last_exc_type_name}"
+        f"{classification} error {last_exc_detail}"
     )
 
 
