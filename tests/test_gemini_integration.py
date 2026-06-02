@@ -1224,7 +1224,7 @@ class TestCallGeminiApiResilience:
         mock_genai.types = mock_genai_types  # ensure from-import resolves correctly
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -1265,7 +1265,7 @@ class TestCallGeminiApiResilience:
         sleep_calls: list[float] = []
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 _sleep_fn=lambda s: sleep_calls.append(s),
             )
@@ -1295,7 +1295,7 @@ class TestCallGeminiApiResilience:
         sleep_calls: list[float] = []
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, inp, out, err = pm._call_gemini_api(
+            raw_text, inp, out, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 _sleep_fn=lambda s: sleep_calls.append(s),
             )
@@ -1328,7 +1328,7 @@ class TestCallGeminiApiResilience:
         sleep_calls: list[float] = []
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 _sleep_fn=lambda s: sleep_calls.append(s),
             )
@@ -1346,7 +1346,7 @@ class TestCallGeminiApiResilience:
         """When google-genai is not installed, returns the expected error string."""
         with patch.dict("sys.modules", {"google": None, "google.genai": None}):
             with patch("builtins.__import__", side_effect=ImportError("No module named 'google'")):
-                raw_text, inp, out, err = pm._call_gemini_api(
+                raw_text, inp, out, _, err = pm._call_gemini_api(
                     "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                     _sleep_fn=lambda _: None,
                 )
@@ -1377,7 +1377,7 @@ class TestCallGeminiApiResilience:
         ])
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            _, _, _, err = pm._call_gemini_api(
+            _, _, _, _, err = pm._call_gemini_api(
                 secret_key, "gemini-2.0-flash", user_prompt_text, 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -1406,7 +1406,7 @@ class TestCallGeminiApiResilience:
         sleep_calls: list[float] = []
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 max_attempts=1,
                 _sleep_fn=lambda s: sleep_calls.append(s),
@@ -1435,7 +1435,7 @@ class TestCallGeminiApiResilience:
         sleep_calls: list[float] = []
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 max_attempts=2,
                 _sleep_fn=lambda s: sleep_calls.append(s),
@@ -1460,7 +1460,7 @@ class TestCallGeminiApiResilience:
         mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules(side_effects)
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 max_attempts=999,
                 _sleep_fn=lambda _: None,
@@ -1481,7 +1481,7 @@ class TestCallGeminiApiResilience:
         mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([])
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 max_attempts=0,
                 _sleep_fn=lambda _: None,
@@ -1523,7 +1523,7 @@ class TestCallGeminiApiThinkingConfig:
         mock_genai.types = mock_genai_types
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-3-flash-preview", "prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -1560,7 +1560,7 @@ class TestCallGeminiApiThinkingConfig:
         mock_genai.types = mock_genai_types
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.5-flash-lite", "prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -1590,7 +1590,7 @@ class TestCallGeminiApiThinkingConfig:
         mock_genai.types = mock_genai_types
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-3.1-flash-lite", "prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -1622,7 +1622,7 @@ class TestCallGeminiApiThinkingConfig:
         mock_genai.types = mock_genai_types
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, inp, out, err = pm._call_gemini_api(
+            raw_text, inp, out, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-3-flash-preview", "prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -1652,7 +1652,7 @@ class TestCallGeminiApiThinkingConfig:
         mock_genai.types = mock_genai_types
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, inp, out, err = pm._call_gemini_api(
+            raw_text, inp, out, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-3-flash-preview", "prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -1682,7 +1682,7 @@ class TestCallGeminiApiThinkingConfig:
         mock_genai.types = mock_genai_types
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -1691,3 +1691,111 @@ class TestCallGeminiApiThinkingConfig:
         assert raw_text is not None
         # ThinkingConfig must not be touched for gemini-2 models.
         mock_genai_types.ThinkingConfig.assert_not_called()
+
+    def test_thinking_config_value_error_returns_controlled_error(self) -> None:
+        """ThinkingConfig(thinking_level=...) raising ValueError → fail-closed, no API call."""
+        mock_client = MagicMock()
+        mock_genai_types = MagicMock()
+        mock_genai_types.ThinkingConfig = MagicMock(
+            side_effect=ValueError("invalid value for thinking_level")
+        )
+        mock_genai = MagicMock()
+        mock_genai.Client.return_value = mock_client
+        mock_genai.types = mock_genai_types
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, inp, out, think, err = pm._call_gemini_api(
+                "fake-key", "gemini-3-flash-preview", "prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert raw_text is None
+        assert err != "", "error must be non-empty for ValueError on ThinkingConfig"
+        assert "ThinkingConfig" in err
+        assert "ValueError" in err, f"error must include exc class name, got: {err!r}"
+        mock_client.models.generate_content.assert_not_called()
+
+    def test_thinking_config_arbitrary_exception_returns_controlled_error(self) -> None:
+        """Any Exception from ThinkingConfig construction → fail-closed error with class name."""
+
+        class FakeSDKValidationError(Exception):
+            pass
+
+        mock_client = MagicMock()
+        mock_genai_types = MagicMock()
+        mock_genai_types.ThinkingConfig = MagicMock(
+            side_effect=FakeSDKValidationError("SDK validation failed")
+        )
+        mock_genai = MagicMock()
+        mock_genai.Client.return_value = mock_client
+        mock_genai.types = mock_genai_types
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, inp, out, think, err = pm._call_gemini_api(
+                "fake-key", "gemini-3-flash-preview", "prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert raw_text is None
+        assert err != ""
+        assert "FakeSDKValidationError" in err, (
+            f"error must include exception class name, got: {err!r}"
+        )
+        mock_client.models.generate_content.assert_not_called()
+
+    def test_thinking_tokens_extracted_from_usage_metadata(self) -> None:
+        """actual_thinking_tokens is extracted from usage_metadata.thoughts_token_count."""
+        mock_usage = MagicMock()
+        mock_usage.prompt_token_count = 200
+        mock_usage.candidates_token_count = 300
+        mock_usage.thoughts_token_count = 150
+
+        mock_response = MagicMock()
+        mock_response.text = '{"result": "ok"}'
+        mock_response.usage_metadata = mock_usage
+
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = mock_response
+
+        mock_genai_types = MagicMock()
+        mock_genai = MagicMock()
+        mock_genai.Client.return_value = mock_client
+        mock_genai.types = mock_genai_types
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, inp, out, think, err = pm._call_gemini_api(
+                "fake-key", "gemini-3-flash-preview", "prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert err == ""
+        assert inp == 200
+        assert out == 300
+        assert think == 150, f"Expected thinking_tokens=150, got {think!r}"
+
+    def test_no_thinking_tokens_when_absent_from_metadata(self) -> None:
+        """actual_thinking_tokens is None when thoughts_token_count absent from metadata."""
+        mock_usage = MagicMock(spec=["prompt_token_count", "candidates_token_count"])
+        mock_usage.prompt_token_count = 100
+        mock_usage.candidates_token_count = 200
+
+        mock_response = MagicMock()
+        mock_response.text = '{"result": "ok"}'
+        mock_response.usage_metadata = mock_usage
+
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = mock_response
+
+        mock_genai_types = MagicMock()
+        mock_genai = MagicMock()
+        mock_genai.Client.return_value = mock_client
+        mock_genai.types = mock_genai_types
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, inp, out, think, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert err == ""
+        assert think is None, f"Expected think=None when thoughts_token_count absent, got {think!r}"

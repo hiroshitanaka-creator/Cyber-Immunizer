@@ -237,7 +237,7 @@ class TestCallGeminiApiErrorDetail:
         ])
 
         with _patch_genai(mock_genai, mock_genai_types):
-            raw_text, inp, out, err = pm._call_gemini_api(
+            raw_text, inp, out, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -255,7 +255,7 @@ class TestCallGeminiApiErrorDetail:
         ])
 
         with _patch_genai(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -280,7 +280,7 @@ class TestCallGeminiApiErrorDetail:
         ])
 
         with _patch_genai(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -306,7 +306,7 @@ class TestCallGeminiApiErrorDetail:
         ])
 
         with _patch_genai(mock_genai, mock_genai_types):
-            _, _, _, err = pm._call_gemini_api(
+            _, _, _, _, err = pm._call_gemini_api(
                 secret, "gemini-2.0-flash", "prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -325,7 +325,7 @@ class TestCallGeminiApiErrorDetail:
         ])
 
         with _patch_genai(mock_genai, mock_genai_types):
-            _, _, _, err = pm._call_gemini_api(
+            _, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -475,7 +475,7 @@ class TestCodexP2PromptRedaction:
         ])
 
         with _patch_genai(mock_genai, mock_genai_types):
-            _, _, _, err = pm._call_gemini_api(
+            _, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", user_prompt, 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -499,7 +499,7 @@ class TestCodexP2PromptRedaction:
         ])
 
         with _patch_genai(mock_genai, mock_genai_types):
-            _, _, _, err = pm._call_gemini_api(
+            _, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "safe prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -520,7 +520,7 @@ class TestCodexP2PromptRedaction:
         ])
 
         with _patch_genai(mock_genai, mock_genai_types):
-            _, _, _, err = pm._call_gemini_api(
+            _, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", user_prompt, 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -658,7 +658,7 @@ class TestCodexP2JsonEncoding:
         ])
 
         with _patch_genai(mock_genai, mock_genai_types):
-            _, _, _, err = pm._call_gemini_api(
+            _, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "safe user prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -782,7 +782,7 @@ class TestCodexP2ScalarContents:
         ])
 
         with _patch_genai(mock_genai, mock_genai_types):
-            _, _, _, err = pm._call_gemini_api(
+            _, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "safe user prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -978,7 +978,7 @@ class TestCodexP2IndexedFieldPaths:
         ])
 
         with _patch_genai(mock_genai, mock_genai_types):
-            _, _, _, err = pm._call_gemini_api(
+            _, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "safe user prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -1051,7 +1051,7 @@ class TestCodexP2IndexedFieldPaths:
         ])
 
         with _patch_genai(mock_genai, mock_genai_types):
-            _, _, _, err = pm._call_gemini_api(
+            _, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "safe user prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -1203,7 +1203,7 @@ class TestAllowlistedGeminiDiagnostics:
         ])
 
         with _patch_genai(mock_genai, mock_genai_types):
-            _, _, _, err = pm._call_gemini_api(
+            _, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "safe user prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
