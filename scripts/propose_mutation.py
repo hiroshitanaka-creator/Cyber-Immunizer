@@ -486,6 +486,9 @@ _GEMINI_API_MAX_ATTEMPTS = 3
 _GEMINI_API_BACKOFF_INITIAL_SECONDS = 1.0
 _GEMINI_API_BACKOFF_MULTIPLIER = 2.0
 _GEMINI_API_BACKOFF_MAX_SECONDS = 8.0
+# Gemini 3 models support dynamic thinking; cap it at "low" for initial deployment
+# to keep token costs predictable.  thinking_budget maps to the thinking token cap.
+_GEMINI3_THINKING_BUDGET_LOW = 1024
 
 # Status codes that indicate a transient failure worth retrying.
 _TRANSIENT_STATUS_CODES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
@@ -854,18 +857,27 @@ def _call_gemini_api(
     attempt = 0
     backoff = _GEMINI_API_BACKOFF_INITIAL_SECONDS
 
+    # Gemini 3 models support dynamic thinking; pass thinking_config explicitly
+    # to use a "low" budget and prevent unbounded thinking token spend.
+    # Gemini 2.x models do not accept this field, so only include it for gemini-3.
+    _generate_config_kwargs: dict = dict(
+        system_instruction=_LLM_SYSTEM_PROMPT,
+        response_mime_type="application/json",
+        response_schema=_PATCH_SCHEMA_FOR_GEMINI,
+        max_output_tokens=max_output_tokens,
+        temperature=temperature,
+    )
+    if model_name.startswith("gemini-3"):
+        _generate_config_kwargs["thinking_config"] = genai_types.ThinkingConfig(
+            thinking_budget=_GEMINI3_THINKING_BUDGET_LOW
+        )
+
     for attempt in range(1, effective_attempts + 1):
         try:
             response = client.models.generate_content(
                 model=model_name,
                 contents=user_prompt,
-                config=genai_types.GenerateContentConfig(
-                    system_instruction=_LLM_SYSTEM_PROMPT,
-                    response_mime_type="application/json",
-                    response_schema=_PATCH_SCHEMA_FOR_GEMINI,
-                    max_output_tokens=max_output_tokens,
-                    temperature=temperature,
-                ),
+                config=genai_types.GenerateContentConfig(**_generate_config_kwargs),
             )
             raw_text: str = response.text
 
