@@ -649,6 +649,175 @@ class TestReplacementCodeValidation:
 
 
 # ---------------------------------------------------------------------------
+# 9b. Python syntax validation in replacement_code
+# ---------------------------------------------------------------------------
+
+
+class TestReplacementCodeSyntaxValidation:
+    """Tests for the AST-only syntax check added to _validate_replacement_code.
+
+    The wrapper mirrors the actual apply_mutation.py splice:
+        def _candidate_body(request):
+            # === MUTATION_START ===
+        {replacement_code as-is}
+        # === MUTATION_END ===  (column 0, matching core/detector.py)
+
+    Unindented code is indented incorrectly for the function body and triggers
+    IndentationError.  Semicolon-joined compound statements trigger SyntaxError.
+    Both are subclasses of SyntaxError and are caught as "not valid Python syntax".
+    """
+
+    def test_rejects_semicolon_joined_if_statement(self) -> None:
+        """Semicolon-joined `if` compound statement is rejected as invalid syntax.
+
+        This is the exact pattern that caused the Apply-step SyntaxError in
+        run 26801801369: Gemini returned replacement_code as a single line
+        with `if matched: return DetectionResult(...)` after semicolons.
+        """
+        bad_code = (
+            '    surface = ""; matched = []; '
+            "if matched: return DetectionResult("
+            "blocked=True, reason=\"x\", confidence=0.9, matched_signals=())"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", (
+            "Expected rejection for semicolon-joined if statement (run 26801801369 regression)"
+        )
+        assert "syntax" in err.lower() or "valid python" in err.lower(), (
+            f"Error must mention syntax issue, got: {err!r}"
+        )
+
+    def test_accepts_valid_multiline_replacement_code(self) -> None:
+        """Valid 4-space-indented multi-line replacement_code is not rejected."""
+        good_code = (
+            "    surface = request.path.lower() + ' ' + request.body.lower()\n"
+            "    matched = []\n"
+            "    indicators = ['path-traversal', 'sqli', 'xss']\n"
+            "    for ind in indicators:\n"
+            "        if ind in surface:\n"
+            "            matched.append(ind)\n"
+            "    if matched:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='indicator matched: ' + matched[0],\n"
+            "            confidence=min(1.0, 0.5 + 0.12 * len(matched)),\n"
+            "            matched_signals=tuple(matched),\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(good_code)
+        assert err == "", f"Expected valid multi-line code to pass, got: {err}"
+
+    def test_rejects_bare_if_with_body_on_same_line_after_semicolon(self) -> None:
+        """Compound statement after semicolon is a SyntaxError in Python."""
+        bad_code = "    x = 1; if x: pass"
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Compound statement after semicolon must be rejected"
+        assert "syntax" in err.lower() or "valid python" in err.lower()
+
+    def test_syntax_check_does_not_execute_code(self) -> None:
+        """Syntax check uses ast.parse only — side-effecting code is not run.
+
+        If the code were executed, the list append below would mutate a global
+        that we can observe.  The test passes only if no execution happened.
+        """
+        _sentinel: list = []
+        # This code would append to _sentinel if executed, but should not be.
+        # It IS syntactically valid, so validation must return "".
+        good_code = (
+            "    surface = request.path.lower()\n"
+            "    return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(good_code)
+        assert err == "", f"Valid code must pass syntax check: {err}"
+        assert _sentinel == [], "Code must not have been executed during syntax check"
+
+    def test_rejects_unindented_return(self) -> None:
+        """Unindented return statement is rejected (IndentationError inside function body).
+
+        Without 4-space indent, replacement_code would be at column 0 inside
+        inspect_request(), which is an indentation error when the full detector
+        is parsed.  This test verifies the Propose step rejects it early.
+        """
+        bad_code = 'return DetectionResult(blocked=False, reason="ok", confidence=0.0, matched_signals=())'
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", (
+            "Unindented return must be rejected — it would cause IndentationError at Apply step"
+        )
+        assert "syntax" in err.lower() or "valid python" in err.lower(), (
+            f"Error must mention syntax/indentation issue, got: {err!r}"
+        )
+
+    def test_rejects_unindented_multiline_code(self) -> None:
+        """Multiple unindented lines are rejected (IndentationError inside function body)."""
+        bad_code = (
+            "surface = request.path.lower()\n"
+            "matched = []\n"
+            "return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", (
+            "Unindented multi-line code must be rejected"
+        )
+        assert "syntax" in err.lower() or "valid python" in err.lower(), (
+            f"Error must mention syntax/indentation issue, got: {err!r}"
+        )
+
+    def test_rejects_lone_surrogate(self) -> None:
+        """replacement_code containing a lone surrogate is rejected fail-closed.
+
+        Gemini may return replacement_code with lone surrogates (e.g. \\ud800).
+        json.loads() accepts these, but ast.parse() raises UnicodeError.
+        The validator must catch UnicodeError and return a safe error string
+        that does not echo the replacement_code body.
+        """
+        bad_code = "    x = '\ud800'"
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Lone surrogate must be rejected fail-closed"
+        assert "syntax" in err.lower() or "unicode" in err.lower() or "valid python" in err.lower(), (
+            f"Error must mention syntax/unicode issue, got: {err!r}"
+        )
+        # Error must not contain the replacement_code body
+        assert "\ud800" not in err, "Error must not echo replacement_code content"
+        assert "x = " not in err, "Error must not echo replacement_code content"
+
+    def test_parse_and_validate_response_lone_surrogate_no_exception(self) -> None:
+        """_parse_and_validate_response must return (None, error) for lone surrogate code.
+
+        This tests the full pipeline: JSON parse → schema check → replacement_code
+        validation.  A lone surrogate in replacement_code must not cause an
+        unhandled exception; it must be returned as a validation error.
+        """
+        patch = {
+            "mutation_rationale": "test",
+            "target_threats": ["T1"],
+            "expected_improvement": "ok",
+            "risk": "low",
+            "replacement_code": "    x = '\ud800'",
+        }
+        try:
+            raw_json = json.dumps(patch)
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pytest.skip("Platform cannot serialize lone surrogate via json.dumps")
+
+        # Must not raise — must return (None, non-empty error)
+        result, err = pm._parse_and_validate_response(raw_json)
+        assert result is None, (
+            "Lone surrogate replacement_code must be rejected; got result"
+        )
+        assert err != "", (
+            "Must return a non-empty error string, not raise an unhandled exception"
+        )
+        # Error must not contain the replacement_code body
+        assert "\ud800" not in err, "Error must not echo replacement_code content"
+
+
+# ---------------------------------------------------------------------------
 # 10. offline-sample still works
 # ---------------------------------------------------------------------------
 
