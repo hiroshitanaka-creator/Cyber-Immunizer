@@ -357,6 +357,9 @@ def _validate_replacement_code(code: str) -> str:
     # ast.parse() only builds the parse tree.
     # Unindented code (e.g. bare `return`) triggers IndentationError.
     # Semicolon-joined compound statements trigger SyntaxError.
+    # Lone surrogates or other ill-formed Unicode may trigger UnicodeError;
+    # caught separately so the class name (not the message, which could echo
+    # replacement_code content) is returned as the validation error.
     wrapped = (
         "def _candidate_body(request):\n"
         "    " + _MUTATION_START_MARKER + "\n"
@@ -367,6 +370,8 @@ def _validate_replacement_code(code: str) -> str:
         ast.parse(wrapped)
     except SyntaxError as exc:
         return f"replacement_code is not valid Python syntax: {exc}"
+    except UnicodeError as exc:
+        return f"replacement_code is not valid Python source text: {type(exc).__name__}"
     return ""
 
 

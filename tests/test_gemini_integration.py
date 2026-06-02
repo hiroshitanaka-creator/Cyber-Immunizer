@@ -768,6 +768,54 @@ class TestReplacementCodeSyntaxValidation:
             f"Error must mention syntax/indentation issue, got: {err!r}"
         )
 
+    def test_rejects_lone_surrogate(self) -> None:
+        """replacement_code containing a lone surrogate is rejected fail-closed.
+
+        Gemini may return replacement_code with lone surrogates (e.g. \\ud800).
+        json.loads() accepts these, but ast.parse() raises UnicodeError.
+        The validator must catch UnicodeError and return a safe error string
+        that does not echo the replacement_code body.
+        """
+        bad_code = "    x = '\ud800'"
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Lone surrogate must be rejected fail-closed"
+        assert "syntax" in err.lower() or "unicode" in err.lower() or "valid python" in err.lower(), (
+            f"Error must mention syntax/unicode issue, got: {err!r}"
+        )
+        # Error must not contain the replacement_code body
+        assert "\ud800" not in err, "Error must not echo replacement_code content"
+        assert "x = " not in err, "Error must not echo replacement_code content"
+
+    def test_parse_and_validate_response_lone_surrogate_no_exception(self) -> None:
+        """_parse_and_validate_response must return (None, error) for lone surrogate code.
+
+        This tests the full pipeline: JSON parse → schema check → replacement_code
+        validation.  A lone surrogate in replacement_code must not cause an
+        unhandled exception; it must be returned as a validation error.
+        """
+        patch = {
+            "mutation_rationale": "test",
+            "target_threats": ["T1"],
+            "expected_improvement": "ok",
+            "risk": "low",
+            "replacement_code": "    x = '\ud800'",
+        }
+        try:
+            raw_json = json.dumps(patch)
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pytest.skip("Platform cannot serialize lone surrogate via json.dumps")
+
+        # Must not raise — must return (None, non-empty error)
+        result, err = pm._parse_and_validate_response(raw_json)
+        assert result is None, (
+            "Lone surrogate replacement_code must be rejected; got result"
+        )
+        assert err != "", (
+            "Must return a non-empty error string, not raise an unhandled exception"
+        )
+        # Error must not contain the replacement_code body
+        assert "\ud800" not in err, "Error must not echo replacement_code content"
+
 
 # ---------------------------------------------------------------------------
 # 10. offline-sample still works
