@@ -350,14 +350,19 @@ def _validate_replacement_code(code: str) -> str:
                 f"replacement_code contains forbidden token {token!r}. "
                 "Unsafe replacement_code rejected before writing patch."
             )
-    # Validate Python syntax by wrapping as a function body and AST-parsing.
-    # The code is never executed — ast.parse() only builds the parse tree.
-    # This catches semicolon-joined compound statements (e.g. `if x: return y`
-    # on the same line after `;`) that the Apply step would reject with SyntaxError.
-    lines = code.splitlines()
-    wrapped = "def _candidate_body():\n" + "\n".join("    " + line for line in lines)
-    if not lines:
-        wrapped += "    pass"
+    # Validate Python syntax by splicing replacement_code into the same
+    # indentation context that apply_mutation.py uses: inserted as-is between
+    # the mutation markers inside a function body.  The MUTATION_END marker is
+    # at column 0 (matching core/detector.py).  Code is never executed —
+    # ast.parse() only builds the parse tree.
+    # Unindented code (e.g. bare `return`) triggers IndentationError.
+    # Semicolon-joined compound statements trigger SyntaxError.
+    wrapped = (
+        "def _candidate_body(request):\n"
+        "    " + _MUTATION_START_MARKER + "\n"
+        + code
+        + "\n" + _MUTATION_END_MARKER + "\n"
+    )
     try:
         ast.parse(wrapped)
     except SyntaxError as exc:

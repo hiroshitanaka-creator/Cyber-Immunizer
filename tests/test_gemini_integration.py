@@ -656,10 +656,15 @@ class TestReplacementCodeValidation:
 class TestReplacementCodeSyntaxValidation:
     """Tests for the AST-only syntax check added to _validate_replacement_code.
 
-    Background: run 26801801369 showed Gemini returning replacement_code as
-    semicolon-joined statements with `if matched:` on the same line, causing
-    a SyntaxError in the Apply step.  The Propose step should reject such code
-    before writing mutation_patch.json.
+    The wrapper mirrors the actual apply_mutation.py splice:
+        def _candidate_body(request):
+            # === MUTATION_START ===
+        {replacement_code as-is}
+        # === MUTATION_END ===  (column 0, matching core/detector.py)
+
+    Unindented code is indented incorrectly for the function body and triggers
+    IndentationError.  Semicolon-joined compound statements trigger SyntaxError.
+    Both are subclasses of SyntaxError and are caught as "not valid Python syntax".
     """
 
     def test_rejects_semicolon_joined_if_statement(self) -> None:
@@ -683,7 +688,7 @@ class TestReplacementCodeSyntaxValidation:
         )
 
     def test_accepts_valid_multiline_replacement_code(self) -> None:
-        """Valid multi-line replacement_code is not rejected by syntax check."""
+        """Valid 4-space-indented multi-line replacement_code is not rejected."""
         good_code = (
             "    surface = request.path.lower() + ' ' + request.body.lower()\n"
             "    matched = []\n"
@@ -731,6 +736,37 @@ class TestReplacementCodeSyntaxValidation:
         err = pm._validate_replacement_code(good_code)
         assert err == "", f"Valid code must pass syntax check: {err}"
         assert _sentinel == [], "Code must not have been executed during syntax check"
+
+    def test_rejects_unindented_return(self) -> None:
+        """Unindented return statement is rejected (IndentationError inside function body).
+
+        Without 4-space indent, replacement_code would be at column 0 inside
+        inspect_request(), which is an indentation error when the full detector
+        is parsed.  This test verifies the Propose step rejects it early.
+        """
+        bad_code = 'return DetectionResult(blocked=False, reason="ok", confidence=0.0, matched_signals=())'
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", (
+            "Unindented return must be rejected — it would cause IndentationError at Apply step"
+        )
+        assert "syntax" in err.lower() or "valid python" in err.lower(), (
+            f"Error must mention syntax/indentation issue, got: {err!r}"
+        )
+
+    def test_rejects_unindented_multiline_code(self) -> None:
+        """Multiple unindented lines are rejected (IndentationError inside function body)."""
+        bad_code = (
+            "surface = request.path.lower()\n"
+            "matched = []\n"
+            "return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", (
+            "Unindented multi-line code must be rejected"
+        )
+        assert "syntax" in err.lower() or "valid python" in err.lower(), (
+            f"Error must mention syntax/indentation issue, got: {err!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
