@@ -2081,8 +2081,9 @@ class TestConservativeMultilingualBudgetRefusal:
 class TestThinkingBudgetInEstimation:
     """Verify that Gemini 3 thinking tokens are included in budget estimates.
 
-    For gemini-3 models, _GEMINI3_THINKING_BUDGET_LOW thinking tokens are
-    added to max_output_tokens for cost estimation and ledger recording.
+    For gemini-3 models (running with thinking_level="low"), a conservative
+    allowance (_GEMINI3_THINKING_ESTIMATE_LOW_TOKENS) is added to
+    max_output_tokens for cost estimation and ledger recording.
     For gemini-2 models the behaviour is unchanged.
     """
 
@@ -2131,7 +2132,7 @@ class TestThinkingBudgetInEstimation:
         threats_file: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Ledger estimated_output_tokens for gemini-3 = max_output_tokens + thinking_budget."""
+        """Ledger estimated_output_tokens for gemini-3 = max_output_tokens + thinking estimate."""
         monkeypatch.setattr(pm, "_build_user_prompt",
                             lambda g, d: "# short safe prompt\n")
         genome = self._gemini3_genome(live_paid_genome)
@@ -2154,11 +2155,11 @@ class TestThinkingBudgetInEstimation:
         ledger = json.loads(ledger_path.read_text())
         assert len(ledger) == 1
         rec = ledger[0]
-        expected = genome["max_output_tokens"] + pm._GEMINI3_THINKING_BUDGET_LOW
+        expected = genome["max_output_tokens"] + pm._GEMINI3_THINKING_ESTIMATE_LOW_TOKENS
         assert rec["estimated_output_tokens"] == expected, (
             f"estimated_output_tokens={rec['estimated_output_tokens']} "
             f"expected max_output_tokens({genome['max_output_tokens']}) "
-            f"+ thinking_budget({pm._GEMINI3_THINKING_BUDGET_LOW}) = {expected}"
+            f"+ thinking_budget({pm._GEMINI3_THINKING_ESTIMATE_LOW_TOKENS}) = {expected}"
         )
 
     def test_gemini2_ledger_unchanged(
@@ -2242,10 +2243,10 @@ class TestThinkingBudgetInEstimation:
         assert err == "", f"Expected success, got: {err!r}"
 
         assert len(captured) == 1, "append_usage_record must be called exactly once"
-        expected_tokens = genome["max_output_tokens"] + pm._GEMINI3_THINKING_BUDGET_LOW
+        expected_tokens = genome["max_output_tokens"] + pm._GEMINI3_THINKING_ESTIMATE_LOW_TOKENS
         assert captured[0]["estimated_output_tokens"] == expected_tokens, (
             f"append_usage_record received estimated_output_tokens="
             f"{captured[0]['estimated_output_tokens']}, "
             f"expected {expected_tokens} (max_output_tokens={genome['max_output_tokens']} "
-            f"+ thinking_budget={pm._GEMINI3_THINKING_BUDGET_LOW})"
+            f"+ thinking_budget={pm._GEMINI3_THINKING_ESTIMATE_LOW_TOKENS})"
         )

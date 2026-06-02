@@ -1508,8 +1508,8 @@ class TestCallGeminiApiThinkingConfig:
             "google.genai.types": mock_genai_types,
         })
 
-    def test_gemini3_model_includes_thinking_config(self) -> None:
-        """When model_name starts with 'gemini-3', ThinkingConfig is added to GenerateContentConfig."""
+    def test_gemini3_model_includes_thinking_config_with_level_low(self) -> None:
+        """gemini-3 model gets ThinkingConfig(thinking_level='low') — not thinking_budget."""
         mock_response = MagicMock()
         mock_response.text = '{"result": "ok"}'
         mock_response.usage_metadata = None
@@ -1529,9 +1529,12 @@ class TestCallGeminiApiThinkingConfig:
             )
 
         assert err == "", f"Expected success, got: {err}"
-        # ThinkingConfig must have been constructed with the low budget constant.
-        mock_genai_types.ThinkingConfig.assert_called_once_with(
-            thinking_budget=pm._GEMINI3_THINKING_BUDGET_LOW
+        # ThinkingConfig must be constructed with thinking_level="low" (not thinking_budget).
+        mock_genai_types.ThinkingConfig.assert_called_once_with(thinking_level="low")
+        # Verify thinking_budget was NOT passed (mutually exclusive with thinking_level).
+        call_kwargs = mock_genai_types.ThinkingConfig.call_args.kwargs
+        assert "thinking_budget" not in call_kwargs, (
+            "thinking_budget must NOT be passed alongside thinking_level"
         )
         # The thinking_config kwarg must be forwarded to GenerateContentConfig.
         gen_config_call = mock_genai_types.GenerateContentConfig.call_args
@@ -1572,8 +1575,8 @@ class TestCallGeminiApiThinkingConfig:
             "thinking_config must NOT be present in GenerateContentConfig for gemini-2 models"
         )
 
-    def test_gemini31_flash_lite_fallback_no_thinking_config(self) -> None:
-        """fallback_model_name 'gemini-3.1-flash-lite' also gets thinking_config (starts with gemini-3)."""
+    def test_gemini31_flash_lite_fallback_gets_thinking_level_low(self) -> None:
+        """gemini-3.1-flash-lite (fallback) also receives ThinkingConfig(thinking_level='low')."""
         mock_response = MagicMock()
         mock_response.text = '{"result": "ok"}'
         mock_response.usage_metadata = None
@@ -1593,12 +1596,10 @@ class TestCallGeminiApiThinkingConfig:
             )
 
         assert err == "", f"Expected success, got: {err}"
-        # gemini-3.1-flash-lite starts with "gemini-3", so ThinkingConfig must be added.
-        mock_genai_types.ThinkingConfig.assert_called_once_with(
-            thinking_budget=pm._GEMINI3_THINKING_BUDGET_LOW
-        )
+        # gemini-3.1-flash-lite starts with "gemini-3" → must get thinking_level="low".
+        mock_genai_types.ThinkingConfig.assert_called_once_with(thinking_level="low")
 
-    def test_thinking_budget_constant_is_positive_int(self) -> None:
-        """_GEMINI3_THINKING_BUDGET_LOW is a positive integer."""
-        assert isinstance(pm._GEMINI3_THINKING_BUDGET_LOW, int)
-        assert pm._GEMINI3_THINKING_BUDGET_LOW > 0
+    def test_thinking_estimate_constant_is_positive_int(self) -> None:
+        """_GEMINI3_THINKING_ESTIMATE_LOW_TOKENS is a positive integer (used for budget estimates)."""
+        assert isinstance(pm._GEMINI3_THINKING_ESTIMATE_LOW_TOKENS, int)
+        assert pm._GEMINI3_THINKING_ESTIMATE_LOW_TOKENS > 0

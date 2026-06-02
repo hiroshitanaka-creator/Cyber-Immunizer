@@ -486,9 +486,10 @@ _GEMINI_API_MAX_ATTEMPTS = 3
 _GEMINI_API_BACKOFF_INITIAL_SECONDS = 1.0
 _GEMINI_API_BACKOFF_MULTIPLIER = 2.0
 _GEMINI_API_BACKOFF_MAX_SECONDS = 8.0
-# Gemini 3 models support dynamic thinking; cap it at "low" for initial deployment
-# to keep token costs predictable.  thinking_budget maps to the thinking token cap.
-_GEMINI3_THINKING_BUDGET_LOW = 1024
+# Conservative thinking token allowance for Gemini 3 "low" thinking_level mode.
+# Used only for budget estimation — not a hard cap sent to the API.
+# Gemini 3 API receives ThinkingConfig(thinking_level="low") instead.
+_GEMINI3_THINKING_ESTIMATE_LOW_TOKENS = 1024
 
 # Status codes that indicate a transient failure worth retrying.
 _TRANSIENT_STATUS_CODES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
@@ -857,9 +858,10 @@ def _call_gemini_api(
     attempt = 0
     backoff = _GEMINI_API_BACKOFF_INITIAL_SECONDS
 
-    # Gemini 3 models support dynamic thinking; pass thinking_config explicitly
-    # to use a "low" budget and prevent unbounded thinking token spend.
+    # Gemini 3 models support dynamic thinking.  Pass thinking_config with
+    # thinking_level="low" to request the lowest thinking mode.
     # Gemini 2.x models do not accept this field, so only include it for gemini-3.
+    # thinking_level and thinking_budget must not be specified together.
     _generate_config_kwargs: dict = dict(
         system_instruction=_LLM_SYSTEM_PROMPT,
         response_mime_type="application/json",
@@ -869,7 +871,7 @@ def _call_gemini_api(
     )
     if model_name.startswith("gemini-3"):
         _generate_config_kwargs["thinking_config"] = genai_types.ThinkingConfig(
-            thinking_budget=_GEMINI3_THINKING_BUDGET_LOW
+            thinking_level="low"
         )
 
     for attempt in range(1, effective_attempts + 1):
@@ -1059,11 +1061,13 @@ def _propose_via_gemini_paid_credit(
     # cap by the char-to-token multiplier and make valid budgets fail.
     # The conservative estimator applies only to character-counted inputs.
     #
-    # For Gemini 3 models, thinking tokens (capped at _GEMINI3_THINKING_BUDGET_LOW)
-    # are billed alongside output tokens per Google pricing docs; include them.
+    # For Gemini 3 models running with thinking_level="low", thinking tokens are
+    # billed alongside output tokens per Google pricing docs.  Add a conservative
+    # allowance (_GEMINI3_THINKING_ESTIMATE_LOW_TOKENS) — not a hard cap, but a
+    # prudent worst-case estimate for the pre-call budget gate.
     effective_output_token_budget = max_output_tokens
     if model_name.startswith("gemini-3"):
-        effective_output_token_budget += _GEMINI3_THINKING_BUDGET_LOW
+        effective_output_token_budget += _GEMINI3_THINKING_ESTIMATE_LOW_TOKENS
     estimated_output_chars = effective_output_token_budget * 4  # ledger diagnostic only
     est_input_tokens = budget.estimate_tokens_from_chars(input_chars)
     est_output_tokens = effective_output_token_budget
@@ -1397,10 +1401,11 @@ def run_gemini_paid_credit_preflight() -> tuple[dict, str]:
     # estimate_tokens_from_chars would multiply it by the char multiplier,
     # making valid budgets fail.
     est_input_tokens = budget.estimate_tokens_from_chars(input_chars)
-    # For Gemini 3 models, thinking tokens are billed alongside output tokens.
+    # For Gemini 3 models running with thinking_level="low", add a conservative
+    # thinking token allowance to the preflight budget estimate.
     effective_output_token_budget = max_output_tokens
     if model_name.startswith("gemini-3"):
-        effective_output_token_budget += _GEMINI3_THINKING_BUDGET_LOW
+        effective_output_token_budget += _GEMINI3_THINKING_ESTIMATE_LOW_TOKENS
     est_output_tokens = effective_output_token_budget
     est_cost = budget.estimate_cost_usd(est_input_tokens, est_output_tokens, model_name)
 
