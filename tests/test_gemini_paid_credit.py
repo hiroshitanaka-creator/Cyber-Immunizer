@@ -2072,3 +2072,180 @@ class TestConservativeMultilingualBudgetRefusal:
             f"output token inflation from char re-estimation (expected < $0.005 for "
             f"max_output_tokens=2048 with a short input prompt)."
         )
+
+
+# ---------------------------------------------------------------------------
+# Thinking-budget inclusion in budget estimates (Codex P2)
+# ---------------------------------------------------------------------------
+
+class TestThinkingBudgetInEstimation:
+    """Verify that Gemini 3 thinking tokens are included in budget estimates.
+
+    For gemini-3 models, _GEMINI3_THINKING_BUDGET_LOW thinking tokens are
+    added to max_output_tokens for cost estimation and ledger recording.
+    For gemini-2 models the behaviour is unchanged.
+    """
+
+    _VALID_RESPONSE = json.dumps({
+        "mutation_rationale": "Improve coverage.",
+        "target_threats": ["THREAT-2024-001"],
+        "expected_improvement": "Higher TP rate.",
+        "risk": "Low.",
+        "replacement_code": (
+            "    surface = request.path.lower() + ' ' + request.body.lower()\n"
+            "    indicators = ['path_traversal_indicator', 'sqli_indicator']\n"
+            "    matched = [ind for ind in indicators if ind in surface]\n"
+            "    if matched:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='indicator: ' + matched[0],\n"
+            "            confidence=0.7,\n"
+            "            matched_signals=tuple(matched),\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        ),
+    })
+
+    def _gemini3_genome(self, live_paid_genome: dict, max_output_tokens: int = 2048) -> dict:
+        return {
+            **live_paid_genome,
+            "model_name": "gemini-3-flash-preview",
+            "fallback_model_name": "gemini-3.1-flash-lite",
+            "max_output_tokens": max_output_tokens,
+            "monthly_api_budget_usd": 10.0,
+            "daily_api_budget_usd": 1.0,
+            "live_model_enabled": True,
+            "max_model_requests_per_run": 1,
+        }
+
+    def test_gemini3_ledger_includes_thinking_tokens(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Ledger estimated_output_tokens for gemini-3 = max_output_tokens + thinking_budget."""
+        monkeypatch.setattr(pm, "_build_user_prompt",
+                            lambda g, d: "# short safe prompt\n")
+        genome = self._gemini3_genome(live_paid_genome)
+        genome_path = tmp_path / "genome_g3.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file,
+                     ledger_path, out_dir)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+        monkeypatch.setattr(pm, "_call_gemini_api",
+                            lambda *a, **kw: (self._VALID_RESPONSE, 400, 150, ""))
+
+        result, err = pm.propose_mutation(gemini_paid_credit=True, allow_live_model=True)
+        assert err == "", f"Expected success, got: {err!r}"
+
+        ledger = json.loads(ledger_path.read_text())
+        assert len(ledger) == 1
+        rec = ledger[0]
+        expected = genome["max_output_tokens"] + pm._GEMINI3_THINKING_BUDGET_LOW
+        assert rec["estimated_output_tokens"] == expected, (
+            f"estimated_output_tokens={rec['estimated_output_tokens']} "
+            f"expected max_output_tokens({genome['max_output_tokens']}) "
+            f"+ thinking_budget({pm._GEMINI3_THINKING_BUDGET_LOW}) = {expected}"
+        )
+
+    def test_gemini2_ledger_unchanged(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """For gemini-2 models, estimated_output_tokens must still equal max_output_tokens."""
+        monkeypatch.setattr(pm, "_build_user_prompt",
+                            lambda g, d: "# short safe prompt\n")
+        genome = {
+            **live_paid_genome,
+            "model_name": "gemini-2.0-flash",
+            "max_output_tokens": 2048,
+            "monthly_api_budget_usd": 10.0,
+            "daily_api_budget_usd": 1.0,
+            "live_model_enabled": True,
+            "max_model_requests_per_run": 1,
+        }
+        genome_path = tmp_path / "genome_g2.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file,
+                     ledger_path, out_dir)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+        monkeypatch.setattr(pm, "_call_gemini_api",
+                            lambda *a, **kw: (self._VALID_RESPONSE, 400, 150, ""))
+
+        result, err = pm.propose_mutation(gemini_paid_credit=True, allow_live_model=True)
+        assert err == "", f"Expected success, got: {err!r}"
+
+        ledger = json.loads(ledger_path.read_text())
+        rec = ledger[0]
+        assert rec["estimated_output_tokens"] == genome["max_output_tokens"], (
+            f"gemini-2 model must not add thinking budget. "
+            f"Got {rec['estimated_output_tokens']}, expected {genome['max_output_tokens']}"
+        )
+
+    def test_append_usage_record_receives_thinking_inclusive_tokens(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """append_usage_record's estimated_output_tokens must include thinking budget for gemini-3."""
+        monkeypatch.setattr(pm, "_build_user_prompt",
+                            lambda g, d: "# short safe prompt\n")
+        genome = self._gemini3_genome(live_paid_genome, max_output_tokens=512)
+        genome_path = tmp_path / "genome_g3_append.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file,
+                     ledger_path, out_dir)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+        monkeypatch.setattr(pm, "_call_gemini_api",
+                            lambda *a, **kw: (self._VALID_RESPONSE, 200, 100, ""))
+
+        captured: list[dict] = []
+        original_append = budget.append_usage_record
+
+        def capturing_append(path, **kwargs: Any) -> None:
+            captured.append(dict(kwargs))
+            original_append(path, **kwargs)
+
+        monkeypatch.setattr(budget, "append_usage_record", capturing_append)
+
+        result, err = pm.propose_mutation(gemini_paid_credit=True, allow_live_model=True)
+        assert err == "", f"Expected success, got: {err!r}"
+
+        assert len(captured) == 1, "append_usage_record must be called exactly once"
+        expected_tokens = genome["max_output_tokens"] + pm._GEMINI3_THINKING_BUDGET_LOW
+        assert captured[0]["estimated_output_tokens"] == expected_tokens, (
+            f"append_usage_record received estimated_output_tokens="
+            f"{captured[0]['estimated_output_tokens']}, "
+            f"expected {expected_tokens} (max_output_tokens={genome['max_output_tokens']} "
+            f"+ thinking_budget={pm._GEMINI3_THINKING_BUDGET_LOW})"
+        )

@@ -1058,9 +1058,15 @@ def _propose_via_gemini_paid_credit(
     # Passing it through estimate_tokens_from_chars() would multiply the token
     # cap by the char-to-token multiplier and make valid budgets fail.
     # The conservative estimator applies only to character-counted inputs.
-    estimated_output_chars = max_output_tokens * 4  # ledger diagnostic only
+    #
+    # For Gemini 3 models, thinking tokens (capped at _GEMINI3_THINKING_BUDGET_LOW)
+    # are billed alongside output tokens per Google pricing docs; include them.
+    effective_output_token_budget = max_output_tokens
+    if model_name.startswith("gemini-3"):
+        effective_output_token_budget += _GEMINI3_THINKING_BUDGET_LOW
+    estimated_output_chars = effective_output_token_budget * 4  # ledger diagnostic only
     est_input_tokens = budget.estimate_tokens_from_chars(input_chars)
-    est_output_tokens = max_output_tokens  # token cap is already tokens
+    est_output_tokens = effective_output_token_budget
     est_cost = budget.estimate_cost_usd(est_input_tokens, est_output_tokens, model_name)
 
     # Load ledger and assert budget — FAIL CLOSED for missing/malformed ledger.
@@ -1391,7 +1397,11 @@ def run_gemini_paid_credit_preflight() -> tuple[dict, str]:
     # estimate_tokens_from_chars would multiply it by the char multiplier,
     # making valid budgets fail.
     est_input_tokens = budget.estimate_tokens_from_chars(input_chars)
-    est_output_tokens = max_output_tokens  # token cap is already tokens
+    # For Gemini 3 models, thinking tokens are billed alongside output tokens.
+    effective_output_token_budget = max_output_tokens
+    if model_name.startswith("gemini-3"):
+        effective_output_token_budget += _GEMINI3_THINKING_BUDGET_LOW
+    est_output_tokens = effective_output_token_budget
     est_cost = budget.estimate_cost_usd(est_input_tokens, est_output_tokens, model_name)
 
     # --- Step 17: Budget availability check ---
