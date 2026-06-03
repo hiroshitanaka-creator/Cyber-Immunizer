@@ -1,12 +1,12 @@
 <!--
 AI_DOC_META
 status: CANONICAL
-scope: API activation readiness checklist, GEMINI_API_KEY terminology, and Phase 3 Go/No-Go boundaries.
+scope: API activation readiness checklist, GEMINI_API_KEY terminology, Phase 3 Go/No-Go boundaries, and Phase 3 paid-credit current state.
 use_for:
   - checking API activation readiness
   - understanding raw GEMINI_API_KEY vs GEMINI_API_KEY_PRESENT
   - verifying secret-scoping terminology
-  - confirming current state is Phase 3 Go/No-Go preparation (Phase 2.5 closeout merged)
+  - confirming Phase 3 activation PR status and paid-credit current state
 do_not_use_for:
   - performing API activation by itself
   - bypassing Human Owner approval
@@ -16,13 +16,19 @@ related:
   - docs/AI_ENTRYPOINT.md
   - docs/API_ACTIVATION_RUNBOOK.md
   - docs/audit_gate/PR_AUDIT_PROTOCOL.md
-last_reviewed: 2026-06-01
+last_reviewed: 2026-06-03
 AI_DOC_META_END
 -->
 # Cyber-Immunizer API Activation Checklist
 
-> **現在の状態: Phase 2.5 closeout 完了 / Phase 3 Go/No-Go 準備中。**  
-> Phase 3 で実 Gemini API 接続を開始する前に、Human Owner が確認すべき条件を固定します。  
+> **⚠️ 2026-06-03 更新: Phase 3 activation PR #58–#62 が main に merge 済み。**  
+> **paid-credit path は準備完了。最初の paid-credit run は未実行（次のステップ）。**  
+> **Gemini API live call は未実行。promote_approved=true はまだ禁止。**  
+> 詳細は下記「Phase 3 Paid-Credit 現在地」セクションを参照。
+
+---
+
+> **旧状態（Phase 2.5 closeout 時点）:** Phase 3 で実 Gemini API 接続を開始する前に、Human Owner が確認すべき条件を固定します。  
 > **このチェックリストは Phase 3 活性化を承認しません。API 接続は行われていません。live_model_enabled は false のままです。GitHub Secrets は変更されません。**
 
 ---
@@ -247,16 +253,63 @@ Phase 3 Go/No-Go 準備中は以下を実施しません。これらは Phase 3 
 
 ---
 
+## Phase 3 Paid-Credit 現在地（PR #60–#62 反映）
+
+> **このセクションは Phase 3 activation PR merge 後の正確な現在地を記録する。**  
+> Gemini API live call は未実行。paid-credit path の準備は完了。
+
+### Phase 3 Activation PR サマリー
+
+| PR | 内容 |
+|---|---|
+| **PR #58** | `live_model_enabled=true` を main に merge。`--live-model` path を Phase 3 でブロック。`gemini-paid-credit` のみ許可 |
+| **PR #59** | Gemini ClientError の安全な診断情報を許可リストベースで記録。payload redaction 強化 |
+| **PR #60** | 停止 Gemini 2.0 Flash 系から移行。`model_name = gemini-3.1-flash-lite`、`fallback = gemini-2.5-flash-lite` に更新 |
+| **PR #61** | `replacement_code` の Python 構文検証を Propose 段階に追加（`ast.parse()` のみ、実行なし） |
+| **PR #62** | Primary model を `gemini-3-flash-preview` に変更。`ThinkingConfig(thinking_level="low")`、actual thinking tokens の ledger 反映 |
+
+### 現在の Phase 3 状態
+
+| 項目 | 状態 |
+|---|---|
+| Phase 3 activation PR | ✅ PR #58–#62 merge 済み |
+| `live_model_enabled` | `true` |
+| Primary model | `gemini-3-flash-preview` |
+| Fallback model | `gemini-3.1-flash-lite` |
+| Gemini API first live call | **未実行** — 次のステップ |
+| paid-credit run | **未実行** — Project Owner が 1 回だけ手動実行 |
+| `promote_approved` | `false` — 最初の run 結果確認前は禁止 |
+| Apply / Evaluate / Promote 自動昇格 | **禁止** — run 結果確認後に判断 |
+
+### 次の Project Owner 手順
+
+1. PR #62 が main に merge 済みであることを確認（`data/genome.json` が `gemini-3-flash-preview`）
+2. この docs PR を merge する
+3. `workflow_dispatch` → mode: `gemini-paid-credit`、`promote_approved=false` で 1 回だけ実行
+4. ledger artifact / candidate patch / apply / evaluate 結果を確認
+5. 結果に基づいて次 PR を判断（promote / fix / halt）
+
+### 禁止事項（Phase 3 paid-credit 実行前）
+
+- `promote_approved=true` にしない（最初の run 結果確認前）
+- paid-credit run を連続実行しない
+- workflow / scripts / data / ledger を docs PR で変更しない
+- GEMINI_API_KEY をドキュメントに書かない
+- `Phase 3 成功済み` と書かない（「準備完了」と「実行成功」を混同しない）
+
+---
+
 ## 関連ドキュメント
 
-- [`docs/API_ACTIVATION_RUNBOOK.md`](./API_ACTIVATION_RUNBOOK.md) — API 有効化手順書（Phase 3 で実施）
+- [`docs/API_ACTIVATION_RUNBOOK.md`](./API_ACTIVATION_RUNBOOK.md) — API 有効化手順書（Gemini 3 runbook 含む）
 - [`docs/PHASE_2_PLAN.md`](./PHASE_2_PLAN.md) — Phase 2 計画文書
 - [`docs/AUDIT_CHARTER.md`](./AUDIT_CHARTER.md) — GPT Audit Gate 憲章
-- [`data/genome.json`](../data/genome.json) — ゲノム設定（`live_model_enabled=false` を維持）
+- [`data/genome.json`](../data/genome.json) — ゲノム設定（`live_model_enabled=true`、`model_name=gemini-3-flash-preview`）
 - [`data/api_usage_ledger.json`](../data/api_usage_ledger.json) — API 使用量台帳
 
 ---
 
 *このドキュメントは Project Cyber-Immunizer の Phase 2-E で作成されました。*  
 *Phase 2.5 closeout 完了 / Phase 3 Go/No-Go 準備中に current-state alignment を実施（docs-only）。*  
-*作成日: 2026-05-26 / 最終更新: 2026-06-01*
+*Phase 3 activation PR #60–#62 反映のため 2026-06-03 に更新。*  
+*作成日: 2026-05-26 / 最終更新: 2026-06-03*

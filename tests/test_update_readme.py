@@ -541,9 +541,10 @@ class TestGenomeValuesAreReadFromFile:
 # ---------------------------------------------------------------------------
 
 class TestRealReadmeStatusBlock:
-    """Verify that the real README.md already has a Phase 2 status block.
+    """Verify that the real README.md has a Phase 3 status block.
 
     These tests are read-only — they check the committed README state.
+    Updated for Phase 3 (PR #58-#62 merged, first paid-credit run pending).
     """
 
     @pytest.fixture(autouse=True)
@@ -563,21 +564,30 @@ class TestRealReadmeStatusBlock:
         """Real README.md status block must show Current Phase."""
         assert "Current Phase" in self.block
 
-    def test_real_readme_block_has_phase2_value(self) -> None:
-        """Real README.md status block must show Phase 2 — API-disconnected operations."""
-        assert "Phase 2 — API-disconnected operations" in self.block
+    def test_real_readme_block_has_phase3_value(self) -> None:
+        """Real README.md status block must show Phase 3 paid-credit path ready."""
+        assert "Phase 3" in self.block, (
+            "Status block must show Phase 3 state (paid-credit path ready)"
+        )
 
-    def test_real_readme_block_has_api_connection(self) -> None:
-        """Real README.md status block must show API Connection."""
-        assert "API Connection" in self.block
+    def test_real_readme_block_shows_live_model_enabled_true(self) -> None:
+        """Real README.md status block must show live_model_enabled = true (PR #58)."""
+        assert "live_model_enabled" in self.block
+        assert "true" in self.block.lower(), (
+            "Status block must show live_model_enabled=true (set in PR #58)"
+        )
 
-    def test_real_readme_block_shows_live_model_disabled(self) -> None:
-        """Real README.md status block must show live_model_enabled = false."""
-        assert "| live_model_enabled | false |" in self.block
+    def test_real_readme_block_shows_gemini_primary_model(self) -> None:
+        """Real README.md status block must show gemini-3-flash-preview as primary model (PR #62)."""
+        assert "gemini-3-flash-preview" in self.block, (
+            "Status block must show primary model gemini-3-flash-preview (PR #62)"
+        )
 
-    def test_real_readme_block_shows_not_connected(self) -> None:
-        """Real README.md must show 'Not connected' (live_model_enabled is false)."""
-        assert "Not connected" in self.block
+    def test_real_readme_block_shows_first_run_pending(self) -> None:
+        """Real README.md status block must note that first paid-credit run is pending."""
+        assert "Not yet executed" in self.block or "first run pending" in self.block.lower(), (
+            "Status block must note that first paid-credit run is not yet executed"
+        )
 
     def test_real_readme_block_has_api_mode(self) -> None:
         """Real README.md status block must show API Mode."""
@@ -595,10 +605,11 @@ class TestRealReadmeStatusBlock:
         """Real README.md status block must show Paid-Credit Preflight."""
         assert "Paid-Credit Preflight" in self.block
 
-    def test_real_readme_block_has_phase3_gate(self) -> None:
-        """Real README.md status block must show Phase 3 Gate."""
-        assert "Phase 3 Gate" in self.block
-        assert "Human Owner" in self.block
+    def test_real_readme_block_has_phase3_activation_state(self) -> None:
+        """Real README.md status block must show Phase 3 activation state."""
+        assert "Phase 3 Activation" in self.block or "Phase 3 First" in self.block, (
+            "Status block must contain Phase 3 activation state field"
+        )
 
     def test_real_readme_block_has_safety_fields_false(self) -> None:
         """Real README.md must show all safety fields as false."""
