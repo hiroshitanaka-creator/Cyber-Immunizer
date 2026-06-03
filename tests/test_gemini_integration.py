@@ -1224,7 +1224,7 @@ class TestCallGeminiApiResilience:
         mock_genai.types = mock_genai_types  # ensure from-import resolves correctly
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -1265,7 +1265,7 @@ class TestCallGeminiApiResilience:
         sleep_calls: list[float] = []
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 _sleep_fn=lambda s: sleep_calls.append(s),
             )
@@ -1295,7 +1295,7 @@ class TestCallGeminiApiResilience:
         sleep_calls: list[float] = []
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, inp, out, err = pm._call_gemini_api(
+            raw_text, inp, out, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 _sleep_fn=lambda s: sleep_calls.append(s),
             )
@@ -1328,7 +1328,7 @@ class TestCallGeminiApiResilience:
         sleep_calls: list[float] = []
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 _sleep_fn=lambda s: sleep_calls.append(s),
             )
@@ -1346,7 +1346,7 @@ class TestCallGeminiApiResilience:
         """When google-genai is not installed, returns the expected error string."""
         with patch.dict("sys.modules", {"google": None, "google.genai": None}):
             with patch("builtins.__import__", side_effect=ImportError("No module named 'google'")):
-                raw_text, inp, out, err = pm._call_gemini_api(
+                raw_text, inp, out, _, err = pm._call_gemini_api(
                     "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                     _sleep_fn=lambda _: None,
                 )
@@ -1377,7 +1377,7 @@ class TestCallGeminiApiResilience:
         ])
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            _, _, _, err = pm._call_gemini_api(
+            _, _, _, _, err = pm._call_gemini_api(
                 secret_key, "gemini-2.0-flash", user_prompt_text, 512, 0.2,
                 _sleep_fn=lambda _: None,
             )
@@ -1406,7 +1406,7 @@ class TestCallGeminiApiResilience:
         sleep_calls: list[float] = []
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 max_attempts=1,
                 _sleep_fn=lambda s: sleep_calls.append(s),
@@ -1435,7 +1435,7 @@ class TestCallGeminiApiResilience:
         sleep_calls: list[float] = []
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 max_attempts=2,
                 _sleep_fn=lambda s: sleep_calls.append(s),
@@ -1460,7 +1460,7 @@ class TestCallGeminiApiResilience:
         mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules(side_effects)
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 max_attempts=999,
                 _sleep_fn=lambda _: None,
@@ -1481,7 +1481,7 @@ class TestCallGeminiApiResilience:
         mock_genai, mock_genai_types, mock_client = _make_fake_genai_modules([])
 
         with self._patch_genai_modules(mock_genai, mock_genai_types):
-            raw_text, _, _, err = pm._call_gemini_api(
+            raw_text, _, _, _, err = pm._call_gemini_api(
                 "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
                 max_attempts=0,
                 _sleep_fn=lambda _: None,
@@ -1492,3 +1492,310 @@ class TestCallGeminiApiResilience:
         assert mock_client.models.generate_content.call_count == 0, (
             "generate_content must not be called when max_attempts=0"
         )
+
+
+# ---------------------------------------------------------------------------
+# 15. Gemini 3 thinking_config injection
+# ---------------------------------------------------------------------------
+
+class TestCallGeminiApiThinkingConfig:
+    """_call_gemini_api passes thinking_config for gemini-3 models only."""
+
+    def _patch_genai_modules(self, mock_genai, mock_genai_types):
+        return patch.dict("sys.modules", {
+            "google": MagicMock(genai=mock_genai),
+            "google.genai": mock_genai,
+            "google.genai.types": mock_genai_types,
+        })
+
+    def test_gemini3_model_includes_thinking_config_with_level_low(self) -> None:
+        """gemini-3 model gets ThinkingConfig(thinking_level='low') — not thinking_budget."""
+        mock_response = MagicMock()
+        mock_response.text = '{"result": "ok"}'
+        mock_response.usage_metadata = None
+
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = mock_response
+
+        mock_genai_types = MagicMock()
+        mock_genai = MagicMock()
+        mock_genai.Client.return_value = mock_client
+        mock_genai.types = mock_genai_types
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, _, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-3-flash-preview", "prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert err == "", f"Expected success, got: {err}"
+        # ThinkingConfig must be constructed with thinking_level="low" (not thinking_budget).
+        mock_genai_types.ThinkingConfig.assert_called_once_with(thinking_level="low")
+        # Verify thinking_budget was NOT passed (mutually exclusive with thinking_level).
+        call_kwargs = mock_genai_types.ThinkingConfig.call_args.kwargs
+        assert "thinking_budget" not in call_kwargs, (
+            "thinking_budget must NOT be passed alongside thinking_level"
+        )
+        # The thinking_config kwarg must be forwarded to GenerateContentConfig.
+        gen_config_call = mock_genai_types.GenerateContentConfig.call_args
+        assert gen_config_call is not None
+        passed_kwargs = gen_config_call.kwargs if gen_config_call.kwargs else gen_config_call[1]
+        assert "thinking_config" in passed_kwargs, (
+            "thinking_config must be present in GenerateContentConfig for gemini-3 models"
+        )
+        assert passed_kwargs["thinking_config"] is mock_genai_types.ThinkingConfig.return_value
+
+    def test_gemini2_model_does_not_include_thinking_config(self) -> None:
+        """When model_name starts with 'gemini-2', no ThinkingConfig is added."""
+        mock_response = MagicMock()
+        mock_response.text = '{"result": "ok"}'
+        mock_response.usage_metadata = None
+
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = mock_response
+
+        mock_genai_types = MagicMock()
+        mock_genai = MagicMock()
+        mock_genai.Client.return_value = mock_client
+        mock_genai.types = mock_genai_types
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, _, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.5-flash-lite", "prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert err == "", f"Expected success, got: {err}"
+        # ThinkingConfig must NOT be constructed for gemini-2 models.
+        mock_genai_types.ThinkingConfig.assert_not_called()
+        gen_config_call = mock_genai_types.GenerateContentConfig.call_args
+        assert gen_config_call is not None
+        passed_kwargs = gen_config_call.kwargs if gen_config_call.kwargs else gen_config_call[1]
+        assert "thinking_config" not in passed_kwargs, (
+            "thinking_config must NOT be present in GenerateContentConfig for gemini-2 models"
+        )
+
+    def test_gemini31_flash_lite_fallback_gets_thinking_level_low(self) -> None:
+        """gemini-3.1-flash-lite (fallback) also receives ThinkingConfig(thinking_level='low')."""
+        mock_response = MagicMock()
+        mock_response.text = '{"result": "ok"}'
+        mock_response.usage_metadata = None
+
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = mock_response
+
+        mock_genai_types = MagicMock()
+        mock_genai = MagicMock()
+        mock_genai.Client.return_value = mock_client
+        mock_genai.types = mock_genai_types
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, _, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-3.1-flash-lite", "prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert err == "", f"Expected success, got: {err}"
+        # gemini-3.1-flash-lite starts with "gemini-3" → must get thinking_level="low".
+        mock_genai_types.ThinkingConfig.assert_called_once_with(thinking_level="low")
+
+    def test_thinking_estimate_constant_is_positive_int(self) -> None:
+        """_GEMINI3_THINKING_ESTIMATE_LOW_TOKENS is a positive integer (used for budget estimates)."""
+        assert isinstance(pm._GEMINI3_THINKING_ESTIMATE_LOW_TOKENS, int)
+        assert pm._GEMINI3_THINKING_ESTIMATE_LOW_TOKENS > 0
+
+    # ------------------------------------------------------------------ #
+    # Guard: ThinkingConfig unavailable / incompatible SDK
+    # ------------------------------------------------------------------ #
+
+    def test_missing_thinking_config_class_returns_controlled_error(self) -> None:
+        """If genai_types.ThinkingConfig raises AttributeError, return fail-closed error."""
+        mock_client = MagicMock()
+
+        mock_genai_types = MagicMock()
+        # Simulate an SDK that does not expose ThinkingConfig at all.
+        mock_genai_types.ThinkingConfig = MagicMock(
+            side_effect=AttributeError("ThinkingConfig not found")
+        )
+        mock_genai = MagicMock()
+        mock_genai.Client.return_value = mock_client
+        mock_genai.types = mock_genai_types
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, inp, out, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-3-flash-preview", "prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert raw_text is None, "raw_text must be None on SDK incompatibility"
+        assert inp is None
+        assert out is None
+        assert err != "", "error must be non-empty on SDK incompatibility"
+        assert "ThinkingConfig" in err, f"error must mention ThinkingConfig, got: {err!r}"
+        assert "Upgrade" in err or "upgrade" in err.lower(), (
+            f"error should hint at upgrading SDK, got: {err!r}"
+        )
+        # generate_content must never be called when config construction fails.
+        mock_client.models.generate_content.assert_not_called()
+
+    def test_thinking_config_type_error_returns_controlled_error(self) -> None:
+        """If ThinkingConfig(thinking_level=...) raises TypeError, return fail-closed error."""
+        mock_client = MagicMock()
+
+        mock_genai_types = MagicMock()
+        # Simulate an SDK that has ThinkingConfig but does not accept thinking_level kwarg.
+        mock_genai_types.ThinkingConfig = MagicMock(
+            side_effect=TypeError("unexpected keyword argument 'thinking_level'")
+        )
+        mock_genai = MagicMock()
+        mock_genai.Client.return_value = mock_client
+        mock_genai.types = mock_genai_types
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, inp, out, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-3-flash-preview", "prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert raw_text is None
+        assert err != "", "error must be non-empty when thinking_level is unsupported"
+        assert "ThinkingConfig" in err, f"error must mention ThinkingConfig, got: {err!r}"
+        # generate_content must never be called when config construction fails.
+        mock_client.models.generate_content.assert_not_called()
+
+    def test_sdk_incompatibility_guard_does_not_affect_gemini2(self) -> None:
+        """ThinkingConfig errors are only triggered for gemini-3 models; gemini-2 is unaffected."""
+        mock_response = MagicMock()
+        mock_response.text = '{"result": "ok"}'
+        mock_response.usage_metadata = None
+
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = mock_response
+
+        mock_genai_types = MagicMock()
+        # ThinkingConfig would raise — but must never be called for gemini-2.
+        mock_genai_types.ThinkingConfig = MagicMock(
+            side_effect=AttributeError("ThinkingConfig not found")
+        )
+        mock_genai = MagicMock()
+        mock_genai.Client.return_value = mock_client
+        mock_genai.types = mock_genai_types
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, _, _, _, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert err == "", f"gemini-2 must succeed even if ThinkingConfig is broken: {err!r}"
+        assert raw_text is not None
+        # ThinkingConfig must not be touched for gemini-2 models.
+        mock_genai_types.ThinkingConfig.assert_not_called()
+
+    def test_thinking_config_value_error_returns_controlled_error(self) -> None:
+        """ThinkingConfig(thinking_level=...) raising ValueError → fail-closed, no API call."""
+        mock_client = MagicMock()
+        mock_genai_types = MagicMock()
+        mock_genai_types.ThinkingConfig = MagicMock(
+            side_effect=ValueError("invalid value for thinking_level")
+        )
+        mock_genai = MagicMock()
+        mock_genai.Client.return_value = mock_client
+        mock_genai.types = mock_genai_types
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, inp, out, think, err = pm._call_gemini_api(
+                "fake-key", "gemini-3-flash-preview", "prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert raw_text is None
+        assert err != "", "error must be non-empty for ValueError on ThinkingConfig"
+        assert "ThinkingConfig" in err
+        assert "ValueError" in err, f"error must include exc class name, got: {err!r}"
+        mock_client.models.generate_content.assert_not_called()
+
+    def test_thinking_config_arbitrary_exception_returns_controlled_error(self) -> None:
+        """Any Exception from ThinkingConfig construction → fail-closed error with class name."""
+
+        class FakeSDKValidationError(Exception):
+            pass
+
+        mock_client = MagicMock()
+        mock_genai_types = MagicMock()
+        mock_genai_types.ThinkingConfig = MagicMock(
+            side_effect=FakeSDKValidationError("SDK validation failed")
+        )
+        mock_genai = MagicMock()
+        mock_genai.Client.return_value = mock_client
+        mock_genai.types = mock_genai_types
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, inp, out, think, err = pm._call_gemini_api(
+                "fake-key", "gemini-3-flash-preview", "prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert raw_text is None
+        assert err != ""
+        assert "FakeSDKValidationError" in err, (
+            f"error must include exception class name, got: {err!r}"
+        )
+        mock_client.models.generate_content.assert_not_called()
+
+    def test_thinking_tokens_extracted_from_usage_metadata(self) -> None:
+        """actual_thinking_tokens is extracted from usage_metadata.thoughts_token_count."""
+        mock_usage = MagicMock()
+        mock_usage.prompt_token_count = 200
+        mock_usage.candidates_token_count = 300
+        mock_usage.thoughts_token_count = 150
+
+        mock_response = MagicMock()
+        mock_response.text = '{"result": "ok"}'
+        mock_response.usage_metadata = mock_usage
+
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = mock_response
+
+        mock_genai_types = MagicMock()
+        mock_genai = MagicMock()
+        mock_genai.Client.return_value = mock_client
+        mock_genai.types = mock_genai_types
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, inp, out, think, err = pm._call_gemini_api(
+                "fake-key", "gemini-3-flash-preview", "prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert err == ""
+        assert inp == 200
+        assert out == 300
+        assert think == 150, f"Expected thinking_tokens=150, got {think!r}"
+
+    def test_no_thinking_tokens_when_absent_from_metadata(self) -> None:
+        """actual_thinking_tokens is None when thoughts_token_count absent from metadata."""
+        mock_usage = MagicMock(spec=["prompt_token_count", "candidates_token_count"])
+        mock_usage.prompt_token_count = 100
+        mock_usage.candidates_token_count = 200
+
+        mock_response = MagicMock()
+        mock_response.text = '{"result": "ok"}'
+        mock_response.usage_metadata = mock_usage
+
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = mock_response
+
+        mock_genai_types = MagicMock()
+        mock_genai = MagicMock()
+        mock_genai.Client.return_value = mock_client
+        mock_genai.types = mock_genai_types
+
+        with self._patch_genai_modules(mock_genai, mock_genai_types):
+            raw_text, inp, out, think, err = pm._call_gemini_api(
+                "fake-key", "gemini-2.0-flash", "prompt", 512, 0.2,
+                _sleep_fn=lambda _: None,
+            )
+
+        assert err == ""
+        assert think is None, f"Expected think=None when thoughts_token_count absent, got {think!r}"

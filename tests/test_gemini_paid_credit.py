@@ -645,7 +645,7 @@ class TestPaidCreditLedgerAppend:
         mock_response_text = json.dumps(valid_response)
         monkeypatch.setattr(
             pm, "_call_gemini_api",
-            lambda *args, **kwargs: (mock_response_text, 100, 50, ""),
+            lambda *args, **kwargs: (mock_response_text, 100, 50, None, ""),
         )
 
         patch_result, err = pm.propose_mutation(
@@ -681,7 +681,7 @@ class TestPaidCreditLedgerAppend:
         # Simulate API failure
         monkeypatch.setattr(
             pm, "_call_gemini_api",
-            lambda *args, **kwargs: (None, None, None, "Gemini API call failed: timeout"),
+            lambda *args, **kwargs: (None, None, None, None, "Gemini API call failed: timeout"),
         )
 
         patch_result, err = pm.propose_mutation(
@@ -886,7 +886,7 @@ class TestPaidCreditLedgerFailures:
         })
         monkeypatch.setattr(
             pm, "_call_gemini_api",
-            lambda *a, **kw: (valid_response_text, 100, 50, ""),
+            lambda *a, **kw: (valid_response_text, 100, 50, None, ""),
         )
 
         # Make the ledger file corrupt AFTER budget check but before append
@@ -929,7 +929,7 @@ class TestPaidCreditLedgerFailures:
         # Simulate API failure
         monkeypatch.setattr(
             pm, "_call_gemini_api",
-            lambda *a, **kw: (None, None, None, "Gemini API call failed: timeout"),
+            lambda *a, **kw: (None, None, None, None, "Gemini API call failed: timeout"),
         )
 
         result, err = pm.propose_mutation(
@@ -963,7 +963,7 @@ class TestPaidCreditLedgerFailures:
         # Simulate API failure
         monkeypatch.setattr(
             pm, "_call_gemini_api",
-            lambda *a, **kw: (None, None, None, "Gemini API call failed: timeout"),
+            lambda *a, **kw: (None, None, None, None, "Gemini API call failed: timeout"),
         )
 
         # Simulate ledger write failure
@@ -1022,7 +1022,7 @@ class TestPaidCreditLedgerFailures:
         })
         monkeypatch.setattr(
             pm, "_call_gemini_api",
-            lambda *a, **kw: (valid_response_text, 100, 50, ""),
+            lambda *a, **kw: (valid_response_text, 100, 50, None, ""),
         )
 
         result, err = pm.propose_mutation(
@@ -1096,7 +1096,7 @@ class TestPaidCreditLedgerFailures:
         monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
 
         # Mocked API SUCCESS — valid patch JSON + actual token counts, no error.
-        mock_call = MagicMock(return_value=(self._VALID_RESPONSE_TEXT, 100, 50, ""))
+        mock_call = MagicMock(return_value=(self._VALID_RESPONSE_TEXT, 100, 50, None, ""))
         monkeypatch.setattr(pm, "_call_gemini_api", mock_call)
 
         # Ledger write raises OSError.  Patch on the api_budget module so the
@@ -1151,7 +1151,7 @@ class TestPaidCreditLedgerFailures:
         )
         monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
 
-        mock_call = MagicMock(return_value=(self._VALID_RESPONSE_TEXT, 100, 50, ""))
+        mock_call = MagicMock(return_value=(self._VALID_RESPONSE_TEXT, 100, 50, None, ""))
         monkeypatch.setattr(pm, "_call_gemini_api", mock_call)
 
         mock_append = MagicMock(side_effect=ValueError("simulated corrupt ledger"))
@@ -1203,7 +1203,7 @@ class TestPaidCreditLedgerFailures:
 
         # Mocked API ERROR — no raw text, no token counts, non-empty api_err.
         mock_call = MagicMock(
-            return_value=(None, None, None, "simulated Gemini API error")
+            return_value=(None, None, None, None, "simulated Gemini API error")
         )
         monkeypatch.setattr(pm, "_call_gemini_api", mock_call)
 
@@ -1466,7 +1466,7 @@ class TestPaidCreditLedgerMissingFailClosed:
         })
         monkeypatch.setattr(
             pm, "_call_gemini_api",
-            lambda *a, **kw: (valid_response_text, 100, 50, ""),
+            lambda *a, **kw: (valid_response_text, 100, 50, None, ""),
         )
 
         patch_result, err = pm.propose_mutation(
@@ -1499,7 +1499,7 @@ class TestPaidCreditLedgerMissingFailClosed:
 
         def mock_api_call(*args: Any, **kwargs: Any) -> tuple:
             api_called.append(True)
-            return None, None, None, "Should not reach here"
+            return None, None, None, None, "Should not reach here"
 
         monkeypatch.setattr(pm, "_call_gemini_api", mock_api_call)
 
@@ -1582,7 +1582,7 @@ class TestPaidCreditRetryDoesNotWriteLedgerPerAttempt:
         # about those internal attempts).
         monkeypatch.setattr(
             pm, "_call_gemini_api",
-            lambda *a, **kw: (valid_response_text, 100, 50, ""),
+            lambda *a, **kw: (valid_response_text, 100, 50, None, ""),
         )
         # Prevent actual sleep in case real _call_gemini_api were used
         monkeypatch.setattr(_time_module, "sleep", lambda _: None)
@@ -1642,7 +1642,7 @@ class TestPaidCreditMaxAttemptsFromGenome:
             captured_max_attempts.append(kwargs.get("max_attempts", pm._GEMINI_API_MAX_ATTEMPTS))
             # Simulate a transient failure that _call_gemini_api would handle internally.
             # Since max_attempts=1 is passed, no retry should occur.
-            return None, None, None, "Gemini API call failed after 1 attempt: transient error TimeoutError"
+            return None, None, None, None, "Gemini API call failed after 1 attempt: transient error TimeoutError"
 
         monkeypatch.setattr(pm, "_call_gemini_api", tracking_call)
 
@@ -1692,7 +1692,7 @@ class TestPaidCreditMaxAttemptsFromGenome:
 
         def tracking_call(*args: Any, **kwargs: Any) -> Any:
             captured_max_attempts.append(kwargs.get("max_attempts", pm._GEMINI_API_MAX_ATTEMPTS))
-            return None, None, None, "Gemini API call failed after 1 attempt: transient error TimeoutError"
+            return None, None, None, None, "Gemini API call failed after 1 attempt: transient error TimeoutError"
 
         monkeypatch.setattr(pm, "_call_gemini_api", tracking_call)
 
@@ -1807,7 +1807,7 @@ class TestConservativeMultilingualBudgetRefusal:
 
         def mock_api_call(*args: Any, **kwargs: Any) -> Any:
             api_call_was_made.append(True)
-            return None, None, None, "must not reach here"
+            return None, None, None, None, "must not reach here"
 
         monkeypatch.setattr(pm, "_call_gemini_api", mock_api_call)
 
@@ -1901,7 +1901,7 @@ class TestConservativeMultilingualBudgetRefusal:
 
         def mock_api_call(*args: Any, **kwargs: Any) -> Any:
             api_call_count.append(1)
-            return valid_response, 500, 200, ""
+            return valid_response, 500, 200, None, ""
 
         monkeypatch.setattr(pm, "_call_gemini_api", mock_api_call)
 
@@ -2039,7 +2039,7 @@ class TestConservativeMultilingualBudgetRefusal:
         })
         monkeypatch.setattr(
             pm, "_call_gemini_api",
-            lambda *args, **kwargs: (valid_response, 400, 150, ""),
+            lambda *args, **kwargs: (valid_response, 400, 150, None, ""),
         )
 
         result, err = pm.propose_mutation(gemini_paid_credit=True, allow_live_model=True)
@@ -2071,4 +2071,342 @@ class TestConservativeMultilingualBudgetRefusal:
             f"Ledger cost ${rec['estimated_cost_usd']:.6f} is too high — likely caused by "
             f"output token inflation from char re-estimation (expected < $0.005 for "
             f"max_output_tokens=2048 with a short input prompt)."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Thinking-budget inclusion in budget estimates (Codex P2)
+# ---------------------------------------------------------------------------
+
+class TestThinkingBudgetInEstimation:
+    """Verify that Gemini 3 thinking tokens are included in budget estimates.
+
+    For gemini-3 models (running with thinking_level="low"), a conservative
+    allowance (_GEMINI3_THINKING_ESTIMATE_LOW_TOKENS) is added to
+    max_output_tokens for cost estimation and ledger recording.
+    For gemini-2 models the behaviour is unchanged.
+    """
+
+    _VALID_RESPONSE = json.dumps({
+        "mutation_rationale": "Improve coverage.",
+        "target_threats": ["THREAT-2024-001"],
+        "expected_improvement": "Higher TP rate.",
+        "risk": "Low.",
+        "replacement_code": (
+            "    surface = request.path.lower() + ' ' + request.body.lower()\n"
+            "    indicators = ['path_traversal_indicator', 'sqli_indicator']\n"
+            "    matched = [ind for ind in indicators if ind in surface]\n"
+            "    if matched:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='indicator: ' + matched[0],\n"
+            "            confidence=0.7,\n"
+            "            matched_signals=tuple(matched),\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        ),
+    })
+
+    def _gemini3_genome(self, live_paid_genome: dict, max_output_tokens: int = 2048) -> dict:
+        return {
+            **live_paid_genome,
+            "model_name": "gemini-3-flash-preview",
+            "fallback_model_name": "gemini-3.1-flash-lite",
+            "max_output_tokens": max_output_tokens,
+            "monthly_api_budget_usd": 10.0,
+            "daily_api_budget_usd": 1.0,
+            "live_model_enabled": True,
+            "max_model_requests_per_run": 1,
+        }
+
+    def test_gemini3_ledger_includes_thinking_tokens(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Ledger estimated_output_tokens for gemini-3 = max_output_tokens + thinking estimate."""
+        monkeypatch.setattr(pm, "_build_user_prompt",
+                            lambda g, d: "# short safe prompt\n")
+        genome = self._gemini3_genome(live_paid_genome)
+        genome_path = tmp_path / "genome_g3.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file,
+                     ledger_path, out_dir)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+        monkeypatch.setattr(pm, "_call_gemini_api",
+                            lambda *a, **kw: (self._VALID_RESPONSE, 400, 150, None, ""))
+
+        result, err = pm.propose_mutation(gemini_paid_credit=True, allow_live_model=True)
+        assert err == "", f"Expected success, got: {err!r}"
+
+        ledger = json.loads(ledger_path.read_text())
+        assert len(ledger) == 1
+        rec = ledger[0]
+        expected = genome["max_output_tokens"] + pm._GEMINI3_THINKING_ESTIMATE_LOW_TOKENS
+        assert rec["estimated_output_tokens"] == expected, (
+            f"estimated_output_tokens={rec['estimated_output_tokens']} "
+            f"expected max_output_tokens({genome['max_output_tokens']}) "
+            f"+ thinking_budget({pm._GEMINI3_THINKING_ESTIMATE_LOW_TOKENS}) = {expected}"
+        )
+
+    def test_gemini2_ledger_unchanged(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """For gemini-2 models, estimated_output_tokens must still equal max_output_tokens."""
+        monkeypatch.setattr(pm, "_build_user_prompt",
+                            lambda g, d: "# short safe prompt\n")
+        genome = {
+            **live_paid_genome,
+            "model_name": "gemini-2.0-flash",
+            "max_output_tokens": 2048,
+            "monthly_api_budget_usd": 10.0,
+            "daily_api_budget_usd": 1.0,
+            "live_model_enabled": True,
+            "max_model_requests_per_run": 1,
+        }
+        genome_path = tmp_path / "genome_g2.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file,
+                     ledger_path, out_dir)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+        monkeypatch.setattr(pm, "_call_gemini_api",
+                            lambda *a, **kw: (self._VALID_RESPONSE, 400, 150, None, ""))
+
+        result, err = pm.propose_mutation(gemini_paid_credit=True, allow_live_model=True)
+        assert err == "", f"Expected success, got: {err!r}"
+
+        ledger = json.loads(ledger_path.read_text())
+        rec = ledger[0]
+        assert rec["estimated_output_tokens"] == genome["max_output_tokens"], (
+            f"gemini-2 model must not add thinking budget. "
+            f"Got {rec['estimated_output_tokens']}, expected {genome['max_output_tokens']}"
+        )
+
+    def test_append_usage_record_receives_thinking_inclusive_tokens(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """append_usage_record's estimated_output_tokens must include thinking budget for gemini-3."""
+        monkeypatch.setattr(pm, "_build_user_prompt",
+                            lambda g, d: "# short safe prompt\n")
+        genome = self._gemini3_genome(live_paid_genome, max_output_tokens=512)
+        genome_path = tmp_path / "genome_g3_append.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file,
+                     ledger_path, out_dir)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+        monkeypatch.setattr(pm, "_call_gemini_api",
+                            lambda *a, **kw: (self._VALID_RESPONSE, 200, 100, None, ""))
+
+        captured: list[dict] = []
+        original_append = budget.append_usage_record
+
+        def capturing_append(path, **kwargs: Any) -> None:
+            captured.append(dict(kwargs))
+            original_append(path, **kwargs)
+
+        monkeypatch.setattr(budget, "append_usage_record", capturing_append)
+
+        result, err = pm.propose_mutation(gemini_paid_credit=True, allow_live_model=True)
+        assert err == "", f"Expected success, got: {err!r}"
+
+        assert len(captured) == 1, "append_usage_record must be called exactly once"
+        expected_tokens = genome["max_output_tokens"] + pm._GEMINI3_THINKING_ESTIMATE_LOW_TOKENS
+        assert captured[0]["estimated_output_tokens"] == expected_tokens, (
+            f"append_usage_record received estimated_output_tokens="
+            f"{captured[0]['estimated_output_tokens']}, "
+            f"expected {expected_tokens} (max_output_tokens={genome['max_output_tokens']} "
+            f"+ thinking_budget={pm._GEMINI3_THINKING_ESTIMATE_LOW_TOKENS})"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Actual thinking tokens in ledger (Codex P2: do not treat low as 1024-cap)
+# ---------------------------------------------------------------------------
+
+class TestActualThinkingTokensInLedger:
+    """Ledger records actual_thinking_tokens / actual_billable_response_tokens."""
+
+    _VALID_RESPONSE = json.dumps({
+        "mutation_rationale": "Improve coverage.",
+        "target_threats": ["THREAT-2024-001"],
+        "expected_improvement": "Higher TP rate.",
+        "risk": "Low.",
+        "replacement_code": (
+            "    surface = request.path.lower() + ' ' + request.body.lower()\n"
+            "    indicators = ['path_traversal_indicator', 'sqli_indicator']\n"
+            "    matched = [ind for ind in indicators if ind in surface]\n"
+            "    if matched:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='indicator: ' + matched[0],\n"
+            "            confidence=0.7,\n"
+            "            matched_signals=tuple(matched),\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        ),
+    })
+
+    def _gemini3_genome(self, live_paid_genome: dict) -> dict:
+        return {
+            **live_paid_genome,
+            "model_name": "gemini-3-flash-preview",
+            "fallback_model_name": "gemini-3.1-flash-lite",
+            "max_output_tokens": 512,
+            "monthly_api_budget_usd": 10.0,
+            "daily_api_budget_usd": 1.0,
+            "live_model_enabled": True,
+            "max_model_requests_per_run": 1,
+        }
+
+    def test_ledger_records_actual_thinking_tokens_when_present(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When response includes thoughts_token_count, ledger records actual_thinking_tokens."""
+        monkeypatch.setattr(pm, "_build_user_prompt",
+                            lambda g, d: "# short safe prompt\n")
+        genome = self._gemini3_genome(live_paid_genome)
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file,
+                     ledger_path, out_dir)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+        # 200 output tokens + 400 thinking tokens = 600 billable (within estimate)
+        monkeypatch.setattr(pm, "_call_gemini_api",
+                            lambda *a, **kw: (self._VALID_RESPONSE, 300, 200, 400, ""))
+
+        result, err = pm.propose_mutation(gemini_paid_credit=True, allow_live_model=True)
+        assert err == "", f"Expected success, got: {err!r}"
+
+        rec = json.loads(ledger_path.read_text())[0]
+        assert rec["actual_thinking_tokens"] == 400, (
+            f"Expected actual_thinking_tokens=400, got {rec['actual_thinking_tokens']!r}"
+        )
+        assert rec["actual_billable_response_tokens"] == 600, (
+            f"Expected actual_billable_response_tokens=600, got {rec['actual_billable_response_tokens']!r}"
+        )
+
+    def test_ledger_cost_uses_actual_when_it_exceeds_estimate(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """If actual_billable_response_tokens > est_output_tokens, cost is not under-recorded."""
+        monkeypatch.setattr(pm, "_build_user_prompt",
+                            lambda g, d: "# short safe prompt\n")
+        genome = self._gemini3_genome(live_paid_genome)
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file,
+                     ledger_path, out_dir)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+
+        # est_output_tokens = 512 + 1024 = 1536
+        # actual: 500 output + 2000 thinking = 2500 billable → exceeds estimate → fail-closed
+        monkeypatch.setattr(pm, "_call_gemini_api",
+                            lambda *a, **kw: (self._VALID_RESPONSE, 300, 500, 2000, ""))
+
+        result, err = pm.propose_mutation(gemini_paid_credit=True, allow_live_model=True)
+        # Actual exceeded estimate → fail-closed, no patch returned
+        assert result is None
+        assert "exceeded" in err or "overrun" in err or "pre-call estimate" in err, (
+            f"Error must mention overrun, got: {err!r}"
+        )
+
+        rec = json.loads(ledger_path.read_text())[0]
+        # Ledger must record actual values, not just estimate
+        assert rec["actual_thinking_tokens"] == 2000
+        assert rec["actual_billable_response_tokens"] == 2500
+        # estimated_output_tokens in ledger must use max(estimate, actual)
+        assert rec["estimated_output_tokens"] == 2500, (
+            f"estimated_output_tokens must be max(1536, 2500)=2500, got {rec['estimated_output_tokens']!r}"
+        )
+
+    def test_ledger_falls_back_to_estimate_when_no_thinking_tokens(
+        self,
+        tmp_path: Path,
+        live_paid_genome: dict,
+        detector_file: Path,
+        threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When thoughts_token_count is absent, ledger uses conservative estimate (no overrun)."""
+        monkeypatch.setattr(pm, "_build_user_prompt",
+                            lambda g, d: "# short safe prompt\n")
+        genome = self._gemini3_genome(live_paid_genome)
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+        ledger_path = tmp_path / "ledger.json"
+        ledger_path.write_text("[]", encoding="utf-8")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        _patch_paths(monkeypatch, genome_path, detector_file, threats_file,
+                     ledger_path, out_dir)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+        # No thinking tokens in response (None)
+        monkeypatch.setattr(pm, "_call_gemini_api",
+                            lambda *a, **kw: (self._VALID_RESPONSE, 300, 400, None, ""))
+
+        result, err = pm.propose_mutation(gemini_paid_credit=True, allow_live_model=True)
+        assert err == "", f"Expected success, got: {err!r}"
+
+        rec = json.loads(ledger_path.read_text())[0]
+        assert rec["actual_thinking_tokens"] is None
+        # estimated_output_tokens stays at pre-call estimate when no actual thinking data
+        expected_est = genome["max_output_tokens"] + pm._GEMINI3_THINKING_ESTIMATE_LOW_TOKENS
+        assert rec["estimated_output_tokens"] == expected_est, (
+            f"Fallback estimate expected {expected_est}, got {rec['estimated_output_tokens']!r}"
         )

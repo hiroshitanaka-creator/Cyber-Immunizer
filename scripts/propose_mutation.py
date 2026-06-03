@@ -486,6 +486,10 @@ _GEMINI_API_MAX_ATTEMPTS = 3
 _GEMINI_API_BACKOFF_INITIAL_SECONDS = 1.0
 _GEMINI_API_BACKOFF_MULTIPLIER = 2.0
 _GEMINI_API_BACKOFF_MAX_SECONDS = 8.0
+# Conservative thinking token allowance for Gemini 3 "low" thinking_level mode.
+# Used only for budget estimation — not a hard cap sent to the API.
+# Gemini 3 API receives ThinkingConfig(thinking_level="low") instead.
+_GEMINI3_THINKING_ESTIMATE_LOW_TOKENS = 1024
 
 # Status codes that indicate a transient failure worth retrying.
 _TRANSIENT_STATUS_CODES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
@@ -790,13 +794,14 @@ def _call_gemini_api(
     *,
     max_attempts: int = _GEMINI_API_MAX_ATTEMPTS,
     _sleep_fn=None,
-) -> tuple[str | None, int | None, int | None, str]:
+) -> tuple[str | None, int | None, int | None, int | None, str]:
     """Issue a Gemini API call with explicit timeout and bounded transient retry.
 
-    Returns (raw_text, actual_input_tokens, actual_output_tokens, error).
+    Returns (raw_text, actual_input_tokens, actual_output_tokens,
+             actual_thinking_tokens, error).
     On error, raw_text is None and error is non-empty.
-    actual_input_tokens / actual_output_tokens may be None if the API
-    does not return usage metadata.
+    actual_input_tokens / actual_output_tokens / actual_thinking_tokens may be
+    None if the API does not return usage metadata.
 
     Retry behaviour:
       - Transient errors (429, 5xx, timeout, network interruption) are retried
@@ -818,7 +823,7 @@ def _call_gemini_api(
     # Enforce caller-supplied attempt budget capped by the hard constant.
     effective_attempts = min(max_attempts, _GEMINI_API_MAX_ATTEMPTS)
     if effective_attempts < 1:
-        return None, None, None, (
+        return None, None, None, None, (
             f"Gemini API call failed: invalid max_attempts={max_attempts!r} — "
             "request budget must be >= 1."
         )
@@ -827,7 +832,7 @@ def _call_gemini_api(
         from google import genai  # type: ignore[import]
         from google.genai import types as genai_types  # type: ignore[import]
     except ImportError:
-        return None, None, None, (
+        return None, None, None, None, (
             "google-genai is not installed. "
             "Install the gemini extra: pip install 'cyber-immunizer[gemini]' "
             "or: pip install 'google-genai>=1.0.0'"
@@ -841,7 +846,7 @@ def _call_gemini_api(
         http_opts = genai_types.HttpOptions(timeout=_GEMINI_API_TIMEOUT_MS)
         client = genai.Client(api_key=api_key, http_options=http_opts)
     except (TypeError, AttributeError) as http_exc:
-        return None, None, None, (
+        return None, None, None, None, (
             "Gemini API call failed: could not configure explicit timeout — "
             "HttpOptions(timeout=...) is not supported by the installed "
             f"google-genai SDK version ({type(http_exc).__name__}). "
@@ -854,33 +859,56 @@ def _call_gemini_api(
     attempt = 0
     backoff = _GEMINI_API_BACKOFF_INITIAL_SECONDS
 
+    # Gemini 3 models support dynamic thinking.  Pass thinking_config with
+    # thinking_level="low" to request the lowest thinking mode.
+    # Gemini 2.x models do not accept this field, so only include it for gemini-3.
+    # thinking_level and thinking_budget must not be specified together.
+    #
+    # Guard: older google-genai SDKs may not expose ThinkingConfig or may not
+    # accept thinking_level.  Fail closed with a controlled error rather than
+    # raising an unhandled exception before generate_content is even called.
+    _generate_config_kwargs: dict = dict(
+        system_instruction=_LLM_SYSTEM_PROMPT,
+        response_mime_type="application/json",
+        response_schema=_PATCH_SCHEMA_FOR_GEMINI,
+        max_output_tokens=max_output_tokens,
+        temperature=temperature,
+    )
+    if model_name.startswith("gemini-3"):
+        try:
+            _generate_config_kwargs["thinking_config"] = genai_types.ThinkingConfig(
+                thinking_level="low"
+            )
+        except Exception as exc:
+            return None, None, None, None, (
+                "Gemini API call failed: installed google-genai SDK does not support "
+                f"ThinkingConfig(thinking_level=...) ({type(exc).__name__}). "
+                "Upgrade google-genai before using gemini-3 models."
+            )
+
     for attempt in range(1, effective_attempts + 1):
         try:
             response = client.models.generate_content(
                 model=model_name,
                 contents=user_prompt,
-                config=genai_types.GenerateContentConfig(
-                    system_instruction=_LLM_SYSTEM_PROMPT,
-                    response_mime_type="application/json",
-                    response_schema=_PATCH_SCHEMA_FOR_GEMINI,
-                    max_output_tokens=max_output_tokens,
-                    temperature=temperature,
-                ),
+                config=genai_types.GenerateContentConfig(**_generate_config_kwargs),
             )
             raw_text: str = response.text
 
             # Extract actual token counts if available in response metadata.
             actual_input_tokens: int | None = None
             actual_output_tokens: int | None = None
+            actual_thinking_tokens: int | None = None
             try:
                 usage = response.usage_metadata
                 if usage is not None:
                     actual_input_tokens = getattr(usage, "prompt_token_count", None)
                     actual_output_tokens = getattr(usage, "candidates_token_count", None)
+                    actual_thinking_tokens = getattr(usage, "thoughts_token_count", None)
             except Exception:
                 pass
 
-            return raw_text, actual_input_tokens, actual_output_tokens, ""
+            return raw_text, actual_input_tokens, actual_output_tokens, actual_thinking_tokens, ""
 
         except Exception as exc:
             last_exc_type_name = type(exc).__name__
@@ -903,7 +931,7 @@ def _call_gemini_api(
 
     classification = "transient" if last_is_transient else "non-transient"
     plural = "s" if attempt != 1 else ""
-    return None, None, None, (
+    return None, None, None, None, (
         f"Gemini API call failed after {attempt} attempt{plural}: "
         f"{classification} error {last_exc_detail}"
     )
@@ -976,7 +1004,7 @@ def _propose_via_gemini_live(
     if scan_err:
         return None, scan_err
 
-    raw_text, _inp_tok, _out_tok, api_err = _call_gemini_api(
+    raw_text, _inp_tok, _out_tok, _think_tok, api_err = _call_gemini_api(
         api_key, model_name, user_prompt, max_output_tokens, temperature,
         max_attempts=request_attempt_budget,
     )
@@ -1046,9 +1074,17 @@ def _propose_via_gemini_paid_credit(
     # Passing it through estimate_tokens_from_chars() would multiply the token
     # cap by the char-to-token multiplier and make valid budgets fail.
     # The conservative estimator applies only to character-counted inputs.
-    estimated_output_chars = max_output_tokens * 4  # ledger diagnostic only
+    #
+    # For Gemini 3 models running with thinking_level="low", thinking tokens are
+    # billed alongside output tokens per Google pricing docs.  Add a conservative
+    # allowance (_GEMINI3_THINKING_ESTIMATE_LOW_TOKENS) — not a hard cap, but a
+    # prudent worst-case estimate for the pre-call budget gate.
+    effective_output_token_budget = max_output_tokens
+    if model_name.startswith("gemini-3"):
+        effective_output_token_budget += _GEMINI3_THINKING_ESTIMATE_LOW_TOKENS
+    estimated_output_chars = effective_output_token_budget * 4  # ledger diagnostic only
     est_input_tokens = budget.estimate_tokens_from_chars(input_chars)
-    est_output_tokens = max_output_tokens  # token cap is already tokens
+    est_output_tokens = effective_output_token_budget
     est_cost = budget.estimate_cost_usd(est_input_tokens, est_output_tokens, model_name)
 
     # Load ledger and assert budget — FAIL CLOSED for missing/malformed ledger.
@@ -1066,10 +1102,35 @@ def _propose_via_gemini_paid_credit(
 
     # Single Gemini API call (retries up to request_attempt_budget attempts for
     # transient errors, keeping total generate_content calls within budget).
-    raw_text, actual_input_tokens, actual_output_tokens, api_err = _call_gemini_api(
-        api_key, model_name, user_prompt, max_output_tokens, temperature,
-        max_attempts=request_attempt_budget,
+    raw_text, actual_input_tokens, actual_output_tokens, actual_thinking_tokens, api_err = (
+        _call_gemini_api(
+            api_key, model_name, user_prompt, max_output_tokens, temperature,
+            max_attempts=request_attempt_budget,
+        )
     )
+
+    # Compute actual billable response tokens for Gemini 3 thinking models.
+    # thinking_level="low" is not a hard cap; actual thoughts_token_count can
+    # exceed the conservative pre-call allowance.  Use the larger of the
+    # pre-call estimate and the actual billed tokens to avoid under-recording.
+    actual_billable_response_tokens: int | None = None
+    if actual_output_tokens is not None and actual_thinking_tokens is not None:
+        actual_billable_response_tokens = actual_output_tokens + actual_thinking_tokens
+    elif actual_output_tokens is not None:
+        actual_billable_response_tokens = actual_output_tokens
+
+    # If actual billable tokens exceeded the pre-call estimate, flag it.
+    # We still record usage so the ledger reflects the real cost, then fail.
+    overrun_err = ""
+    if (
+        api_err == ""
+        and actual_billable_response_tokens is not None
+        and actual_billable_response_tokens > est_output_tokens
+    ):
+        overrun_err = (
+            "actual billable response tokens exceeded pre-call estimate; "
+            "refusing to return patch after recording usage."
+        )
 
     # Append usage record — HARD ERROR if ledger write fails.
     # An API call whose cost cannot be recorded into the ledger must NOT be
@@ -1077,6 +1138,7 @@ def _propose_via_gemini_paid_credit(
     # state for future calls.  We try to record success or failure; if
     # either record write fails, we return an error regardless of whether
     # the API call itself succeeded.
+    effective_error = api_err or overrun_err
     try:
         budget.append_usage_record(
             ledger_path,
@@ -1089,21 +1151,22 @@ def _propose_via_gemini_paid_credit(
             estimated_output_tokens=est_output_tokens,
             actual_input_tokens=actual_input_tokens,
             actual_output_tokens=actual_output_tokens,
-            success=(api_err == ""),
-            error=api_err,
+            actual_thinking_tokens=actual_thinking_tokens,
+            actual_billable_response_tokens=actual_billable_response_tokens,
+            success=(effective_error == ""),
+            error=effective_error,
         )
     except (ValueError, OSError) as ledger_exc:
         ledger_err = (
             f"API usage ledger write failed: {ledger_exc}. "
             "Cannot confirm budget was recorded; refusing to return patch."
         )
-        if api_err:
-            # Both API call and ledger write failed: report both
-            return None, f"{api_err} — additionally, {ledger_err}"
+        if effective_error:
+            return None, f"{effective_error} — additionally, {ledger_err}"
         return None, ledger_err
 
-    if api_err:
-        return None, api_err
+    if effective_error:
+        return None, effective_error
 
     return _parse_and_validate_response(raw_text)  # type: ignore[arg-type]
 
@@ -1379,7 +1442,12 @@ def run_gemini_paid_credit_preflight() -> tuple[dict, str]:
     # estimate_tokens_from_chars would multiply it by the char multiplier,
     # making valid budgets fail.
     est_input_tokens = budget.estimate_tokens_from_chars(input_chars)
-    est_output_tokens = max_output_tokens  # token cap is already tokens
+    # For Gemini 3 models running with thinking_level="low", add a conservative
+    # thinking token allowance to the preflight budget estimate.
+    effective_output_token_budget = max_output_tokens
+    if model_name.startswith("gemini-3"):
+        effective_output_token_budget += _GEMINI3_THINKING_ESTIMATE_LOW_TOKENS
+    est_output_tokens = effective_output_token_budget
     est_cost = budget.estimate_cost_usd(est_input_tokens, est_output_tokens, model_name)
 
     # --- Step 17: Budget availability check ---

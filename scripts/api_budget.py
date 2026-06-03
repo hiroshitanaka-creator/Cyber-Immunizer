@@ -324,6 +324,8 @@ def append_usage_record(
     estimated_output_tokens: int | None = None,
     actual_input_tokens: int | None = None,
     actual_output_tokens: int | None = None,
+    actual_thinking_tokens: int | None = None,
+    actual_billable_response_tokens: int | None = None,
     success: bool,
     error: str = "",
     now: datetime | None = None,
@@ -384,7 +386,13 @@ def append_usage_record(
     else:
         est_output_tokens = estimated_output_tokens
 
-    est_cost = estimate_cost_usd(est_input_tokens, est_output_tokens, model)
+    # For Gemini 3 thinking models, actual_billable_response_tokens may exceed
+    # the pre-call estimate.  Use the larger value so cost is never under-recorded.
+    effective_output_tokens = est_output_tokens
+    if actual_billable_response_tokens is not None:
+        effective_output_tokens = max(est_output_tokens, actual_billable_response_tokens)
+
+    est_cost = estimate_cost_usd(est_input_tokens, effective_output_tokens, model)
 
     record: dict = {
         "timestamp": now.isoformat(),
@@ -394,9 +402,11 @@ def append_usage_record(
         "estimated_input_chars": estimated_input_chars,
         "estimated_output_chars": estimated_output_chars,
         "estimated_input_tokens": est_input_tokens,
-        "estimated_output_tokens": est_output_tokens,
+        "estimated_output_tokens": effective_output_tokens,
         "actual_input_tokens": actual_input_tokens,
         "actual_output_tokens": actual_output_tokens,
+        "actual_thinking_tokens": actual_thinking_tokens,
+        "actual_billable_response_tokens": actual_billable_response_tokens,
         "estimated_cost_usd": est_cost,
         "budget_month": current_month_key(now),
         "budget_day": current_day_key(now),
