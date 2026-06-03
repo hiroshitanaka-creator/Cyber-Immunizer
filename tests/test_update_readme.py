@@ -21,7 +21,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from scripts.update_readme import update_readme, _build_status_block, _GENOME_PATH, _parse_bool
+from scripts.update_readme import update_readme, _build_status_block, _GENOME_PATH, _LEDGER_PATH, _parse_bool
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"
 _STATUS_END = "<!-- CYBER_IMMUNIZER_STATUS_END -->"
@@ -109,6 +109,7 @@ def _run_update(tmp_path: Path, genome_overrides: dict | None = None) -> tuple[s
     original_history = mod._HISTORY_PATH
     original_threats = mod._THREATS_PATH
     original_report = mod._REPORT_PATH
+    original_ledger = mod._LEDGER_PATH
 
     mod._GENOME_PATH = genome_path
     mod._HISTORY_PATH = tmp_path / "evolution_history.json"
@@ -116,6 +117,8 @@ def _run_update(tmp_path: Path, genome_overrides: dict | None = None) -> tuple[s
     mod._THREATS_PATH = tmp_path / "active_threats.json"
     (tmp_path / "active_threats.json").write_text("[]")
     mod._REPORT_PATH = tmp_path / "nonexistent_report.json"  # doesn't exist → fitness=None
+    mod._LEDGER_PATH = tmp_path / "api_usage_ledger.json"
+    (tmp_path / "api_usage_ledger.json").write_text("[]")  # empty ledger → no past runs
 
     try:
         success = update_readme(readme_path)
@@ -128,6 +131,7 @@ def _run_update(tmp_path: Path, genome_overrides: dict | None = None) -> tuple[s
         mod._HISTORY_PATH = original_history
         mod._THREATS_PATH = original_threats
         mod._REPORT_PATH = original_report
+        mod._LEDGER_PATH = original_ledger
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +181,7 @@ class TestStatusBlockPreservation:
         original_history = mod._HISTORY_PATH
         original_threats = mod._THREATS_PATH
         original_report = mod._REPORT_PATH
+        original_ledger = mod._LEDGER_PATH
 
         readme_path = _make_readme_no_block(tmp_path)
         genome_path = _make_genome(tmp_path)
@@ -186,6 +191,8 @@ class TestStatusBlockPreservation:
         mod._THREATS_PATH = tmp_path / "active_threats.json"
         (tmp_path / "active_threats.json").write_text("[]")
         mod._REPORT_PATH = tmp_path / "nonexistent_report.json"
+        mod._LEDGER_PATH = tmp_path / "api_usage_ledger.json"
+        (tmp_path / "api_usage_ledger.json").write_text("[]")
 
         try:
             success = update_readme(readme_path)
@@ -195,6 +202,7 @@ class TestStatusBlockPreservation:
             mod._HISTORY_PATH = original_history
             mod._THREATS_PATH = original_threats
             mod._REPORT_PATH = original_report
+            mod._LEDGER_PATH = original_ledger
 
         assert success
         assert _SENTINEL_BEFORE in content
@@ -423,14 +431,17 @@ class TestApiConnectionDisplay:
             "When live_model_enabled=false, API Connection must be 'Not connected'"
         )
 
-    def test_api_connection_blocked_when_true(self, tmp_path: Path) -> None:
-        """When live_model_enabled=true, API Connection must show BLOCKED message."""
+    def test_api_connection_phase3_when_true(self, tmp_path: Path) -> None:
+        """When live_model_enabled=true, status block must show Phase 3 (not BLOCKED)."""
         _, block = _run_update(tmp_path, genome_overrides={"live_model_enabled": True})
-        assert "BLOCKED" in block, (
-            "When live_model_enabled=true, API Connection must show 'BLOCKED' in Phase 2"
+        assert "Phase 3" in block, (
+            "When live_model_enabled=true, status block must show Phase 3"
         )
-        assert "live_model_enabled=true is not allowed in Phase 2" in block, (
-            "BLOCKED message must explain that live_model_enabled=true is not allowed in Phase 2"
+        assert "BLOCKED" not in block, (
+            "When live_model_enabled=true (Phase 3), BLOCKED must not appear"
+        )
+        assert "live_model_enabled=true is not allowed in Phase 2" not in block, (
+            "Phase 2 BLOCKED message must not appear when live_model_enabled=true"
         )
 
     def test_live_model_enabled_true_shows_true(self, tmp_path: Path) -> None:
@@ -447,13 +458,19 @@ class TestApiConnectionDisplay:
             "live_model_enabled row must display 'false' when genome has false"
         )
 
-    def test_current_phase_unchanged_regardless_of_live_model(self, tmp_path: Path) -> None:
-        """Current Phase must always be 'Phase 2 — API-disconnected operations'."""
-        for value in (True, False):
-            _, block = _run_update(tmp_path, genome_overrides={"live_model_enabled": value})
-            assert "Phase 2 — API-disconnected operations" in block, (
-                f"Current Phase must be fixed regardless of live_model_enabled={value}"
-            )
+    def test_current_phase_changes_with_live_model(self, tmp_path: Path) -> None:
+        """Current Phase must be Phase 2 when live_model_enabled=false, Phase 3 when true."""
+        _, block_false = _run_update(tmp_path, genome_overrides={"live_model_enabled": False})
+        assert "Phase 2 — API-disconnected operations" in block_false, (
+            "Current Phase must be 'Phase 2 — API-disconnected operations' when live_model_enabled=false"
+        )
+        _, block_true = _run_update(tmp_path, genome_overrides={"live_model_enabled": True})
+        assert "Phase 3" in block_true, (
+            "Current Phase must show Phase 3 when live_model_enabled=true"
+        )
+        assert "Phase 2 — API-disconnected operations" not in block_true, (
+            "Phase 2 text must not appear when live_model_enabled=true"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -749,13 +766,16 @@ class TestStringBooleanInGenome:
         )
 
     def test_live_model_enabled_string_true_shows_true(self, tmp_path: Path) -> None:
-        """live_model_enabled='true' (string) must display as true and trigger BLOCKED."""
+        """live_model_enabled='true' (string) must display as true and trigger Phase 3."""
         _, block = _run_update(tmp_path, genome_overrides={"live_model_enabled": "true"})
         assert "| live_model_enabled | true |" in block, (
             "String 'true' for live_model_enabled must show 'true'"
         )
-        assert "BLOCKED" in block, (
-            "String 'true' for live_model_enabled must trigger BLOCKED in API Connection"
+        assert "Phase 3" in block, (
+            "String 'true' for live_model_enabled must trigger Phase 3 display"
+        )
+        assert "BLOCKED" not in block, (
+            "String 'true' for live_model_enabled must NOT trigger BLOCKED in Phase 3"
         )
 
     def test_send_repository_full_text_string_false_shows_false(
@@ -855,12 +875,15 @@ def _run_update_with_report(
     original_history = mod._HISTORY_PATH
     original_threats = mod._THREATS_PATH
     original_report = mod._REPORT_PATH
+    original_ledger = mod._LEDGER_PATH
 
     mod._GENOME_PATH = genome_path
     mod._HISTORY_PATH = tmp_path / "evolution_history.json"
     (tmp_path / "evolution_history.json").write_text("[]")
     mod._THREATS_PATH = tmp_path / "active_threats.json"
     (tmp_path / "active_threats.json").write_text("[]")
+    mod._LEDGER_PATH = tmp_path / "api_usage_ledger.json"
+    (tmp_path / "api_usage_ledger.json").write_text("[]")
 
     if report_data is None:
         mod._REPORT_PATH = tmp_path / "nonexistent_report.json"  # doesn't exist
@@ -880,6 +903,7 @@ def _run_update_with_report(
         mod._HISTORY_PATH = original_history
         mod._THREATS_PATH = original_threats
         mod._REPORT_PATH = original_report
+        mod._LEDGER_PATH = original_ledger
 
 
 _SAMPLE_FITNESS_REPORT = {
@@ -1015,6 +1039,142 @@ class TestFitnessReportNaExplanation:
         assert "| Total Test Cases | 15 |" in block
         assert "| TP / FP / TN / FN | 8 / 0 / 7 / 0 |" in block
         assert "Not available" not in block
+
+
+# ---------------------------------------------------------------------------
+# Tests: Phase 3 mandatory fields (live_model_enabled=true)
+# ---------------------------------------------------------------------------
+
+class TestPhase3MandatoryFields:
+    """When live_model_enabled=true, status block must show Phase 3 fields, not BLOCKED."""
+
+    def test_phase3_current_phase_shown(self, tmp_path: Path) -> None:
+        """Phase 3 must appear in Current Phase when live_model_enabled=true."""
+        _, block = _run_update(tmp_path, genome_overrides={
+            "live_model_enabled": True,
+            "model_name": "gemini-3-flash-preview",
+            "fallback_model_name": "gemini-3.1-flash-lite",
+        })
+        assert "Phase 3" in block, (
+            "Current Phase must show Phase 3 when live_model_enabled=true"
+        )
+
+    def test_phase3_no_blocked_message(self, tmp_path: Path) -> None:
+        """BLOCKED must NOT appear when live_model_enabled=true (Phase 3)."""
+        _, block = _run_update(tmp_path, genome_overrides={"live_model_enabled": True})
+        assert "BLOCKED" not in block, (
+            "Phase 3 status block must not contain BLOCKED message"
+        )
+        assert "live_model_enabled=true is not allowed in Phase 2" not in block, (
+            "Phase 2 BLOCKED text must not appear in Phase 3"
+        )
+
+    def test_phase3_no_phase2_text(self, tmp_path: Path) -> None:
+        """Phase 2 — API-disconnected text must NOT appear when live_model_enabled=true."""
+        _, block = _run_update(tmp_path, genome_overrides={"live_model_enabled": True})
+        assert "Phase 2 — API-disconnected operations" not in block, (
+            "Phase 2 text must not appear in Phase 3 status block"
+        )
+
+    def test_phase3_shows_gemini_primary_model(self, tmp_path: Path) -> None:
+        """Gemini Primary Model row must appear with model_name value."""
+        _, block = _run_update(tmp_path, genome_overrides={
+            "live_model_enabled": True,
+            "model_name": "gemini-3-flash-preview",
+        })
+        assert "Gemini Primary Model" in block, (
+            "Phase 3 status block must contain 'Gemini Primary Model' row"
+        )
+        assert "gemini-3-flash-preview" in block, (
+            "Gemini Primary Model must show model_name from genome.json"
+        )
+
+    def test_phase3_shows_gemini_fallback_model(self, tmp_path: Path) -> None:
+        """Gemini Fallback Model row must appear with fallback_model_name value."""
+        _, block = _run_update(tmp_path, genome_overrides={
+            "live_model_enabled": True,
+            "fallback_model_name": "gemini-3.1-flash-lite",
+        })
+        assert "Gemini Fallback Model" in block, (
+            "Phase 3 status block must contain 'Gemini Fallback Model' row"
+        )
+        assert "gemini-3.1-flash-lite" in block, (
+            "Gemini Fallback Model must show fallback_model_name from genome.json"
+        )
+
+    def test_phase3_shows_not_yet_executed_when_empty_ledger(self, tmp_path: Path) -> None:
+        """When ledger has no successful runs for primary model, show Not yet executed."""
+        _, block = _run_update(tmp_path, genome_overrides={
+            "live_model_enabled": True,
+            "model_name": "gemini-3-flash-preview",
+        })
+        assert "Not yet executed" in block, (
+            "Phase 3 First Paid-Credit Run must show 'Not yet executed' when ledger has no primary model successes"
+        )
+
+    def test_phase3_shows_promote_approved(self, tmp_path: Path) -> None:
+        """promote_approved row must appear in Phase 3 status block."""
+        _, block = _run_update(tmp_path, genome_overrides={"live_model_enabled": True})
+        assert "promote_approved" in block, (
+            "Phase 3 status block must contain 'promote_approved' row"
+        )
+
+    def test_phase3_shows_phase3_activation_or_first(self, tmp_path: Path) -> None:
+        """Phase 3 Activation or Phase 3 First must appear in Phase 3 status block."""
+        _, block = _run_update(tmp_path, genome_overrides={"live_model_enabled": True})
+        assert "Phase 3 Activation" in block or "Phase 3 First" in block, (
+            "Phase 3 status block must contain Phase 3 Activation or Phase 3 First row"
+        )
+
+    def test_phase3_executed_count_when_ledger_has_primary_success(
+        self, tmp_path: Path
+    ) -> None:
+        """When ledger has a successful primary model run, show Executed count."""
+        import scripts.update_readme as mod
+
+        readme_path = _make_readme(tmp_path)
+        genome_path = _make_genome(tmp_path, overrides={
+            "live_model_enabled": True,
+            "model_name": "gemini-3-flash-preview",
+        })
+        ledger_path = tmp_path / "ledger_with_success.json"
+        ledger_path.write_text(json.dumps([
+            {
+                "model": "gemini-3-flash-preview",
+                "success": True,
+                "api_mode": "gemini_paid_credit",
+            }
+        ]))
+
+        original_genome = mod._GENOME_PATH
+        original_history = mod._HISTORY_PATH
+        original_threats = mod._THREATS_PATH
+        original_report = mod._REPORT_PATH
+        original_ledger = mod._LEDGER_PATH
+        mod._GENOME_PATH = genome_path
+        mod._HISTORY_PATH = tmp_path / "evolution_history.json"
+        (tmp_path / "evolution_history.json").write_text("[]")
+        mod._THREATS_PATH = tmp_path / "active_threats.json"
+        (tmp_path / "active_threats.json").write_text("[]")
+        mod._REPORT_PATH = tmp_path / "nonexistent_report.json"
+        mod._LEDGER_PATH = ledger_path
+
+        try:
+            success = update_readme(readme_path)
+            assert success
+            block = _extract_block(readme_path.read_text(encoding="utf-8"))
+            assert "Executed" in block, (
+                "Phase 3 First Paid-Credit Run must show Executed when ledger has primary model success"
+            )
+            assert "Not yet executed" not in block, (
+                "Not yet executed must not appear when there are primary model successes"
+            )
+        finally:
+            mod._GENOME_PATH = original_genome
+            mod._HISTORY_PATH = original_history
+            mod._THREATS_PATH = original_threats
+            mod._REPORT_PATH = original_report
+            mod._LEDGER_PATH = original_ledger
 
 
 # ---------------------------------------------------------------------------

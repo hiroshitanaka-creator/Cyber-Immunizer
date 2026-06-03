@@ -18,6 +18,7 @@ _GENOME_PATH = _PROJECT_ROOT / "data" / "genome.json"
 _HISTORY_PATH = _PROJECT_ROOT / "data" / "evolution_history.json"
 _THREATS_PATH = _PROJECT_ROOT / "data" / "active_threats.json"
 _REPORT_PATH = _PROJECT_ROOT / ".cyber_immunizer" / "fitness_report.json"
+_LEDGER_PATH = _PROJECT_ROOT / "data" / "api_usage_ledger.json"
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"
 _STATUS_END = "<!-- CYBER_IMMUNIZER_STATUS_END -->"
@@ -61,6 +62,7 @@ def _build_status_block() -> str:
     genome = _load_json(_GENOME_PATH) or {}
     history = _load_json(_HISTORY_PATH) or []
     threats = _load_json(_THREATS_PATH) or []
+    ledger = _load_json(_LEDGER_PATH)
     fitness: dict | None = None
 
     raw_report = _load_json(_REPORT_PATH)
@@ -97,12 +99,14 @@ def _build_status_block() -> str:
 
     now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 
-    # --- Phase 2 fields (read from genome.json) ---
+    # --- Fields read from genome.json ---
     # Use _parse_bool instead of bool() to correctly handle string "false"
     # (Python's bool("false") == True, which would produce a wrong dashboard)
     live_model_enabled: bool = _parse_bool(genome.get("live_model_enabled"), default=False)
     api_mode: str = genome.get("api_mode", "N/A")
     model_provider: str = genome.get("model_provider", "N/A")
+    model_name: str = genome.get("model_name", "N/A")
+    fallback_model_name: str = genome.get("fallback_model_name", "N/A")
     max_model_requests: object = genome.get("max_model_requests_per_run", "N/A")
     max_commits: object = genome.get("max_commits_per_run", "N/A")
     monthly_budget: object = genome.get("monthly_api_budget_usd", "N/A")
@@ -111,13 +115,38 @@ def _build_status_block() -> str:
     send_raw_payloads: bool = _parse_bool(genome.get("send_raw_payloads"), default=False)
     send_secrets: bool = _parse_bool(genome.get("send_secrets"), default=False)
 
-    # Derive Phase 2 display values
-    current_phase = "Phase 2 — API-disconnected operations"
-
+    # --- Phase determination ---
+    # Phase 3 when live_model_enabled=true; Phase 2 otherwise.
     if live_model_enabled:
-        api_connection = "BLOCKED: live_model_enabled=true is not allowed in Phase 2"
+        current_phase = "Phase 3 — paid-credit path ready, Gemini 3 Flash Preview run pending"
+        # Check ledger for successful runs with the current primary model.
+        # "Gemini API first live call" is intentionally NOT used here: past ledger records
+        # may exist for earlier models (e.g. gemini-3.1-flash-lite). This field tracks
+        # runs for the current genome's primary model only.
+        primary_successes = []
+        if isinstance(ledger, list):
+            primary_successes = [
+                e for e in ledger
+                if isinstance(e, dict)
+                and e.get("model") == model_name
+                and e.get("success") is True
+            ]
+        if primary_successes:
+            p3_run_status = f"Executed ({len(primary_successes)} successful run(s))"
+        else:
+            p3_run_status = "Not yet executed"
+        phase_rows: list[str] = [
+            f"| Phase 3 Activation | Complete (PR #58-#62) |",
+            f"| Phase 3 First Paid-Credit Run | {p3_run_status} |",
+            f"| Gemini Primary Model | {model_name} |",
+            f"| Gemini Fallback Model | {fallback_model_name} |",
+            f"| promote_approved | false (workflow gate — Human Owner approval required) |",
+        ]
     else:
-        api_connection = "Not connected"
+        current_phase = "Phase 2 — API-disconnected operations"
+        phase_rows = [
+            f"| API Connection | Not connected |",
+        ]
 
     lines = [
         _STATUS_START,
@@ -126,7 +155,7 @@ def _build_status_block() -> str:
         "| Field | Value |",
         "|---|---|",
         f"| Current Phase | {current_phase} |",
-        f"| API Connection | {api_connection} |",
+        *phase_rows,
         f"| live_model_enabled | {_bool_str(live_model_enabled)} |",
         f"| API Mode | {api_mode} |",
         f"| Model Provider | {model_provider} |",

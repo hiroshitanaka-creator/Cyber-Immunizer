@@ -22,8 +22,8 @@ AI_DOC_META_END
 # Cyber-Immunizer API Activation Checklist
 
 > **⚠️ 2026-06-03 更新: Phase 3 activation PR #58–#62 が main に merge 済み。**  
-> **paid-credit path は準備完了。最初の paid-credit run は未実行（次のステップ）。**  
-> **Gemini API live call は未実行。promote_approved=true はまだ禁止。**  
+> **paid-credit path は準備完了。gemini-3-flash-preview での controlled run は未実行（次のステップ）。**  
+> **過去の paid-credit API call 記録は存在する（gemini-3.1-flash-lite での成功記録あり）。promote_approved=true はまだ禁止。**  
 > 詳細は下記「Phase 3 Paid-Credit 現在地」セクションを参照。
 
 ---
@@ -36,14 +36,12 @@ AI_DOC_META_END
 ## Purpose
 
 - Phase 3 で実 Gemini API 接続を開始する前に、Human Owner が確認すべき条件を固定する
-- Phase 2.5 closeout 文書はマージ済み。Phase 3 は開始していない
-- 現在の作業は Phase 3 Go/No-Go 準備。Gemini API はリポジトリ作業から呼ばれていない
-- live_model_enabled は false のまま維持する（trueにしない）
-- Gemini API call は行わない
+- このチェックリストは Phase 3 活性化を承認しない
 - GitHub Secrets の状態はリポジトリファイルによって主張されない。Human Owner が帯域外で GEMINI_API_KEY 設定を検証する
 - Human Owner は GEMINI_API_KEY が GitHub Secrets に設定済みであると報告しているが、シークレット値はリポジトリファイル・PR・Issue・ログ・チャットに記録してはならない
-- Human Owner の明示的判断なしに Phase 3 へ進まない
-- このチェックリストは Phase 3 活性化を承認しない
+- Human Owner の明示的判断なしに Phase 3 以降の paid-credit run を追加実行・promote しない
+
+> **Historical note (Phase 2.5 closeout 時点):** Phase 2.5 closeout 文書はマージ済み。Phase 3 は開始していない（当時）。現在の作業は Phase 3 Go/No-Go 準備。Gemini API はリポジトリ作業から呼ばれていない（当時）。live_model_enabled は false のまま維持する（当時の制約。現在は Phase 3 activation により true）。Gemini API call は行わない（当時）。
 
 ---
 
@@ -75,10 +73,12 @@ are gated by a mode-matching `if:` condition.
 
 ## Current phase status
 
+> **⚠️ Historical / Superseded:** このセクションは Phase 2.5 closeout 完了時点の状態を記録しています。Phase 3 activation PR #58–#62 は main に merge 済みです。現在の状態は「Phase 3 Paid-Credit 現在地」セクションを参照してください。
+
 | Field | Value |
 |---|---|
-| Current phase | Phase 3 Go/No-Go preparation (Phase 2.5 closeout merged) |
-| API connection | Not connected |
+| Current phase | Phase 3 Go/No-Go preparation (Phase 2.5 closeout merged) — **Historical** |
+| API connection | Not connected — **Historical** |
 | GEMINI_API_KEY | GitHub Secrets state not asserted by repository files. Human Owner verifies configuration out-of-band. Human Owner reports GEMINI_API_KEY is configured; secret value must never appear in repository files, PRs, issues, logs, or chat. |
 | GEMINI_API_KEY registration | Not performed by repository files; Human Owner-managed and verified out-of-band |
 | live_model_enabled | false |
@@ -256,7 +256,7 @@ Phase 3 Go/No-Go 準備中は以下を実施しません。これらは Phase 3 
 ## Phase 3 Paid-Credit 現在地（PR #60–#62 反映）
 
 > **このセクションは Phase 3 activation PR merge 後の正確な現在地を記録する。**  
-> Gemini API live call は未実行。paid-credit path の準備は完了。
+> 過去の paid-credit API call 記録は存在する（`data/api_usage_ledger.json` 参照）。gemini-3-flash-preview での controlled paid-credit run は未実行。paid-credit path の準備は完了。
 
 ### Phase 3 Activation PR サマリー
 
@@ -276,8 +276,8 @@ Phase 3 Go/No-Go 準備中は以下を実施しません。これらは Phase 3 
 | `live_model_enabled` | `true` |
 | Primary model | `gemini-3-flash-preview` |
 | Fallback model | `gemini-3.1-flash-lite` |
-| Gemini API first live call | **未実行** — 次のステップ |
-| paid-credit run | **未実行** — Project Owner が 1 回だけ手動実行 |
+| 過去の paid-credit API call 記録 | 存在する（gemini-3.1-flash-lite 成功 × 1 など — `data/api_usage_ledger.json` 参照） |
+| Gemini 3 Flash Preview controlled run | **未実行** — gemini-3-flash-preview 構成での初回確認 run が次ステップ |
 | `promote_approved` | `false` — 最初の run 結果確認前は禁止 |
 | Apply / Evaluate / Promote 自動昇格 | **禁止** — run 結果確認後に判断 |
 

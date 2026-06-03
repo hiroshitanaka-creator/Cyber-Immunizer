@@ -29,8 +29,8 @@ AI_DOC_META_END
 ## ⚠️ 現在の状態: Phase 3 activation 完了 / 初回 paid-credit run 待機中
 
 > **Phase 3 activation PR (#58–#62) は main に merge 済み。**  
-> **paid-credit path は準備完了。Gemini API 初回 live call は未実行。**  
-> **次のステップ: Project Owner が paid-credit run を 1 回だけ手動実行する。**
+> **paid-credit path は準備完了。過去の paid-credit API call 記録は存在する（gemini-3.1-flash-lite 成功記録あり — `data/api_usage_ledger.json` 参照）。**  
+> **gemini-3-flash-preview での controlled paid-credit run は未実行。次のステップ: Project Owner が 1 回だけ手動実行する。**
 
 | 項目 | 状態 |
 |---|---|
@@ -38,8 +38,8 @@ AI_DOC_META_END
 | `live_model_enabled` | `true` |
 | Primary model | `gemini-3-flash-preview` |
 | Fallback model | `gemini-3.1-flash-lite` |
-| Gemini API 初回 live call | **未実行** — 次のステップ |
-| paid-credit run | **未実行** — 1 回だけ手動実行 |
+| 過去の paid-credit API call 記録 | 存在する（gemini-3.1-flash-lite 成功 × 1 など） |
+| Gemini 3 Flash Preview controlled run | **未実行** — gemini-3-flash-preview 構成での確認 run が次ステップ |
 | `promote_approved` | `false` — 初回 run 結果確認前は禁止 |
 
 ### 現在の制約

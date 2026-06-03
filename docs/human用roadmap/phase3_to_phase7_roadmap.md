@@ -107,8 +107,9 @@ Current state as of PR #53 (merged):
 |---|---|
 | Phase 2.5 hardening | Complete through PR #53 |
 | Phase 3 activation PRs | ✅ Complete (#58–#62 merged) |
-| Phase 3 first paid-credit run | **Not yet executed** — next step |
-| Gemini API | live_model_enabled=true; first live call not yet made |
+| Past paid-credit API call records | Exist (see `data/api_usage_ledger.json`) |
+| Gemini 3 Flash Preview controlled run | **Not yet executed** — gemini-3-flash-preview 構成での確認 run が次ステップ |
+| Gemini API | live_model_enabled=true; past API calls recorded; gemini-3-flash-preview run pending |
 | live_model_enabled | true (PR #58) |
 | Primary model | gemini-3-flash-preview (PR #62) |
 | Fallback model | gemini-3.1-flash-lite (PR #62) |

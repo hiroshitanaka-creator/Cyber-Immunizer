@@ -503,15 +503,26 @@ class TestReadmeLinksAndStatus:
                 f"README.md must NOT contain {phrase!r}"
             )
 
-    def test_readme_live_model_enabled_false_in_status_block(self) -> None:
-        """README.md status block must NOT show live_model_enabled=true."""
+    def test_readme_live_model_enabled_matches_phase(self) -> None:
+        """README.md status block live_model_enabled must match current phase.
+
+        Phase 2 (live_model_enabled=false): true must NOT appear.
+        Phase 3 (activation complete, PR #58-#62, live_model_enabled=true): true is correct.
+        """
         status_start = self.content.find("CYBER_IMMUNIZER_STATUS_START")
         status_end = self.content.find("CYBER_IMMUNIZER_STATUS_END")
         if status_start != -1 and status_end != -1:
             status_block = self.content[status_start:status_end]
-            assert "| live_model_enabled | true |" not in status_block, (
-                "README.md status block must NOT show live_model_enabled = true"
-            )
+            if "Phase 3" in status_block:
+                # Phase 3: live_model_enabled=true is correct (PR #58)
+                assert "| live_model_enabled | true |" in status_block, (
+                    "Phase 3 status block must show live_model_enabled = true (PR #58)"
+                )
+            else:
+                # Phase 2: live_model_enabled=true must not appear
+                assert "| live_model_enabled | true |" not in status_block, (
+                    "Phase 2 status block must NOT show live_model_enabled = true"
+                )
 
 
 class TestPhase2PlanLinksAndStatus:

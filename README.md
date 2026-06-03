@@ -787,8 +787,8 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 ## Phase 3: Paid-Credit API 実行待機中
 
 > **⚠️ Phase 3 activation PR (#58–#62) は main に merge 済み。**  
-> **paid-credit path は準備完了。Gemini API 初回 live call は未実行。**  
-> **次のステップ: Project Owner が paid-credit run を 1 回だけ手動実行する。**  
+> **paid-credit path は準備完了。過去の paid-credit API call 記録は存在する（`data/api_usage_ledger.json` 参照）。**  
+> **gemini-3-flash-preview での controlled paid-credit run は未実行。次のステップ: Project Owner が 1 回だけ手動実行する。**  
 > **promote_approved=true はまだ禁止。Apply / Evaluate / Promote の自動昇格はまだ許可しない。**
 
 ### PR #60–#62 反映内容
@@ -860,15 +860,15 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 
 | Field | Value |
 |---|---|
-| Current Phase | Phase 3 — paid-credit path ready, first run pending |
-| Phase 3 Activation | Complete (PR #58–#62 merged into main) |
-| Phase 3 First Paid-Credit Run | **Not yet executed** — next step: 1 run by Project Owner |
-| live_model_enabled | true (PR #58) |
-| Gemini Primary Model | `gemini-3-flash-preview` (PR #62) |
-| Gemini Fallback Model | `gemini-3.1-flash-lite` (PR #62) |
+| Current Phase | Phase 3 — paid-credit path ready, Gemini 3 Flash Preview run pending |
+| Phase 3 Activation | Complete (PR #58-#62) |
+| Phase 3 First Paid-Credit Run | Not yet executed |
+| Gemini Primary Model | gemini-3-flash-preview |
+| Gemini Fallback Model | gemini-3.1-flash-lite |
+| promote_approved | false (workflow gate — Human Owner approval required) |
+| live_model_enabled | true |
 | API Mode | gemini_paid_credit |
 | Model Provider | gemini |
-| promote_approved | false — auto-promote prohibited until run result reviewed |
 | Max Model Requests / Run | 1 |
 | Max Commits / Run | 1 |
 | Monthly API Budget | 10.0 USD |
@@ -880,17 +880,17 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | CI Status | Manual check required / see Actions |
 | Noop Path | Verified |
 | Offline Sample Path | Verified |
-| Paid-Credit Preflight | Verified (run #26733824493) |
-| Gemini API First Live Call | Not yet made — pending first paid-credit run |
+| Paid-Credit Preflight | Fail-closed when GEMINI_API_KEY missing |
+| Phase 3 Gate | Human Owner explicit decision required |
 | Generation | 2 |
 | Best Score | 729.34 |
 | Detector Hash | `69aebceeaebf6f80…` |
-| Last Updated | 2026-06-03 |
+| Last Updated | 2026-05-26T07:28:45.915764Z |
 | Total Test Cases | N/A |
 | TP / FP / TN / FN | N/A / N/A / N/A / N/A |
 | Fitness Report | Not available — run baseline fitness to populate TP/FP/TN/FN |
 | Adoption Gate | ✅ Passed (generation 2) |
 | Active Threat IDs | `THREAT-2024-001` `THREAT-2024-002` `THREAT-2024-003` `THREAT-2024-004` `THREAT-2024-005` |
-| Status Block Updated | 2026-06-03 UTC |
+| Status Block Updated | 2026-06-03 23:49 UTC |
 
 <!-- CYBER_IMMUNIZER_STATUS_END -->

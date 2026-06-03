@@ -27,7 +27,7 @@ AI_DOC_META_END
 # Phase 3 Go/No-Go Readiness Audit
 
 > **⚠️ 2026-06-03 更新: Phase 3 activation PR #58–#62 が main に merge 済み。**  
-> **paid-credit path 準備完了。初回 paid-credit run 未実行。**  
+> **paid-credit path 準備完了。過去の paid-credit API call 記録は存在する（`data/api_usage_ledger.json` 参照）。gemini-3-flash-preview での controlled run は未実行。**  
 > **詳細は下記「Phase 3 Activation Record」セクションを参照。**
 
 ---
@@ -82,7 +82,7 @@ This document is a Go/No-Go readiness checklist that must be reviewed before any
 ## 2a. Phase 3 Activation Record（PR #58–#62）
 
 > **Phase 3 activation PR は main に merge 済み。**  
-> **paid-credit path 準備完了。初回 paid-credit run 未実行。**
+> **paid-credit path 準備完了。過去の paid-credit API call 記録は存在する（`data/api_usage_ledger.json` 参照）。gemini-3-flash-preview での controlled run は未実行。**
 
 | Field | Value |
 |---|---|
@@ -91,8 +91,8 @@ This document is a Go/No-Go readiness checklist that must be reviewed before any
 | `live_model_enabled` | `true` (PR #58) |
 | Primary model | `gemini-3-flash-preview` (PR #62) |
 | Fallback model | `gemini-3.1-flash-lite` (PR #62) |
-| Gemini API first live call | **Not yet executed** — next step |
-| paid-credit run | **Not yet executed** — Project Owner triggers 1 run manually |
+| Past paid-credit API call records | Exist (see `data/api_usage_ledger.json` — gemini-3.1-flash-lite success × 1 etc.) |
+| Gemini 3 Flash Preview controlled run | **Not yet executed** — gemini-3-flash-preview 構成での確認 run が次ステップ |
 | `promote_approved` | `false` — prohibited until first run result reviewed |
 | Apply / Evaluate / Promote 自動昇格 | **Prohibited** — pending first run result |
 
