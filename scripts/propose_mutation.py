@@ -128,6 +128,13 @@ _MUTATION_START_MARKER = "# === MUTATION_START ==="
 _MUTATION_END_MARKER = "# === MUTATION_END ==="
 
 # ---------------------------------------------------------------------------
+# DetectionResult canonical keyword-argument names (check 10)
+# ---------------------------------------------------------------------------
+_REQUIRED_DR_KWARGS: frozenset[str] = frozenset(
+    {"blocked", "reason", "confidence", "matched_signals"}
+)
+
+# ---------------------------------------------------------------------------
 # Gemini structured-output schema (subset that Gemini accepts).
 # Additional constraints (maxLength, maxItems) are validated post-response.
 # ---------------------------------------------------------------------------
@@ -239,8 +246,15 @@ STRICT RULES — YOU MUST FOLLOW ALL OF THEM:
 9. Do NOT use eval, exec, compile, reflection, dunder access.
    No eval(), exec(), compile(), getattr(), setattr(), dir(), globals(),
    locals(), __class__, __dict__, __globals__, or any dunder attribute.
-10. Preserve DetectionResult return. The function must return
-    DetectionResult(blocked, reason, confidence, matched_signals) exactly.
+10. Preserve DetectionResult return. Every return must use exactly:
+    return DetectionResult(
+        blocked=<bool>,
+        reason=<str>,
+        confidence=<float>,
+        matched_signals=<tuple>,
+    )
+    Keyword-only, all four names required, no extra names, no positional args,
+    no **kwargs expansion.
 11. Modify only logic inside inspect_request. Do not change the function
     signature, do not add new top-level definitions.
     replacement_code is inserted as-is between # === MUTATION_START === and
@@ -304,6 +318,11 @@ FORBIDDEN:
     return True / return False
     return make_result()
     return core.types.DetectionResult(...)  (qualified name — use bare DetectionResult)
+    return DetectionResult(True, "reason", 0.5, ())  (positional args — rejected)
+    return DetectionResult(blocked=True, reason="x")  (missing keywords — rejected)
+    return DetectionResult(blocked=True, reason="x", confidence=0.5,
+        matched_signals=(), extra=1)  (extra keyword — rejected)
+    return DetectionResult(**kwargs)  (**kwargs expansion — rejected)
 - Do NOT start any line at column 0 (no top-level / unindented code).
 - Do NOT use non-multiple-of-4 indentation (e.g. 6 spaces is rejected).
 - Do NOT include def inspect_request(...) or any def / async def statement.
@@ -436,6 +455,11 @@ def _validate_replacement_code(code: str) -> str:
        block (if/for/while) containing only nested returns falls through to implicit
        None when no branch is taken. The top-level fallback return DetectionResult(...)
        at the end of the body prevents inspect_request() from returning None.
+    10. DetectionResult argument shape: every DetectionResult(...) call must use
+        keyword-only arguments with exactly the four canonical keyword names:
+        blocked, reason, confidence, matched_signals.
+        Rejected: positional arguments, **kwargs expansion, missing keyword
+        names, extra keyword names, wrong keyword names.
 
     Returns empty string if the code passes all checks.
     """
@@ -604,6 +628,45 @@ def _validate_replacement_code(code: str) -> str:
                         "return DetectionResult(...) fallback; "
                         "nested-only return paths can fall through to implicit None"
                     )
+                # 10. DetectionResult argument shape.
+                # Check 8 proved every return calls DetectionResult(...).
+                # Check 10 requires keyword-only arguments and exactly the four
+                # canonical keyword names: blocked, reason, confidence, matched_signals.
+                for stmt in replacement_nodes:
+                    for n in ast.walk(stmt):
+                        if isinstance(n, ast.Return):
+                            call = n.value  # ast.Call confirmed by check 8
+                            if call.args:
+                                return (
+                                    "replacement_code DetectionResult argument "
+                                    "shape violation: DetectionResult(...) must "
+                                    "use keyword-only arguments; positional "
+                                    "arguments are not allowed"
+                                )
+                            for kw in call.keywords:
+                                if kw.arg is None:
+                                    return (
+                                        "replacement_code DetectionResult argument "
+                                        "shape violation: DetectionResult(...) must "
+                                        "not use **kwargs expansion"
+                                    )
+                            provided = {kw.arg for kw in call.keywords}
+                            missing_kw = _REQUIRED_DR_KWARGS - provided
+                            extra_kw = provided - _REQUIRED_DR_KWARGS
+                            if missing_kw:
+                                return (
+                                    "replacement_code DetectionResult argument "
+                                    "shape violation: DetectionResult(...) is "
+                                    "missing required keyword argument(s): "
+                                    f"{sorted(missing_kw)}"
+                                )
+                            if extra_kw:
+                                return (
+                                    "replacement_code DetectionResult argument "
+                                    "shape violation: DetectionResult(...) has "
+                                    "extra keyword argument(s): "
+                                    f"{sorted(extra_kw)}"
+                                )
                 break
     return ""
 

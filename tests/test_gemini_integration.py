@@ -998,6 +998,198 @@ class TestFallthroughReturnGuard:
 
 
 # ---------------------------------------------------------------------------
+# 9d. PR #67 — DetectionResult argument shape (check 10)
+# ---------------------------------------------------------------------------
+
+
+class TestDetectionResultArgumentShape:
+    """Tests for check 10: every DetectionResult(...) call must use keyword-only
+    arguments with exactly the four canonical names.
+
+    CR-67-01: check 8 proves the return is DetectionResult(...) but does not
+    validate the constructor argument shape. Check 10 adds that validation.
+    """
+
+    _VALID_CODE = (
+        "    return DetectionResult(\n"
+        "        blocked=False,\n"
+        "        reason='no match',\n"
+        "        confidence=0.0,\n"
+        "        matched_signals=(),\n"
+        "    )\n"
+    )
+
+    def test_accepts_valid_keyword_only_args(self) -> None:
+        """Valid keyword-only DetectionResult with all four required keywords is accepted."""
+        err = pm._validate_replacement_code(self._VALID_CODE)
+        assert err == "", f"Valid keyword-only args must be accepted, got: {err!r}"
+
+    def test_rejects_positional_args(self) -> None:
+        """Positional arguments are rejected by check 10."""
+        code = "    return DetectionResult(True, 'blocked by positional', 0.9, ())\n"
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Positional args must be rejected"
+        assert "argument shape" in err.lower() or "positional" in err.lower(), (
+            f"Error must mention argument shape or positional, got: {err!r}"
+        )
+
+    def test_rejects_missing_keyword(self) -> None:
+        """Missing keyword argument (matched_signals absent) is rejected by check 10."""
+        code = (
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            # matched_signals intentionally omitted
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Missing keyword must be rejected"
+        assert "argument shape" in err.lower() or "missing" in err.lower(), (
+            f"Error must mention argument shape or missing, got: {err!r}"
+        )
+
+    def test_rejects_extra_keyword(self) -> None:
+        """Extra keyword argument is rejected by check 10."""
+        code = (
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "        extra_field='unexpected',\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Extra keyword must be rejected"
+        assert "argument shape" in err.lower() or "extra" in err.lower(), (
+            f"Error must mention argument shape or extra, got: {err!r}"
+        )
+
+    def test_rejects_wrong_keyword_name(self) -> None:
+        """Wrong keyword name (is_blocked instead of blocked) is rejected by check 10."""
+        code = (
+            "    return DetectionResult(\n"
+            "        is_blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Wrong keyword name must be rejected"
+        assert (
+            "argument shape" in err.lower()
+            or "missing" in err.lower()
+            or "extra" in err.lower()
+        ), f"Error must mention argument shape, missing, or extra, got: {err!r}"
+
+    def test_rejects_kwargs_expansion(self) -> None:
+        """**kwargs expansion is rejected by check 10."""
+        code = (
+            "    result_kwargs = {}\n"
+            "    result_kwargs['blocked'] = False\n"
+            "    result_kwargs['reason'] = 'no match'\n"
+            "    result_kwargs['confidence'] = 0.0\n"
+            "    result_kwargs['matched_signals'] = ()\n"
+            "    return DetectionResult(**result_kwargs)\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "**kwargs expansion must be rejected"
+        assert "argument shape" in err.lower() or "kwargs" in err.lower(), (
+            f"Error must mention argument shape or kwargs, got: {err!r}"
+        )
+
+    def test_rejects_mixed_positional_and_keyword(self) -> None:
+        """Mixed positional and keyword arguments are rejected by check 10."""
+        code = (
+            "    return DetectionResult(\n"
+            "        True,\n"
+            "        reason='match',\n"
+            "        confidence=0.9,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Mixed positional+keyword must be rejected"
+        assert "argument shape" in err.lower() or "positional" in err.lower(), (
+            f"Error must mention argument shape or positional, got: {err!r}"
+        )
+
+    def test_check_10_validates_both_nested_and_fallback_returns(self) -> None:
+        """Check 10 validates both nested and top-level fallback returns.
+
+        A valid nested return paired with an invalid (positional) fallback
+        must be rejected. Both returns must use valid keyword-only shape.
+        """
+        code_invalid_fallback = (
+            "    if 'sqli_indicator' in request.path:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='sqli',\n"
+            "            confidence=0.8,\n"
+            "            matched_signals=('sqli_indicator',),\n"
+            "        )\n"
+            "    return DetectionResult(False, 'no match', 0.0, ())\n"
+        )
+        err = pm._validate_replacement_code(code_invalid_fallback)
+        assert err != "", "Positional fallback return must be rejected by check 10"
+        assert "argument shape" in err.lower() or "positional" in err.lower(), (
+            f"Error must mention argument shape or positional, got: {err!r}"
+        )
+
+        code_both_valid = (
+            "    if 'sqli_indicator' in request.path:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='sqli',\n"
+            "            confidence=0.8,\n"
+            "            matched_signals=('sqli_indicator',),\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code_both_valid)
+        assert err == "", f"Both valid returns must be accepted, got: {err!r}"
+
+    def test_check_10_rejects_extra_in_nested_return(self) -> None:
+        """Check 10 rejects extra keyword in a nested return, not just top-level."""
+        code = (
+            "    if 'sqli_indicator' in request.path:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='sqli',\n"
+            "            confidence=0.8,\n"
+            "            matched_signals=('sqli_indicator',),\n"
+            "            severity='high',\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Extra keyword in nested return must be rejected"
+        assert "argument shape" in err.lower() or "extra" in err.lower(), (
+            f"Error must mention argument shape or extra, got: {err!r}"
+        )
+
+    def test_sample_mutation_passes_check_10(self) -> None:
+        """The built-in sample mutation uses keyword-only args and passes check 10."""
+        code = pm._SAMPLE_MUTATION["replacement_code"]
+        err = pm._validate_replacement_code(code)
+        assert err == "", (
+            f"Sample mutation must pass all checks including check 10, got: {err!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # 10. offline-sample still works
 # ---------------------------------------------------------------------------
 

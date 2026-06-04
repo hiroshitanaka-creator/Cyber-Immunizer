@@ -18,6 +18,7 @@ related:
   - docs/audit_gate/PR_AUDIT_PROTOCOL.md
 last_reviewed: 2026-06-04
 pr_66_fallthrough_guard: check 9 added — last top-level node must be ast.Return
+pr_67_dr_arg_shape: check 10 added — DetectionResult keyword-only, exactly blocked/reason/confidence/matched_signals
 AI_DOC_META_END
 -->
 # Cyber-Immunizer API Activation Runbook
@@ -166,7 +167,7 @@ Preflight run #26733824493 が成功しました:
 | **エラーメッセージ** | `replacement_code fallthrough guard violation: the last top-level statement must be a direct return DetectionResult(...) fallback; nested-only return paths can fall through to implicit None` |
 | **Protocol lesson** | return 文の存在確認（check 7）は fallthrough 安全性を保証しない。「safe fallback return path exists」の保証には別途トップレベル fallback return チェック（check 9）が必要 |
 
-#### _validate_replacement_code チェック順（PR #65 / PR #66）
+#### _validate_replacement_code チェック順（PR #65 / PR #66 / PR #67）
 
 | # | チェック | 失敗時エラーキーワード |
 |---|---|---|
@@ -179,6 +180,21 @@ Preflight run #26733824493 が成功しました:
 | 7 | semantic body (空・pass のみ・return なし を拒否) | `body is empty` / `pass-only` / `must contain at least one return` |
 | 8 | return shape (全 return が `DetectionResult(...)` 形式) | `return contract violation` |
 | 9 | fallthrough guard (最後のトップレベルノードが `ast.Return`) | `fallthrough guard violation` |
+| 10 | DetectionResult 引数形式 (keyword-only、正確に 4 フィールド) | `argument shape violation` |
+
+#### DetectionResult 引数形式チェック（PR #67）
+
+**PR #67 で追加された check 10**: `DetectionResult(...)` のすべての呼び出しは keyword-only 引数で、正確に 4 フィールド `blocked`, `reason`, `confidence`, `matched_signals` を指定しなければならない。
+
+| 項目 | 内容 |
+|---|---|
+| **問題** | check 8 は `return DetectionResult(...)` の形式を検証するが、コンストラクタの引数形式は検証しない。`DetectionResult(True, "x", 0.5, ())` のような positional 引数や、`DetectionResult(blocked=True, reason="x")` のような不完全な keyword 引数が通過してしまう |
+| **check 10 の要件** | 全 `return` 文の `DetectionResult(...)` 呼び出しについて: ① positional 引数なし（`call.args` が空）② `**kwargs` 展開なし（`keyword.arg is None` の keyword なし）③ keyword 名が正確に `{blocked, reason, confidence, matched_signals}` の 4 つ |
+| **拒否されるパターン** | positional 引数 / **kwargs 展開 / keyword 名不足 / keyword 名過剰 / keyword 名誤り / mixed positional+keyword |
+| **受理されるパターン** | `DetectionResult(blocked=..., reason=..., confidence=..., matched_signals=...)` のみ |
+| **エラーメッセージ prefix** | `replacement_code DetectionResult argument shape violation:` |
+| **適用範囲** | nested return（if/for/while 内）とトップレベル fallback return の両方に適用される |
+| **型・値レンジの検証** | check 10 は引数の存在と名前のみ検証する。型（`blocked` が bool か）や値レンジ（`confidence` が 0.0-1.0 か）は PR #68+ スコープ（X-007） |
 
 #### paid-credit run で replacement_code 検証が失敗した場合
 
