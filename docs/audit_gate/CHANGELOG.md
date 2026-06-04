@@ -29,6 +29,29 @@ Lessons that drove protocol additions:
   complete until README, docs, changelog/history, generator scripts, and data
   history / ledger update needs are explicitly checked or ruled out with a
   reason.
+- **Prompt wording must distinguish top-level from nested returns**: The
+  `_LLM_SYSTEM_PROMPT` contained the line "return DetectionResult(...) must be
+  at exactly 4-space indentation" without any exception for nested returns. A
+  `return DetectionResult(...)` inside an `if`/`for`/`while` block is
+  necessarily at 8/12/16 spaces — not 4 — and must not be rejected. Prompt
+  wording that implies all returns must be at exactly 4 spaces is logically
+  wrong and contradicts the GOOD example already in the same prompt. Protocol
+  now requires prompt indentation rules to explicitly distinguish top-level
+  returns (4 spaces) from nested returns (block depth 8/12/16 spaces).
+- **Runbook wrapper description must match the actual validator implementation**:
+  The Syntax Validation Guard in `docs/API_ACTIVATION_RUNBOOK.md` described the
+  AST validation wrapper as `def _candidate_body():\n...`, omitting both the
+  `request` parameter and the `_mutation_anchor = None` anchor statement. The
+  actual implementation is `def _candidate_body(request):\n    _mutation_anchor =
+  None\n    # === MUTATION_START ===`. Simplified wrapper descriptions weaken
+  evidence quality and create audit ambiguity about which body nodes constitute
+  the replacement region. Protocol now requires that runbook wrapper descriptions
+  match the actual implementation signature and include the anchor statement.
+- **No-patch artifact boundary must be tested at the CLI level**: Unit tests
+  calling `_validate_replacement_code` directly prove the validator rejects bad
+  code, but do not prove that `mutation_patch.json` is not written to disk. PR
+  completion evidence must include a test that asserts `not patch_path.exists()`
+  at the CLI/artifact boundary, not just at the function-return level.
 
 ---
 

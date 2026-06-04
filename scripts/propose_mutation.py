@@ -276,6 +276,10 @@ REQUIRED:
 - Leading tabs are forbidden; use spaces only.
 - Comment lines must also start with at least 4 spaces.
 - return DetectionResult(...) must be at exactly 4-space indentation.
+  Exception: a return DetectionResult(...) nested inside an if/for/while
+  block follows block depth — 8 spaces for one level of nesting, 12 for
+  two levels, etc. Top-level return DetectionResult(...) at the function
+  body level must be at exactly 4 spaces.
 - replacement_code must contain executable detector logic.
 - replacement_code must contain at least one return DetectionResult(...).
 - Empty lines are allowed.

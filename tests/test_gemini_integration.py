@@ -2163,3 +2163,33 @@ class TestReplacementCodeIndentationContract:
             or "def" in err.lower()
             or "body only" in err.lower()
         ), f"Error must mention function/def/body-only violation, got: {err!r}"
+
+    # -----------------------------------------------------------------------
+    # CR-65-MIN-01: Prompt wording must distinguish top-level from nested returns
+    # -----------------------------------------------------------------------
+
+    def test_system_prompt_indentation_wording_allows_nested_returns(self) -> None:
+        """_LLM_SYSTEM_PROMPT must not claim all return DetectionResult must be at 4 spaces.
+
+        CR-65-MIN-01: A return DetectionResult(...) nested inside an if/for/while
+        block must be at 8/12/16 spaces (block depth) — not at 4. The prompt must
+        explicitly describe this exception so the model generates correct code.
+        """
+        prompt = pm._LLM_SYSTEM_PROMPT
+        prompt_lower = prompt.lower()
+        # After the CR-65-MIN-01 fix, the prompt must mention that nested returns
+        # inside if/for/while blocks follow block depth (not 4 spaces).
+        assert (
+            "nested" in prompt_lower
+            or "exception" in prompt_lower
+            or "block depth" in prompt_lower
+        ), (
+            "_LLM_SYSTEM_PROMPT must acknowledge that return DetectionResult(...) "
+            "nested inside if/for/while blocks follows block depth (8/12/16 spaces), "
+            "not always exactly 4 spaces. CR-65-MIN-01 wording fix required."
+        )
+        # The wording must also still require that top-level returns start at 4 spaces.
+        assert "4 space" in prompt_lower or "exactly 4" in prompt_lower, (
+            "_LLM_SYSTEM_PROMPT must still require that top-level return "
+            "DetectionResult(...) starts at exactly 4 spaces."
+        )

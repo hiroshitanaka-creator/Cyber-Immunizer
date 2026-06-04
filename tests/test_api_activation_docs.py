@@ -127,6 +127,48 @@ class TestApiActivationRunbookContent:
             "Runbook must mention not to overwrite a malformed ledger without inspection"
         )
 
+    def test_runbook_syntax_validation_wrapper_has_request_param(self) -> None:
+        """Runbook must describe the validation wrapper with the request parameter.
+
+        CR-65-MIN-02: The actual _validate_replacement_code wraps replacement_code in
+        def _candidate_body(request): — the runbook must use this form, not the
+        simplified def _candidate_body(): (which omits the request parameter).
+        """
+        assert "_candidate_body(request)" in self.content, (
+            "docs/API_ACTIVATION_RUNBOOK.md Syntax Validation Guard must describe the "
+            "AST validation wrapper as 'def _candidate_body(request):' (with request "
+            "parameter). The simplified 'def _candidate_body():' form does not match "
+            "the actual _validate_replacement_code implementation."
+        )
+
+    def test_runbook_syntax_validation_wrapper_has_mutation_anchor(self) -> None:
+        """Runbook must describe _mutation_anchor = None in the validation wrapper.
+
+        CR-65-MIN-02: The actual wrapper contains '_mutation_anchor = None' as the
+        AST anchor statement (body[0]). The runbook must reflect this so future
+        auditors understand the semantic body validation (body[1:] is replacement
+        region).
+        """
+        assert "_mutation_anchor" in self.content, (
+            "docs/API_ACTIVATION_RUNBOOK.md Syntax Validation Guard must describe "
+            "'_mutation_anchor = None' in the validation wrapper. This is the AST "
+            "anchor statement used by semantic body validation (body[0] = anchor; "
+            "body[1:] = replacement region)."
+        )
+
+    def test_runbook_indentation_contract_distinguishes_nested_returns(self) -> None:
+        """Runbook indentation contract must distinguish top-level from nested returns.
+
+        CR-65-MIN-01/02: The runbook must clarify that nested return DetectionResult(...)
+        inside if/for/while blocks is valid at 8/12/16 spaces, not exclusively at 4.
+        """
+        content_lower = self.content.lower()
+        assert "nested" in content_lower, (
+            "docs/API_ACTIVATION_RUNBOOK.md indentation contract must describe nested "
+            "return DetectionResult(...) (inside if/for/while blocks) following block "
+            "depth (8/12/16 spaces), not just state all returns must be at 4 spaces."
+        )
+
 
 # ---------------------------------------------------------------------------
 # README link tests
