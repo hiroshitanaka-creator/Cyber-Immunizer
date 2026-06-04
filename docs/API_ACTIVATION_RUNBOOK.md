@@ -124,12 +124,40 @@ Preflight run #26733824493 が成功しました:
 - `type(exc).__name__` をエラーメッセージに含め、SDK validation 例外（`ValueError` 等）も fail-closed
 - ThinkingConfig 構築失敗 → 即時 `(None, None, None, None, error_str)` 返却
 
-### Syntax Validation Guard（PR #61）
+### Syntax Validation Guard（PR #61 / PR #65）
 
 - `replacement_code` は Propose 段階で `ast.parse()` のみで検証（実行しない）
 - `def _candidate_body():\n...` にラップして parse
 - `SyntaxError` → patch 返却拒否（`mutation_patch.json` に書き込まない）
 - 対象: 不正 Python 構文、無インデント、lone surrogate / Unicode 系 parser failure
+
+#### replacement_code インデント契約（PR #65）
+
+| 項目 | 内容 |
+|---|---|
+| **契約** | `replacement_code` は `inspect_request()` 関数内部に **そのまま挿入** される 4 スペースインデント済み function body fragment |
+| **必須** | すべての実行行・コメント行は 4 スペース以上でインデントする。`return DetectionResult(...)` も 4 スペース |
+| **禁止** | `def inspect_request(...)` を含めない / mutation marker を含めない / Markdown code fence (` ``` `) を含めない / トップレベル（列 0）のコードを含めない |
+| **検証失敗分類** | 列 0 のコードがあれば `indentation contract violation` / function definition があれば function definition エラー / code fence があれば markdown code fence エラー |
+
+#### paid-credit run で replacement_code 検証が失敗した場合
+
+> **すぐに paid-credit を再実行しない。**
+
+1. Propose ジョブのログを確認し、`validation error` の分類を特定する。
+2. `data/api_usage_ledger.json` を確認する — **API call と ledger 保存は成功している場合がある**（mutation patch 生成が失敗しても）。
+3. 同種エラー（`indentation contract violation` 等）が再発し得る場合は、prompt/validation 契約を修正してから再実行する。
+4. 修正 PR をレビュー・マージしてから次の paid-credit run を実施する。
+
+```
+Gemini 応答は構文検証で失敗する場合がある。
+replacement_code は inspect_request() 関数内部にそのまま挿入される
+4 スペースインデント済み function body でなければならない。
+replacement_code の構文・インデント検証で失敗した場合、すぐに paid-credit を再実行しない。
+まず Propose ログ、ledger 記録、validation error を確認する。
+同種エラーが再発し得る場合は、再実行前に prompt/validation 契約を修正する。
+mutation patch 生成が失敗しても、API call と ledger 保存は成功している場合がある。
+```
 
 ### Model Migration 履歴（PR #60）
 

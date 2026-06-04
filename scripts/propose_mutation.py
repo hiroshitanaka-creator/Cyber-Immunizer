@@ -243,6 +243,12 @@ STRICT RULES — YOU MUST FOLLOW ALL OF THEM:
     DetectionResult(blocked, reason, confidence, matched_signals) exactly.
 11. Modify only logic inside inspect_request. Do not change the function
     signature, do not add new top-level definitions.
+    replacement_code is inserted as-is between # === MUTATION_START === and
+    # === MUTATION_END === inside inspect_request() — it is a function body
+    fragment, NOT a complete function definition.
+    Do NOT include def inspect_request(...) or any def statement.
+    Do NOT include # === MUTATION_START === or # === MUTATION_END === markers.
+    Do NOT wrap code in markdown fences (```python ... ```).
 12. Prefer low false positives. Maximize true positive rate while keeping
     false positive rate at or below 5%.
 13. Use only neutralized symbolic indicators from the local test corpus.
@@ -258,13 +264,51 @@ STRICT RULES — YOU MUST FOLLOW ALL OF THEM:
 15. Do not include raw offensive payloads. Use only the neutralized
     symbolic indicator tokens defined in the test corpus.
 
+REPLACEMENT_CODE FORMAT CONTRACT:
+replacement_code is inserted as-is as the body of inspect_request().
+Every line must be a function-body fragment with correct indentation.
+
+REQUIRED:
+- All execution lines must be indented with 4 spaces (or more for nested
+  blocks, following normal Python indentation rules).
+- Comment lines must also start with at least 4 spaces.
+- return DetectionResult(...) must be indented with 4 spaces.
+- Nested if/for/while blocks use 8 spaces (or 12 for deeper nesting).
+- Empty lines are allowed.
+
+FORBIDDEN:
+- Do NOT start any line at column 0 (no top-level / unindented code).
+- Do NOT include def inspect_request(...) or any def statement.
+- Do NOT include mutation markers (# === MUTATION_START === etc.).
+- Do NOT wrap in markdown fences (```python ... ```).
+
+GOOD example — 4-space-indented function body (this WILL be accepted):
+{
+  "replacement_code": "    surface = request.path.lower() + \" \" + request.body.lower()\\n    matched = []\\n    if \"path_traversal_indicator\" in surface:\\n        matched.append(\"path_traversal_indicator\")\\n    if matched:\\n        return DetectionResult(blocked=True, reason=\"suspicious indicator matched\", confidence=0.7, matched_signals=tuple(matched))\\n    return DetectionResult(blocked=False, reason=\"no suspicious indicator matched\", confidence=0.0, matched_signals=())"
+}
+
+BAD example 1 — unindented body (will be REJECTED with indentation contract violation):
+{
+  "replacement_code": "surface = request.path.lower()\\nreturn DetectionResult(blocked=False, reason=\"no suspicious indicator matched\", confidence=0.0, matched_signals=())"
+}
+
+BAD example 2 — function definition included (will be REJECTED):
+{
+  "replacement_code": "def inspect_request(request):\\n    return DetectionResult(blocked=False, reason=\"no suspicious indicator matched\", confidence=0.0, matched_signals=())"
+}
+
+BAD example 3 — markdown fence included (will be REJECTED):
+{
+  "replacement_code": "```python\\n    return DetectionResult(blocked=False, reason=\"no suspicious indicator matched\", confidence=0.0, matched_signals=())\\n```"
+}
+
 Return a JSON object with these exact fields (no others):
 {
   "mutation_rationale": "short explanation (max 600 chars)",
   "target_threats": ["threat-id-or-category"],
   "expected_improvement": "what metric is expected to improve (max 600 chars)",
   "risk": "brief risk summary (max 600 chars)",
-  "replacement_code": "Python code string for the function body only (no def statement)"
+  "replacement_code": "4-space-indented Python function body fragment for inspect_request() — no def statement, no markers, no markdown fences"
 }
 """
 
@@ -331,32 +375,62 @@ def _preflight_secret_scan(prompt: str) -> str:
 
 
 def _validate_replacement_code(code: str) -> str:
-    """Return an error message if replacement_code contains forbidden tokens.
+    """Return an error message if replacement_code violates safety or format rules.
 
-    Also rejects mutation markers (which would break apply_mutation.py).
-    Also rejects code that is not valid Python syntax (AST parse only — never executed).
-    Returns empty string if the code is clean.
+    Checks (in order):
+    1. Mutation markers forbidden (would break apply_mutation.py).
+    2. Markdown code fences forbidden (```) — Gemini must not wrap in fences.
+    3. Function definition forbidden — replacement_code is a body fragment only.
+    4. Forbidden security tokens (import, eval, exec, os., etc.).
+    5. Indentation contract — every non-empty line must start with whitespace
+       (4-space-indented function body; no top-level column-0 code).
+    6. Python syntax (AST parse only — code is never executed).
+
+    Returns empty string if the code passes all checks.
     """
-    # Reject mutation markers in replacement code
+    # 1. Reject mutation markers in replacement code
     if _MUTATION_START_MARKER in code or _MUTATION_END_MARKER in code:
         return (
             "replacement_code contains mutation marker(s). "
             "Markers are forbidden inside replacement_code."
         )
-    # Reject forbidden code patterns
+    # 2. Reject markdown code fences
+    if "```" in code:
+        return (
+            "replacement_code contains a markdown code fence (```). "
+            "Markdown formatting is forbidden in replacement_code."
+        )
+    # 3. Reject function definitions (replacement_code must be body fragment only)
+    if re.search(r"(?m)^def\s+\w+", code):
+        return (
+            "replacement_code must not include a function definition. "
+            "Provide the function body only — no def statement, "
+            "no inspect_request wrapper."
+        )
+    # 4. Reject forbidden security tokens
     for token in _BLOCKED_CODE_TOKENS:
         if token in code:
             return (
                 f"replacement_code contains forbidden token {token!r}. "
                 "Unsafe replacement_code rejected before writing patch."
             )
-    # Validate Python syntax by splicing replacement_code into the same
+    # 5. Reject any non-empty line starting at column 0 (indentation contract).
+    # replacement_code is inserted inside inspect_request(); every execution
+    # line must be at least 4-space indented.
+    for line in code.splitlines():
+        if line and not line[0].isspace():
+            return (
+                "replacement_code indentation contract violation: "
+                "replacement_code must be a 4-space-indented function body "
+                "for inspect_request()"
+            )
+    # 6. Validate Python syntax by splicing replacement_code into the same
     # indentation context that apply_mutation.py uses: inserted as-is between
     # the mutation markers inside a function body.  The MUTATION_END marker is
     # at column 0 (matching core/detector.py).  Code is never executed —
     # ast.parse() only builds the parse tree.
-    # Unindented code (e.g. bare `return`) triggers IndentationError.
-    # Semicolon-joined compound statements trigger SyntaxError.
+    # IndentationError (subclass of SyntaxError) signals residual indentation
+    # problems not caught by the column-0 pre-check above.
     # Lone surrogates or other ill-formed Unicode may trigger UnicodeError;
     # caught separately so the class name (not the message, which could echo
     # replacement_code content) is returned as the validation error.
@@ -368,6 +442,12 @@ def _validate_replacement_code(code: str) -> str:
     )
     try:
         ast.parse(wrapped)
+    except IndentationError:
+        return (
+            "replacement_code indentation contract violation: "
+            "replacement_code must be a 4-space-indented function body "
+            "for inspect_request()"
+        )
     except SyntaxError as exc:
         return f"replacement_code is not valid Python syntax: {exc}"
     except UnicodeError as exc:

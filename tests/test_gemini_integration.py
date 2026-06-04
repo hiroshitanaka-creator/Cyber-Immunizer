@@ -749,9 +749,11 @@ class TestReplacementCodeSyntaxValidation:
         assert err != "", (
             "Unindented return must be rejected — it would cause IndentationError at Apply step"
         )
-        assert "syntax" in err.lower() or "valid python" in err.lower(), (
-            f"Error must mention syntax/indentation issue, got: {err!r}"
-        )
+        assert (
+            "syntax" in err.lower()
+            or "valid python" in err.lower()
+            or "indentation" in err.lower()
+        ), f"Error must mention syntax/indentation issue, got: {err!r}"
 
     def test_rejects_unindented_multiline_code(self) -> None:
         """Multiple unindented lines are rejected (IndentationError inside function body)."""
@@ -764,9 +766,11 @@ class TestReplacementCodeSyntaxValidation:
         assert err != "", (
             "Unindented multi-line code must be rejected"
         )
-        assert "syntax" in err.lower() or "valid python" in err.lower(), (
-            f"Error must mention syntax/indentation issue, got: {err!r}"
-        )
+        assert (
+            "syntax" in err.lower()
+            or "valid python" in err.lower()
+            or "indentation" in err.lower()
+        ), f"Error must mention syntax/indentation issue, got: {err!r}"
 
     def test_rejects_lone_surrogate(self) -> None:
         """replacement_code containing a lone surrogate is rejected fail-closed.
@@ -1799,3 +1803,110 @@ class TestCallGeminiApiThinkingConfig:
 
         assert err == ""
         assert think is None, f"Expected think=None when thoughts_token_count absent, got {think!r}"
+
+
+# ---------------------------------------------------------------------------
+# 9c. replacement_code indentation contract (PR #65)
+# ---------------------------------------------------------------------------
+
+
+class TestReplacementCodeIndentationContract:
+    """Tests for the 4-space-indented function-body contract added in PR #65.
+
+    replacement_code must be a function-body fragment for inspect_request().
+    Every non-empty line must start with at least one space (4-space indent
+    for top-level body lines, 8+ for nested blocks).
+
+    These tests verify that:
+    - valid 4-space-indented body is accepted,
+    - bare return (column 0) is rejected with indentation contract violation,
+    - unindented assignment + return (column 0) is rejected,
+    - an included function definition is rejected,
+    - a markdown code fence is rejected.
+    """
+
+    def test_accepts_4space_indented_body(self) -> None:
+        """4-space-indented function body passes all checks (test 4.1)."""
+        good_code = (
+            "    surface = request.path.lower()\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason=\"no suspicious indicator matched\",\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(good_code)
+        assert err == "", f"4-space-indented body must pass validation, got: {err!r}"
+
+    def test_rejects_bare_return_indentation_contract_violation(self) -> None:
+        """Bare (unindented) return is rejected with 'indentation contract violation' (test 4.2)."""
+        bad_code = (
+            "return DetectionResult(\n"
+            "    blocked=False,\n"
+            "    reason=\"no suspicious indicator matched\",\n"
+            "    confidence=0.0,\n"
+            "    matched_signals=(),\n"
+            ")\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Bare return must be rejected (indentation contract violation)"
+        assert "indentation contract violation" in err, (
+            f"Error must contain 'indentation contract violation', got: {err!r}"
+        )
+
+    def test_rejects_unindented_assignment_indentation_contract_violation(self) -> None:
+        """Unindented assignment + return is rejected with 'indentation contract violation' (test 4.3)."""
+        bad_code = (
+            "surface = request.path.lower()\n"
+            "return DetectionResult(\n"
+            "    blocked=False,\n"
+            "    reason=\"no suspicious indicator matched\",\n"
+            "    confidence=0.0,\n"
+            "    matched_signals=(),\n"
+            ")\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Unindented code must be rejected (indentation contract violation)"
+        assert "indentation contract violation" in err, (
+            f"Error must contain 'indentation contract violation', got: {err!r}"
+        )
+
+    def test_rejects_function_definition_in_replacement_code(self) -> None:
+        """replacement_code containing a function definition is rejected (test 4.4)."""
+        bad_code = (
+            "def inspect_request(request):\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason=\"no suspicious indicator matched\",\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Function definition in replacement_code must be rejected"
+        assert (
+            "function" in err.lower()
+            or "def" in err.lower()
+            or "body only" in err.lower()
+        ), f"Error must mention function/def/body-only violation, got: {err!r}"
+
+    def test_rejects_markdown_code_fence(self) -> None:
+        """replacement_code wrapped in a markdown code fence is rejected (test 4.5)."""
+        bad_code = (
+            "```python\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason=\"no suspicious indicator matched\",\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+            "```\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Markdown code fence in replacement_code must be rejected"
+        assert (
+            "markdown" in err.lower()
+            or "code fence" in err.lower()
+            or "```" in err
+        ), f"Error must mention markdown/code fence, got: {err!r}"
