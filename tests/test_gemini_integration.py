@@ -1910,3 +1910,35 @@ class TestReplacementCodeIndentationContract:
             or "code fence" in err.lower()
             or "```" in err
         ), f"Error must mention markdown/code fence, got: {err!r}"
+
+    def test_rejects_indented_def_helper(self) -> None:
+        """Indented 'def helper():' inside replacement_code is rejected (P2 regression)."""
+        bad_code = (
+            "    surface = request.path.lower()\n"
+            "    def helper():\n"
+            "        return surface\n"
+            "    return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Indented def helper() must be rejected (body-only contract)"
+        assert (
+            "function" in err.lower()
+            or "def" in err.lower()
+            or "body only" in err.lower()
+        ), f"Error must mention function/def/body-only violation, got: {err!r}"
+
+    def test_rejects_indented_async_def_helper(self) -> None:
+        """Indented 'async def helper():' inside replacement_code is rejected (P2 regression)."""
+        bad_code = (
+            "    surface = request.path.lower()\n"
+            "    async def helper():\n"
+            "        return surface\n"
+            "    return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Indented async def helper() must be rejected (body-only contract)"
+        assert (
+            "function" in err.lower()
+            or "def" in err.lower()
+            or "body only" in err.lower()
+        ), f"Error must mention function/def/body-only violation, got: {err!r}"

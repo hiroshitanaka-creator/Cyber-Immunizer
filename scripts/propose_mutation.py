@@ -400,8 +400,9 @@ def _validate_replacement_code(code: str) -> str:
             "replacement_code contains a markdown code fence (```). "
             "Markdown formatting is forbidden in replacement_code."
         )
-    # 3. Reject function definitions (replacement_code must be body fragment only)
-    if re.search(r"(?m)^def\s+\w+", code):
+    # 3. Reject function definitions at any indentation level
+    # (replacement_code must be a body fragment — no nested helpers, no wrapper)
+    if re.search(r"(?m)^\s*(?:async\s+def|def)\s+\w+\s*\(", code):
         return (
             "replacement_code must not include a function definition. "
             "Provide the function body only — no def statement, "
