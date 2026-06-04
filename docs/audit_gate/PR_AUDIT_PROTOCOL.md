@@ -5,6 +5,19 @@ Read `docs/AUDIT_CHARTER.md` for the governing roles and six audit categories.
 
 ---
 
+## Terminology rule
+
+| Term | Usage |
+|---|---|
+| **Project Owner** | Canonical term for the final decision-maker (hiroshitanaka-creator). Use for: repository direction, final merge decision, paid-credit approval, promote approval, external secret/billing verification. |
+| ~~Human Owner~~ | Forbidden — use `Project Owner` instead. |
+| ~~人間オーナー~~ | Forbidden — use `Project Owner` instead. |
+| ~~人~~ (as final decision-maker) | Forbidden when referring to the final decision-maker — use `Project Owner` instead. |
+
+Do not replace `Project Owner` with vague terms.
+
+---
+
 ## Mandatory fields
 
 Verify and report every field below for each PR audit.

@@ -200,12 +200,12 @@ class TestReadmeLinkToBaseline:
         )
 
     def test_readme_states_next_phase_requires_human_owner(self) -> None:
-        """README.md must state that next phase requires Human Owner decision."""
+        """README.md must state that next phase requires Project Owner decision."""
         assert (
-            "Human Owner" in self.content
-            or "human owner" in self.content.lower()
+            "Project Owner" in self.content
+            or "project owner" in self.content.lower()
         ), (
-            "README.md must reference Human Owner decision for next phase"
+            "README.md must reference Project Owner decision for next phase"
         )
 
 
@@ -235,9 +235,9 @@ class TestAuditCharterPhaseTransitionRule:
         )
 
     def test_charter_phase_transition_requires_human_owner(self) -> None:
-        """Phase transition rule must require Human Owner decision."""
-        assert "Human Owner" in self.content, (
-            "Phase transition rule must require Human Owner decision"
+        """Phase transition rule must require Project Owner decision."""
+        assert "Project Owner" in self.content, (
+            "Phase transition rule must require Project Owner decision"
         )
 
     def test_charter_phase_transition_requires_ci_success(self) -> None:
@@ -261,7 +261,7 @@ class TestAuditCharterPhaseTransitionRule:
         )
 
     def test_charter_phase_transition_blocks_premature_live_model_true(self) -> None:
-        """Phase transition rule must BLOCK live_model_enabled=true without Human Owner decision."""
+        """Phase transition rule must BLOCK live_model_enabled=true without Project Owner decision."""
         assert "BLOCK" in self.content, (
             "Phase transition rule must define BLOCK condition for premature live_model_enabled=true"
         )

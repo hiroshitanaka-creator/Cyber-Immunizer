@@ -361,15 +361,15 @@ class TestPhase2MandatoryFields:
         )
 
     def test_phase3_gate_human_owner(self, tmp_path: Path) -> None:
-        """Status block must state Phase 3 Gate requires Human Owner decision."""
+        """Status block must state Phase 3 Gate requires Project Owner decision."""
         _, block = _run_update(tmp_path)
         assert "Phase 3 Gate" in block, (
             "Status block must contain 'Phase 3 Gate'"
         )
         assert (
-            "Human Owner" in block
+            "Project Owner" in block
         ), (
-            "Status block must state Phase 3 Gate requires Human Owner decision"
+            "Status block must state Phase 3 Gate requires Project Owner decision"
         )
 
 

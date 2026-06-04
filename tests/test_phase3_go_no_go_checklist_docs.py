@@ -81,18 +81,18 @@ def test_document_says_live_model_enabled_remains_false() -> None:
 def test_document_requires_human_owner_explicit_approval() -> None:
     text_lower = _text().lower()
     assert (
-        "human owner explicit approval is required" in text_lower
+        "project owner explicit approval is required" in text_lower
         or (
-            "human owner" in text_lower
+            "project owner" in text_lower
             and "explicit approval" in text_lower
         )
     ), (
-        "Checklist must require Human Owner explicit approval before any Phase 3 activation PR"
+        "Checklist must require Project Owner explicit approval before any Phase 3 activation PR"
     )
 
 
 # ---------------------------------------------------------------------------
-# 4. Repository-verifiable vs Human Owner external separation
+# 4. Repository-verifiable vs Project Owner external separation
 # ---------------------------------------------------------------------------
 
 def test_document_separates_repo_verifiable_from_human_owner_external() -> None:
@@ -101,13 +101,13 @@ def test_document_separates_repo_verifiable_from_human_owner_external() -> None:
         "repository-verifiable" in text_lower
         or "repository verifiable" in text_lower
     ), (
-        "Checklist must separate repository-verifiable checks from Human Owner external checks"
+        "Checklist must separate repository-verifiable checks from Project Owner external checks"
     )
     assert (
-        "human owner external" in text_lower
-        or "human owner" in text_lower
+        "project owner external" in text_lower
+        or "project owner" in text_lower
     ), (
-        "Checklist must include Human Owner external checks section"
+        "Checklist must include Project Owner external checks section"
     )
 
 
@@ -234,17 +234,17 @@ def test_document_includes_exact_japanese_gate_question() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 13. Without explicit Human Owner GO, must not proceed
+# 13. Without explicit Project Owner GO, must not proceed
 # ---------------------------------------------------------------------------
 
 def test_document_says_without_explicit_human_owner_go_must_not_proceed() -> None:
     text_lower = _text().lower()
     assert (
-        "without an explicit human owner" in text_lower
+        "without an explicit project owner" in text_lower
         or (
-            "explicit human owner" in text_lower
+            "explicit project owner" in text_lower
             and "must not proceed" in text_lower
         )
     ), (
-        "Checklist must state: without explicit Human Owner GO, Phase 3 activation must not proceed"
+        "Checklist must state: without explicit Project Owner GO, Phase 3 activation must not proceed"
     )

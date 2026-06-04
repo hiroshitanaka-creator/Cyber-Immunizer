@@ -149,7 +149,7 @@ def _build_status_block() -> str:
             f"| Phase 3 First Paid-Credit Run | {p3_run_status} |",
             f"| Gemini Primary Model | {model_name} |",
             f"| Gemini Fallback Model | {fallback_model_name} |",
-            f"| promote_approved | false (workflow gate — Human Owner approval required) |",
+            f"| promote_approved | false (workflow gate — Project Owner approval required) |",
         ]
     else:
         current_phase = "Phase 2 — API-disconnected operations"
@@ -180,7 +180,7 @@ def _build_status_block() -> str:
         "| Noop Path | Verified |",
         "| Offline Sample Path | Verified |",
         "| Paid-Credit Preflight | Fail-closed when GEMINI_API_KEY missing |",
-        "| Phase 3 Gate | Human Owner explicit decision required |",
+        "| Phase 3 Gate | Project Owner explicit decision required |",
         f"| Generation | {generation} |",
         f"| Best Score | {best_score} |",
         f"| Detector Hash | `{detector_hash[:16]}…` |",

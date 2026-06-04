@@ -51,13 +51,13 @@
 
 - [ ] ✅ APPROVE
 - [ ] ⚠️ REQUEST CHANGES（修正後に再レビュー）
-- [ ] ❌ BLOCK（Human Owner の明示的承認が必要）
+- [ ] ❌ BLOCK（Project Owner の明示的承認が必要）
 
 ---
 
-## Human Owner 最終判断
+## Project Owner 最終判断
 
-> Human Owner（@hiroshitanaka-creator）のみがこのセクションを記入できます。
+> Project Owner（@hiroshitanaka-creator）のみがこのセクションを記入できます。
 
 - [ ] **マージ承認** — すべてのチェックを確認し、GPT Audit Gate の決定を確認した
 - [ ] **条件付き承認** — 以下の条件の下でマージを承認する：
@@ -65,4 +65,4 @@
 
 **備考**:
 
-<!-- 必要に応じて Human Owner のコメントを記入 -->
+<!-- 必要に応じて Project Owner のコメントを記入 -->

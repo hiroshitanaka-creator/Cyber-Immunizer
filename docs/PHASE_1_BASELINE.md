@@ -18,7 +18,7 @@ AI_DOC_META_END
 # Cyber-Immunizer Phase 1 Baseline
 
 > このドキュメントは Phase 1 の完了状態を固定します。  
-> **Human Owner の決定なく Phase 2 へ移行してはなりません。**
+> **Project Owner の決定なく Phase 2 へ移行してはなりません。**
 
 ---
 
@@ -106,7 +106,7 @@ Phase 1 完了時点における安全不変条件です。これらは Phase 2 
 
 ## Phase 1 → Phase 2 への移行条件
 
-Phase 2（実 Gemini API 接続）への移行は、**Human Owner の明示的な決定**によってのみ開始されます。
+Phase 2（実 Gemini API 接続）への移行は、**Project Owner の明示的な決定**によってのみ開始されます。
 
 詳細は `docs/AUDIT_CHARTER.md` の **Phase transition rule** セクションを参照してください。
 

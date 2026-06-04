@@ -536,11 +536,11 @@ class TestPhase3NotStartedAndApiNotConnected:
             or "phase 3 not started" in content_lower
             or (
                 "phase 3" in content_lower
-                and "human owner" in content_lower
+                and "project owner" in content_lower
                 and ("not started" in content_lower or "requires" in content_lower)
             )
         ), (
-            "README.md must state that Phase 3 is not started / requires Human Owner decision"
+            "README.md must state that Phase 3 is not started / requires Project Owner decision"
         )
 
     def test_readme_states_api_not_connected(self) -> None:
@@ -571,11 +571,11 @@ class TestPhase3NotStartedAndApiNotConnected:
             or "phase 3 requires" in content_lower
             or (
                 "phase 3" in content_lower
-                and "human owner" in content_lower
+                and "project owner" in content_lower
                 and ("requires" in content_lower or "decision" in content_lower)
             )
         ), (
-            "PHASE_2_PLAN.md must state that Phase 3 is not started / requires Human Owner decision"
+            "PHASE_2_PLAN.md must state that Phase 3 is not started / requires Project Owner decision"
         )
 
     def test_phase2_plan_states_api_not_connected(self) -> None:
@@ -598,10 +598,10 @@ class TestPhase3NotStartedAndApiNotConnected:
         assert (
             "does not mean phase 3 is underway" in content_lower
             or "does not mean phase 3" in content_lower
-            or "phase 3 requires human owner" in content_lower
+            or "phase 3 requires project owner" in content_lower
             or (
                 "phase 3" in content_lower
-                and "human owner" in content_lower
+                and "project owner" in content_lower
                 and ("requires" in content_lower or "decision" in content_lower)
             )
         ), (

@@ -8,7 +8,7 @@ use_for:
   - checking future workflow changes against design intent
 do_not_use_for:
   - allowing automatic promotion from offline-sample
-  - bypassing Human Owner promote approval
+  - bypassing Project Owner promote approval
 related:
   - docs/AUDIT_CHARTER.md
   - docs/audit_gate/PR_AUDIT_PROTOCOL.md
@@ -39,7 +39,7 @@ AI_DOC_META_END
 - offline-sample が成功しただけで promote 可能と誤解される
 - CI smoke test の candidate artifact が promote artifact と混同される
 - read-only CI と write権限 promote job が混同される
-- offline-sample patch が Human Owner 承認なしに昇格される
+- offline-sample patch が Project Owner 承認なしに昇格される
 - dry-run result が adoption gate / promote gate を通過したものとして扱われる
 
 ---
@@ -72,10 +72,10 @@ dry-run artifact は promote artifact ではない。
 
 ### promote
 
-Human Owner承認後に、検証済みcandidateを正式な世代として昇格する操作。
+Project Owner承認後に、検証済みcandidateを正式な世代として昇格する操作。
 promoteはdry-runとは別経路であり、明示的な承認・検証・監査記録が必要。
 
-promoteには Human Owner approval が必要である。
+promoteには Project Owner approval が必要である。
 promoteには GPT Audit Gate APPROVE が必要である。
 
 ---
@@ -109,12 +109,12 @@ promoteには GPT Audit Gate APPROVE が必要である。
 目的:
 - candidateの評価
 - adoption gate / regression / AST policy の事前確認
-- Human OwnerがPromote判断するための材料を作る
+- Project OwnerがPromote判断するための材料を作る
 
 制約:
 - dry-run artifact は non-promotable by default
 - dry-run result をそのまま昇格証拠として扱わない
-- promoteには別途 Human Owner approval が必要
+- promoteには別途 Project Owner approval が必要
 - dry-run artifact には `promote_eligible=false` 相当の扱いを想定する
 
 **dry-run artifactはpromote artifactではない。**
@@ -123,10 +123,10 @@ promoteには GPT Audit Gate APPROVE が必要である。
 ### 3. Promote path
 
 目的:
-- Human Owner承認済みcandidateのみを正式昇格する
+- Project Owner承認済みcandidateのみを正式昇格する
 
 制約:
-- explicit approval required（Human Owner approval 必須）
+- explicit approval required（Project Owner approval 必須）
 - GPT Audit Gate APPROVE 必須
 - promote前にAST policy / fitness / regressionを再確認する
 - promote artifact はdry-run artifactと区別する
@@ -144,7 +144,7 @@ promoteには GPT Audit Gate APPROVE が必要である。
 - CI smoke testはpromoteを実行しない
 - dry-run artifactはpromote artifactではない
 - dry-runはデフォルトでnon-promotableである
-- promoteにはHuman Owner承認が必要である
+- promoteにはProject Owner承認が必要である
 - promoteにはGPT Audit Gate APPROVEが必要である
 - generated codeをwrite権限jobで実行しない
 - GEMINI_API_KEYをCIに渡さない
@@ -172,17 +172,17 @@ python scripts/evaluate_candidate.py --candidate .cyber_immunizer/candidate_dete
 ### 将来案（Phase 2-D では未実装）
 
 ```bash
-# dry-run promote eligibility確認（non-promotable, Human Owner確認用）
+# dry-run promote eligibility確認（non-promotable, Project Owner確認用）
 python scripts/mark_promote_candidate.py --candidate-report .cyber_immunizer/evaluation_report.json --dry-run
 
-# promote eligibility付与（Human Owner approval必須）
+# promote eligibility付与（Project Owner approval必須）
 python scripts/mark_promote_candidate.py --candidate-report .cyber_immunizer/evaluation_report.json --apply --human-owner-approved
 ```
 
 設計方針（将来実装時の参考）:
 - dry-run default（デフォルトはnon-promotable）
 - promote eligibilityは明示的に付与する
-- promote eligibility付与にはHuman Owner approvalが必要
+- promote eligibility付与にはProject Owner approvalが必要
 - CIではpromote eligibilityを付与しない
 - workflow変更はPhase 2-Dでは行わない
 
@@ -215,7 +215,7 @@ Phase 2-D では未実装。
 
 - promote_eligible がないartifactはpromote不可
 - promote_eligible=false のartifactはpromote不可
-- Human Owner承認がないartifactはpromote不可
+- Project Owner承認がないartifactはpromote不可
 - audit_gate_decision が APPROVE でないartifactはpromote不可
 - artifact schema不明・欠損・破損はfail-closed
 - CI smoke artifactをpromoteに使おうとした場合はBLOCK
@@ -257,7 +257,7 @@ Phase 2-Dでは以下を実施しない。
 
 - `promote_approved` workflow_dispatch input が追加されました（default: `"false"`）
 - promote job は `github.event_name == 'workflow_dispatch'` を要求します（schedule からは promote 不可）
-- promote job は `github.event.inputs.promote_approved == 'true'` を要求します（Human Owner の明示承認必須）
+- promote job は `github.event.inputs.promote_approved == 'true'` を要求します（Project Owner の明示承認必須）
 - `promote_approved` のデフォルトは `"false"` — 明示的に `"true"` を選択しない限り promote job は実行されません
 - offline-sample の成功（adoption gate 通過）だけでは promote job は実行されません
 - schedule run からは promote が絶対に実行できません

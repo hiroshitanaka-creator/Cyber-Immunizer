@@ -40,7 +40,7 @@ This document records the completion of Phase 2.5 hardening and serves as an aud
 - This is a progress record, not an execution runbook.
 - Grok, Claude Code, and GPT audit inputs referenced here are supporting evidence only.
 - Audit outputs from external tools are not treated as Phase 3 activation approval.
-- This document prepares documentation for a future Human Owner Phase 3 Go/No-Go review.
+- This document prepares documentation for a future Project Owner Phase 3 Go/No-Go review.
 
 ---
 
@@ -53,11 +53,11 @@ This document records the completion of Phase 2.5 hardening and serves as an aud
 | Gemini API connection | Not connected |
 | live_model_enabled | false |
 | Gemini API real calls | Not executed by repository work |
-| GitHub Secrets | Human Owner controlled; state not asserted by repository files |
-| Human Owner Phase 3 GO | Not given |
+| GitHub Secrets | Project Owner controlled; state not asserted by repository files |
+| Project Owner Phase 3 GO | Not given |
 
 > **This document does not authorize Phase 3 activation.**
-> GitHub Secrets are Human Owner controlled.
+> GitHub Secrets are Project Owner controlled.
 > live_model_enabled remains false.
 > No real Gemini API calls have been made by repository work.
 
@@ -128,7 +128,7 @@ The following audit tools contributed review inputs during Phase 2.5. Their outp
 | Claude Code | Implementation and test authorship |
 | GPT (Codex / Audit Gate) | Structural review feedback — supporting evidence only |
 
-**None of the above inputs constitute a Human Owner Phase 3 GO decision.**
+**None of the above inputs constitute a Project Owner Phase 3 GO decision.**
 **Audit outputs do not authorize Phase 3 activation.**
 
 ---
@@ -151,16 +151,16 @@ The following items are explicitly not part of this closeout:
 
 ## 7. Preparation for Phase 3 Go/No-Go Review
 
-This document prepares the documentation baseline for a future Human Owner Phase 3 Go/No-Go review.
+This document prepares the documentation baseline for a future Project Owner Phase 3 Go/No-Go review.
 
-Before Phase 3 may begin, the Human Owner must review:
+Before Phase 3 may begin, the Project Owner must review:
 
 - [docs/PHASE_3_GO_NO_GO_CHECKLIST.md](./PHASE_3_GO_NO_GO_CHECKLIST.md) — Go/No-Go readiness checklist
-- [docs/human用roadmap/phase3_to_phase7_roadmap.md](./human用roadmap/phase3_to_phase7_roadmap.md) — Human Owner roadmap for Phase 3–7
+- [docs/human用roadmap/phase3_to_phase7_roadmap.md](./human用roadmap/phase3_to_phase7_roadmap.md) — Project Owner roadmap for Phase 3–7
 - [docs/API_ACTIVATION_CHECKLIST.md](./API_ACTIVATION_CHECKLIST.md) — Detailed API activation checklist
 - [docs/API_ACTIVATION_RUNBOOK.md](./API_ACTIVATION_RUNBOOK.md) — API activation runbook
 
-No Phase 3 work may begin without explicit Human Owner GO.
+No Phase 3 work may begin without explicit Project Owner GO.
 
 ---
 
@@ -168,7 +168,7 @@ No Phase 3 work may begin without explicit Human Owner GO.
 
 - [docs/AI_ENTRYPOINT.md](./AI_ENTRYPOINT.md) — Task routing entrypoint for AI
 - [docs/PHASE_3_GO_NO_GO_CHECKLIST.md](./PHASE_3_GO_NO_GO_CHECKLIST.md) — Phase 3 Go/No-Go readiness audit
-- [docs/human用roadmap/phase3_to_phase7_roadmap.md](./human用roadmap/phase3_to_phase7_roadmap.md) — Human Owner roadmap for Phase 3–7
+- [docs/human用roadmap/phase3_to_phase7_roadmap.md](./human用roadmap/phase3_to_phase7_roadmap.md) — Project Owner roadmap for Phase 3–7
 - [docs/PHASE_2_COMPLETION_CHECKPOINT.md](./PHASE_2_COMPLETION_CHECKPOINT.md) — Phase 2 completion checkpoint
 
 ---

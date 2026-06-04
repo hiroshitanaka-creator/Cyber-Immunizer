@@ -4,7 +4,7 @@ Verifies that:
 - docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md exists and contains required sections
 - offline-sample / dry-run / promote separation is clearly specified
 - CI smoke path, dry-run evaluation path, and promote path are documented
-- Safety invariants are recorded (fail-closed, Human Owner approval, etc.)
+- Safety invariants are recorded (fail-closed, Project Owner approval, etc.)
 - README.md and PHASE_2_PLAN.md link to the design document
 - README.md and PHASE_2_PLAN.md reflect Phase 2-D completed / Phase 2-E next
 - Dangerous counter-factual phrases are rejected (regression guard)
@@ -178,16 +178,16 @@ class TestSeparationDesign(_DocFixture):
         )
 
     def test_promote_requires_human_owner_approval(self) -> None:
-        """Design doc must state that promote requires Human Owner approval."""
+        """Design doc must state that promote requires Project Owner approval."""
         content = self.content
         assert (
-            "Human Owner approval" in content
-            or "Human Owner承認" in content
-            or "Human Owner approval が必要" in content
-            or "Human Owner承認が必要" in content
+            "Project Owner approval" in content
+            or "Project Owner承認" in content
+            or "Project Owner approval が必要" in content
+            or "Project Owner承認が必要" in content
         ), (
             "docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md must state that "
-            "promote requires Human Owner approval"
+            "promote requires Project Owner approval"
         )
 
     def test_promote_requires_gpt_audit_gate_approve(self) -> None:
@@ -638,7 +638,7 @@ class TestRegressionGuard(_DocFixture):
         "CI smoke test can promote candidate",
         "dry-run artifact is promote artifact",
         "dry-run artifact is promote eligible by default",
-        "Human Owner approval is optional",
+        "Project Owner approval is optional",
         "generated code may run with write permissions",
         "GEMINI_API_KEY is passed to CI",
         "live_model_enabled=true in Phase 2-D",
@@ -657,7 +657,7 @@ class TestRegressionGuard(_DocFixture):
         "offline-sample成功はpromote承認",
         "CI smoke testでpromoteする",
         "dry-run artifactをpromote artifactとして扱う",
-        "Human Owner承認は不要",
+        "Project Owner承認は不要",
         "generated codeをwrite権限jobで実行する",
         "Phase 2-Dでlive_model_enabled=true",
         "Phase 2-DでGemini APIを呼ぶ",
