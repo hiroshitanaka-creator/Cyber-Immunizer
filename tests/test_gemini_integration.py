@@ -2064,6 +2064,73 @@ class TestReplacementCodeIndentationContract:
         )
 
     # -----------------------------------------------------------------------
+    # CR-65-04: Require return DetectionResult(...), not merely any return
+    # -----------------------------------------------------------------------
+
+    def test_accepts_all_returns_detection_result(self) -> None:
+        """replacement_code with only direct DetectionResult returns is accepted (CR-65-04)."""
+        good_code = (
+            "    if 'path_traversal_indicator' in request.path.lower():\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='matched',\n"
+            "            confidence=0.7,\n"
+            "            matched_signals=('path_traversal_indicator',),\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(good_code)
+        assert err == "", f"Valid code with only DetectionResult returns must pass, got: {err!r}"
+
+    def test_rejects_return_none(self) -> None:
+        """return None is rejected — not a DetectionResult return (CR-65-04)."""
+        bad_code = "    return None\n"
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "return None must be rejected"
+        assert "return DetectionResult" in err, (
+            f"Error must contain 'return DetectionResult', got: {err!r}"
+        )
+
+    def test_rejects_return_string(self) -> None:
+        """return 'blocked' is rejected — not a DetectionResult return (CR-65-04)."""
+        bad_code = '    return "blocked"\n'
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", 'return "blocked" must be rejected'
+        assert "return DetectionResult" in err, (
+            f"Error must contain 'return DetectionResult', got: {err!r}"
+        )
+
+    def test_rejects_return_variable(self) -> None:
+        """return result (variable) is rejected — not a direct DetectionResult return (CR-65-04)."""
+        bad_code = (
+            "    result = DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+            "    return result\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "return result (variable) must be rejected"
+        assert "return DetectionResult" in err, (
+            f"Error must contain 'return DetectionResult', got: {err!r}"
+        )
+
+    def test_rejects_mixed_detection_result_and_none_return(self) -> None:
+        """Mixed returns: DetectionResult in one branch + return None → rejected (CR-65-04)."""
+        bad_code = (
+            "    if request.path:\n"
+            "        return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+            "    return None\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "return None in any branch must be rejected even if other returns are valid"
+        assert "return DetectionResult" in err, (
+            f"Error must contain 'return DetectionResult', got: {err!r}"
+        )
+
+    # -----------------------------------------------------------------------
 
     def test_rejects_indented_def_helper(self) -> None:
         """Indented 'def helper():' inside replacement_code is rejected (P2 regression)."""

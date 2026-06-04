@@ -284,6 +284,13 @@ FORBIDDEN:
 - Do NOT return an empty body (only blank lines or only comments).
 - Do NOT produce a pass-only body.
 - Do NOT omit return DetectionResult(...) — a return statement is mandatory.
+- Do NOT use any return shape other than: return DetectionResult(...)
+  The following are ALL rejected:
+    return None
+    return result
+    return True / return False
+    return make_result()
+    return core.types.DetectionResult(...)  (qualified name — use bare DetectionResult)
 - Do NOT start any line at column 0 (no top-level / unindented code).
 - Do NOT use non-multiple-of-4 indentation (e.g. 6 spaces is rejected).
 - Do NOT include def inspect_request(...) or any def / async def statement.
@@ -403,6 +410,9 @@ def _validate_replacement_code(code: str) -> str:
        - replacement body (function body past _mutation_anchor) must not be empty.
        - replacement body must not contain only pass / comments.
        - replacement body must contain at least one ast.Return statement.
+    8. Return shape validation: every return statement must return DetectionResult(...)
+       directly (ast.Return → ast.Call → ast.Name(id="DetectionResult")).
+       return None, return result, return True/False, and helper calls are rejected.
 
     Returns empty string if the code passes all checks.
     """
@@ -537,6 +547,24 @@ def _validate_replacement_code(code: str) -> str:
                         "replacement_code must contain at least one return "
                         "statement; a DetectionResult return is required"
                     )
+                # 8. Every return statement must return DetectionResult(...).
+                # Accepted shape: ast.Return → ast.Call → ast.Name(id="DetectionResult").
+                # return None, return result, return True/False, qualified names,
+                # and helper function calls are all rejected (intentionally strict).
+                for stmt in replacement_nodes:
+                    for n in ast.walk(stmt):
+                        if isinstance(n, ast.Return):
+                            val = n.value
+                            if not (
+                                isinstance(val, ast.Call)
+                                and isinstance(val.func, ast.Name)
+                                and val.func.id == "DetectionResult"
+                            ):
+                                return (
+                                    "replacement_code return contract violation: "
+                                    "every return statement must return "
+                                    "DetectionResult(...)"
+                                )
                 break
     return ""
 
