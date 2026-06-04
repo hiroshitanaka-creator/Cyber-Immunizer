@@ -806,7 +806,7 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | **PR #63** | `replacement_code` AST 意味検証強化（空 body・pass-only・return なし拒否）、`_LLM_SYSTEM_PROMPT` 調整 | ✅ merged |
 | **PR #64** | Project Owner 用語統一（terminology standardization） | ✅ merged |
 | **PR #65** | indentation contract 検証追加（check 5a/5b/5c）、return shape validation（check 8）追加。すべての return が `return DetectionResult(...)` 形式でなければ拒否。runbook wrapper description を実装と一致させた（`_candidate_body(request)` / `_mutation_anchor = None`） | ✅ merged |
-| **PR #66** | **H-2 fallthrough guard**: check 9 を追加。最後のトップレベル文が `return DetectionResult(...)` でなければ拒否。nested-only return は fallthrough して `None` を返す可能性があるため fail-closed に。 | 🔄 **current task** |
+| **PR #66** | **H-2 fallthrough guard**: check 9 を追加。最後のトップレベル文が `return DetectionResult(...)` でなければ拒否。nested-only return は fallthrough して `None` を返す可能性があるため fail-closed に。 | ✅ implemented in PR #66 |
 
 > ℹ️ **PR #65 は main に merge 済み。**  
 > PR #66 は H-2: CFG/fallthrough reachability の最小実装です。  
