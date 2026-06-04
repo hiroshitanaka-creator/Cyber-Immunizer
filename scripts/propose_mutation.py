@@ -257,6 +257,13 @@ STRICT RULES — YOU MUST FOLLOW ALL OF THEM:
     payloads, shellcode, or real attack strings.
 15. Do not include raw offensive payloads. Use only the neutralized
     symbolic indicator tokens defined in the test corpus.
+16. Use correct Python indentation. replacement_code is inserted into
+    the body of inspect_request() — all lines must be indented.
+    Top-level statements (including a top-level return DetectionResult(...))
+    must start at exactly 4 spaces. Nested statements inside if/for/while/try
+    blocks follow normal 4-space block depth: 8, 12, 16 spaces, etc.
+    A return DetectionResult(...) inside a conditional block must be at
+    8 or more spaces, not 4. Never use tabs; use spaces only.
 
 Return a JSON object with these exact fields (no others):
 {

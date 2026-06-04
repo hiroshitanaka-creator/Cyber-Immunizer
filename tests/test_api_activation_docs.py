@@ -110,6 +110,33 @@ class TestApiActivationRunbookContent:
             "Runbook must mention gemini-paid-credit in the prohibition context"
         )
 
+    def test_runbook_syntax_validation_wrapper_has_request_param(self) -> None:
+        """Runbook must describe the validation wrapper with the request parameter.
+
+        CR-65-MIN-02: The actual _validate_replacement_code wraps replacement_code in
+        def _candidate_body(request): — the runbook must reflect this, not the
+        simplified def _candidate_body(): form (which omits the request parameter).
+        """
+        assert "_candidate_body(request)" in self.content, (
+            "docs/API_ACTIVATION_RUNBOOK.md Syntax Validation Guard must describe the "
+            "wrapper as 'def _candidate_body(request):' (with request parameter). "
+            "The simplified 'def _candidate_body():' form does not match the actual "
+            "_validate_replacement_code implementation."
+        )
+
+    def test_runbook_indentation_contract_mentions_nested_returns(self) -> None:
+        """Runbook indentation contract must distinguish nested from top-level returns.
+
+        CR-65-MIN-01/02: The runbook must clarify that nested returns inside
+        if/for/while blocks are at 8/12/16 spaces (block depth), not always 4.
+        """
+        content_lower = self.content.lower()
+        assert "nested" in content_lower or "8" in self.content, (
+            "docs/API_ACTIVATION_RUNBOOK.md must describe the indentation contract "
+            "for nested returns (e.g. 8/12/16 spaces for returns inside if/for/while "
+            "blocks), not only state that all returns must be at exactly 4 spaces."
+        )
+
     def test_runbook_prohibits_overwriting_malformed_ledger(self) -> None:
         """Runbook must state not to overwrite a malformed ledger without inspection."""
         content_lower = self.content.lower()

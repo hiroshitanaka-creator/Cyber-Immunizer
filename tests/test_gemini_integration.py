@@ -816,6 +816,54 @@ class TestReplacementCodeSyntaxValidation:
         # Error must not contain the replacement_code body
         assert "\ud800" not in err, "Error must not echo replacement_code content"
 
+    def test_accepts_nested_return_at_8_spaces(self) -> None:
+        """Nested return DetectionResult(...) at 8 spaces (inside if block) is accepted.
+
+        CR-65-MIN-01: The validator must accept returns at 8/12/16 spaces when
+        they appear inside if/for/while blocks. A nested return is valid Python
+        and must not be rejected as an indentation error.
+        """
+        code = (
+            "    matched = ['path-traversal']\n"
+            "    if matched:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='matched: ' + matched[0],\n"
+            "            confidence=0.7,\n"
+            "            matched_signals=tuple(matched),\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err == "", (
+            f"Nested return DetectionResult at 8 spaces must be accepted (CR-65-MIN-01), "
+            f"got: {err}"
+        )
+
+    def test_system_prompt_indentation_wording_distinguishes_nested_returns(self) -> None:
+        """_LLM_SYSTEM_PROMPT must describe nested return indentation correctly.
+
+        CR-65-MIN-01: The prompt must distinguish top-level returns (4 spaces)
+        from nested returns inside if/for/while blocks (8/12/16 spaces). A
+        prompt that requires all returns at exactly 4 spaces is logically wrong.
+        """
+        prompt = pm._LLM_SYSTEM_PROMPT
+        prompt_lower = prompt.lower()
+        assert "nested" in prompt_lower, (
+            "_LLM_SYSTEM_PROMPT must mention 'nested' to distinguish nested returns "
+            "(inside if/for/while blocks at 8/12/16 spaces) from top-level returns "
+            "(at 4 spaces). CR-65-MIN-01 requires this wording."
+        )
+        assert "8" in prompt or "block depth" in prompt_lower, (
+            "_LLM_SYSTEM_PROMPT must mention 8-space or 'block depth' to describe "
+            "that nested returns follow 4-space block depth increments."
+        )
+
 
 # ---------------------------------------------------------------------------
 # 10. offline-sample still works

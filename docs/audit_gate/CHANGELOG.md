@@ -163,6 +163,41 @@ Lessons that drove protocol additions:
 
 ---
 
+## PR #65 — replacement_code indentation contract and prompt/runbook accuracy
+
+Lessons that drove protocol additions:
+
+- **Prompt wording must distinguish top-level from nested returns**: The
+  `_LLM_SYSTEM_PROMPT` described the `replacement_code` contract without
+  clarifying that nested `return DetectionResult(...)` inside if/for/while
+  blocks must be at 8/12/16 spaces (normal block depth), not at 4 spaces.
+  Wording that implies all returns must be at exactly 4 spaces is logically
+  wrong and contradicts valid Python. Protocol now requires that indentation
+  wording explicitly distinguish top-level (4-space) from nested (8/12/16-space)
+  returns.
+- **Runbook wrapper description must match the actual validator implementation**:
+  The Syntax Validation Guard in `docs/API_ACTIVATION_RUNBOOK.md` described
+  the AST validation wrapper as `def _candidate_body():\n...`, omitting the
+  `request` parameter. The actual implementation is `def _candidate_body(request):`.
+  Simplified wrapper descriptions weaken evidence quality and create audit
+  ambiguity. Protocol now requires runbook wrapper descriptions to match the
+  actual implementation signature exactly.
+- **No-patch artifact boundary must be tested separately from validator unit tests**:
+  Unit tests that call `_validate_replacement_code` directly prove the validator
+  rejects bad code, but they do not prove that `mutation_patch.json` is not
+  written to disk. PR completion evidence requires a test that asserts
+  `not patch_path.exists()` at the CLI/artifact boundary, not just at the
+  function-return level.
+- **H-1/H-2/H-3 deferred to PR #66+**: Semantic body validation (H-1: requires
+  at least one `return DetectionResult(...)` in replacement_code), CFG reachability
+  (H-2), and static `DetectionResult(...)` argument validation (H-3) were
+  considered for PR #65 but deferred to PR #66+ as out-of-scope for the minimal
+  completion. Including them in PR #65 would have exceeded the agreed minimal scope
+  and risked scope drift. Protocol now requires that deferred follow-up work be
+  explicitly listed in the PR body and CHANGELOG entry rather than silently omitted.
+
+---
+
 ## PR #43 — apply_mutation safe output path
 
 Lessons that drove protocol additions:
