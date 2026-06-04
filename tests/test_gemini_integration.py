@@ -1811,17 +1811,22 @@ class TestCallGeminiApiThinkingConfig:
 
 
 class TestReplacementCodeIndentationContract:
-    """Tests for the 4-space-indented function-body contract added in PR #65.
+    """Tests for the 4-space-indented function-body contract (PR #65).
 
     replacement_code must be a function-body fragment for inspect_request().
-    Every non-empty line must start with at least one space (4-space indent
-    for top-level body lines, 8+ for nested blocks).
+    Top-level statements must start with exactly 4 spaces; nested blocks use
+    8, 12, … spaces following normal Python indentation rules.
+    Tab characters in leading whitespace are forbidden.
+    All lines being at 8+ spaces (no top-level body) is also rejected.
 
     These tests verify that:
-    - valid 4-space-indented body is accepted,
+    - valid 4-space-indented body (with or without nested blocks) is accepted,
     - bare return (column 0) is rejected with indentation contract violation,
     - unindented assignment + return (column 0) is rejected,
-    - an included function definition is rejected,
+    - 1-space and 3-space top-level indentation are rejected,
+    - tab indentation is rejected,
+    - all-8-space (over-indented) top-level code is rejected,
+    - an included function definition (at any indent level) is rejected,
     - a markdown code fence is rejected.
     """
 
@@ -1910,6 +1915,76 @@ class TestReplacementCodeIndentationContract:
             or "code fence" in err.lower()
             or "```" in err
         ), f"Error must mention markdown/code fence, got: {err!r}"
+
+    def test_accepts_4space_toplevel_with_nested_blocks(self) -> None:
+        """4-space top-level + 8-space nested block passes (explicit nested test)."""
+        good_code = (
+            "    surface = request.path.lower()\n"
+            "    matched = []\n"
+            "    if 'path_traversal_indicator' in surface:\n"
+            "        matched.append('path_traversal_indicator')\n"
+            "    if matched:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='indicator matched',\n"
+            "            confidence=0.7,\n"
+            "            matched_signals=tuple(matched),\n"
+            "        )\n"
+            "    return DetectionResult(blocked=False, reason='no match', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(good_code)
+        assert err == "", f"4-space top-level with 8-space nested must pass, got: {err!r}"
+
+    def test_rejects_1space_indentation(self) -> None:
+        """1-space top-level indentation is rejected (indentation contract violation)."""
+        bad_code = (
+            " surface = request.path.lower()\n"
+            " return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "1-space indentation must be rejected"
+        assert "indentation contract violation" in err, (
+            f"Error must contain 'indentation contract violation', got: {err!r}"
+        )
+
+    def test_rejects_3space_indentation(self) -> None:
+        """3-space top-level indentation is rejected (indentation contract violation)."""
+        bad_code = (
+            "   surface = request.path.lower()\n"
+            "   return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "3-space indentation must be rejected"
+        assert "indentation contract violation" in err, (
+            f"Error must contain 'indentation contract violation', got: {err!r}"
+        )
+
+    def test_rejects_tab_indentation(self) -> None:
+        """Tab-indented lines are rejected (indentation contract violation)."""
+        bad_code = (
+            "\tsurface = request.path.lower()\n"
+            "\treturn DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Tab indentation must be rejected"
+        assert "indentation contract violation" in err, (
+            f"Error must contain 'indentation contract violation', got: {err!r}"
+        )
+        assert "tab" in err.lower(), (
+            f"Error must mention 'tab', got: {err!r}"
+        )
+
+    def test_rejects_all_8space_toplevel(self) -> None:
+        """Code where all lines start at 8 spaces is rejected (missing top-level body)."""
+        bad_code = (
+            "        surface = request.path.lower()\n"
+            "        return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "All-8-space top-level code must be rejected"
+        assert "indentation contract violation" in err, (
+            f"Error must contain 'indentation contract violation', got: {err!r}"
+        )
 
     def test_rejects_indented_def_helper(self) -> None:
         """Indented 'def helper():' inside replacement_code is rejected (P2 regression)."""

@@ -382,8 +382,12 @@ def _validate_replacement_code(code: str) -> str:
     2. Markdown code fences forbidden (```) — Gemini must not wrap in fences.
     3. Function definition forbidden — replacement_code is a body fragment only.
     4. Forbidden security tokens (import, eval, exec, os., etc.).
-    5. Indentation contract — every non-empty line must start with whitespace
-       (4-space-indented function body; no top-level column-0 code).
+    5. Indentation contract:
+       - No tab characters in leading whitespace.
+       - Minimum indentation of non-empty lines must be exactly 4 spaces
+         (top-level body lines at 4; nested blocks at 8, 12, … per Python rules).
+       - min < 4: unindented or under-indented top-level code.
+       - min > 4: all lines over-indented (missing top-level body statements).
     6. Python syntax (AST parse only — code is never executed).
 
     Returns empty string if the code passes all checks.
@@ -415,28 +419,49 @@ def _validate_replacement_code(code: str) -> str:
                 f"replacement_code contains forbidden token {token!r}. "
                 "Unsafe replacement_code rejected before writing patch."
             )
-    # 5. Reject any non-empty line starting at column 0 (indentation contract).
-    # replacement_code is inserted inside inspect_request(); every execution
-    # line must be at least 4-space indented.
-    for line in code.splitlines():
-        if line and not line[0].isspace():
+    # 5. Indentation contract: tab-free; top-level lines at exactly 4 spaces.
+    # replacement_code is inserted inside inspect_request() as-is.
+    # Top-level body lines must start with 4 spaces; nested blocks use 8+.
+    # Collecting non-empty lines (blank lines and whitespace-only lines are OK).
+    non_empty = [ln for ln in code.splitlines() if ln.strip()]
+    if non_empty:
+        # 5a. No tabs in leading whitespace (TabError at runtime)
+        for ln in non_empty:
+            leading = ln[: len(ln) - len(ln.lstrip())]
+            if "\t" in leading:
+                return (
+                    "replacement_code indentation contract violation: "
+                    "tab indentation is forbidden; use 4-space indentation"
+                )
+        # 5b. Minimum indentation must be exactly 4 spaces.
+        min_indent = min(len(ln) - len(ln.lstrip()) for ln in non_empty)
+        if min_indent < 4:
             return (
                 "replacement_code indentation contract violation: "
                 "replacement_code must be a 4-space-indented function body "
                 "for inspect_request()"
             )
-    # 6. Validate Python syntax by splicing replacement_code into the same
-    # indentation context that apply_mutation.py uses: inserted as-is between
-    # the mutation markers inside a function body.  The MUTATION_END marker is
-    # at column 0 (matching core/detector.py).  Code is never executed —
-    # ast.parse() only builds the parse tree.
+        if min_indent > 4:
+            return (
+                "replacement_code indentation contract violation: "
+                "top-level statements must start with exactly 4 spaces; "
+                f"minimum indentation found is {min_indent} "
+                "(all lines are over-indented — missing top-level body)"
+            )
+    # 6. Validate Python syntax by splicing replacement_code into a function
+    # body whose suite indentation is already established by _mutation_anchor.
+    # This mirrors the actual apply_mutation.py splice context more closely.
+    # The MUTATION_END marker is at column 0 (matching core/detector.py).
+    # Code is never executed — ast.parse() only builds the parse tree.
     # IndentationError (subclass of SyntaxError) signals residual indentation
-    # problems not caught by the column-0 pre-check above.
+    # problems not caught by the pre-checks above (e.g. inconsistent mixed
+    # indentation within the code).
     # Lone surrogates or other ill-formed Unicode may trigger UnicodeError;
     # caught separately so the class name (not the message, which could echo
     # replacement_code content) is returned as the validation error.
     wrapped = (
         "def _candidate_body(request):\n"
+        "    _mutation_anchor = None\n"
         "    " + _MUTATION_START_MARKER + "\n"
         + code
         + "\n" + _MUTATION_END_MARKER + "\n"
