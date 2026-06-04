@@ -276,9 +276,14 @@ REQUIRED:
 - Leading tabs are forbidden; use spaces only.
 - Comment lines must also start with at least 4 spaces.
 - return DetectionResult(...) must be at exactly 4-space indentation.
+- replacement_code must contain executable detector logic.
+- replacement_code must contain at least one return DetectionResult(...).
 - Empty lines are allowed.
 
 FORBIDDEN:
+- Do NOT return an empty body (only blank lines or only comments).
+- Do NOT produce a pass-only body.
+- Do NOT omit return DetectionResult(...) — a return statement is mandatory.
 - Do NOT start any line at column 0 (no top-level / unindented code).
 - Do NOT use non-multiple-of-4 indentation (e.g. 6 spaces is rejected).
 - Do NOT include def inspect_request(...) or any def / async def statement.
@@ -394,6 +399,10 @@ def _validate_replacement_code(code: str) -> str:
        c. All indentation counts must be multiples of 4; non-multiples
           (e.g. 6 spaces) indicate misaligned indentation and are rejected.
     6. Python syntax (AST parse only — code is never executed).
+    7. Semantic body validation (after successful AST parse):
+       - replacement body (function body past _mutation_anchor) must not be empty.
+       - replacement body must not contain only pass / comments.
+       - replacement body must contain at least one ast.Return statement.
 
     Returns empty string if the code passes all checks.
     """
@@ -466,14 +475,13 @@ def _validate_replacement_code(code: str) -> str:
                     "all indentation must be a multiple of 4 spaces; "
                     f"line has {indent}-space indentation"
                 )
-    # 6. Validate Python syntax by splicing replacement_code into a function
-    # body whose suite indentation is already established by _mutation_anchor.
-    # This mirrors the actual apply_mutation.py splice context more closely.
-    # The MUTATION_END marker is at column 0 (matching core/detector.py).
+    # 6 & 7. Validate Python syntax and then check semantic body requirements.
+    # The wrapper establishes a function body with _mutation_anchor so the
+    # suite is valid even for empty replacement_code; semantic validation
+    # (check 7) then enforces that there is actual detector logic.
     # Code is never executed — ast.parse() only builds the parse tree.
     # IndentationError (subclass of SyntaxError) signals residual indentation
-    # problems not caught by the pre-checks above (e.g. inconsistent mixed
-    # indentation within the code).
+    # problems not caught by the pre-checks above.
     # Lone surrogates or other ill-formed Unicode may trigger UnicodeError;
     # caught separately so the class name (not the message, which could echo
     # replacement_code content) is returned as the validation error.
@@ -485,7 +493,7 @@ def _validate_replacement_code(code: str) -> str:
         + "\n" + _MUTATION_END_MARKER + "\n"
     )
     try:
-        ast.parse(wrapped)
+        tree = ast.parse(wrapped)
     except IndentationError:
         return (
             "replacement_code indentation contract violation: "
@@ -496,6 +504,40 @@ def _validate_replacement_code(code: str) -> str:
         return f"replacement_code is not valid Python syntax: {exc}"
     except UnicodeError as exc:
         return f"replacement_code is not valid Python source text: {type(exc).__name__}"
+    else:
+        # 7. Semantic body validation.
+        # Find _candidate_body in the parsed tree and inspect its body.
+        # body[0] is always _mutation_anchor = None (the anchor statement).
+        # body[1:] is the replacement region — it must not be empty, must not
+        # consist solely of pass statements, and must contain at least one
+        # return statement anywhere (guaranteeing a DetectionResult return path).
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "_candidate_body":
+                func_body = node.body
+                replacement_nodes = func_body[1:]  # skip _mutation_anchor
+                if not replacement_nodes:
+                    return (
+                        "replacement_code body is empty: replacement_code must "
+                        "contain executable detector logic and at least one "
+                        "return DetectionResult(...) statement"
+                    )
+                if all(isinstance(n, ast.Pass) for n in replacement_nodes):
+                    return (
+                        "replacement_code must contain executable detector logic; "
+                        "pass-only body is not valid — at least one "
+                        "return DetectionResult(...) is required"
+                    )
+                has_return = any(
+                    isinstance(n, ast.Return)
+                    for stmt in replacement_nodes
+                    for n in ast.walk(stmt)
+                )
+                if not has_return:
+                    return (
+                        "replacement_code must contain at least one return "
+                        "statement; a DetectionResult return is required"
+                    )
+                break
     return ""
 
 

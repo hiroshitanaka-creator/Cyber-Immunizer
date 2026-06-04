@@ -2000,6 +2000,71 @@ class TestReplacementCodeIndentationContract:
             f"Error must contain 'indentation contract violation', got: {err!r}"
         )
 
+    # -----------------------------------------------------------------------
+    # CR-65-03: Reject empty / comment-only / no-return replacement_code
+    # -----------------------------------------------------------------------
+
+    def test_rejects_empty_replacement_code_body(self) -> None:
+        """Empty string is rejected — no executable body (CR-65-03)."""
+        for bad_code in ("", "   \n   \n", "\n\n"):
+            err = pm._validate_replacement_code(bad_code)
+            assert err != "", f"Empty/whitespace replacement_code must be rejected, got '' for input {bad_code!r}"
+            assert (
+                "empty" in err.lower()
+                or "return" in err.lower()
+                or "executable" in err.lower()
+            ), f"Error must mention empty/return/executable, got: {err!r}"
+
+    def test_rejects_comment_only_replacement_code_body(self) -> None:
+        """Comment-only body is rejected — no executable AST nodes (CR-65-03)."""
+        bad_code = (
+            "    # only a comment\n"
+            "    # another comment\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Comment-only replacement_code must be rejected"
+        assert (
+            "empty" in err.lower()
+            or "return" in err.lower()
+            or "executable" in err.lower()
+        ), f"Error must mention empty body/return/executable, got: {err!r}"
+
+    def test_rejects_blank_and_comment_only_replacement_code_body(self) -> None:
+        """Blank lines + comment-only body is rejected (CR-65-03)."""
+        bad_code = "\n    # only comment after blank lines\n"
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Blank+comment-only replacement_code must be rejected"
+        assert (
+            "empty" in err.lower()
+            or "return" in err.lower()
+            or "executable" in err.lower()
+        ), f"Error must mention empty body/return/executable, got: {err!r}"
+
+    def test_rejects_pass_only_replacement_code_body(self) -> None:
+        """pass-only body is rejected — no DetectionResult return (CR-65-03)."""
+        bad_code = "    pass\n"
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "pass-only replacement_code must be rejected"
+        assert (
+            "return" in err.lower()
+            or "executable" in err.lower()
+            or "pass" in err.lower()
+        ), f"Error must mention return/executable/pass, got: {err!r}"
+
+    def test_rejects_assignment_only_no_return_replacement_code(self) -> None:
+        """Assignment-only body with no return is rejected (CR-65-03)."""
+        bad_code = (
+            "    surface = request.path.lower()\n"
+            "    matched = []\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Assignment-only (no return) replacement_code must be rejected"
+        assert "return" in err.lower(), (
+            f"Error must mention 'return', got: {err!r}"
+        )
+
+    # -----------------------------------------------------------------------
+
     def test_rejects_indented_def_helper(self) -> None:
         """Indented 'def helper():' inside replacement_code is rejected (P2 regression)."""
         bad_code = (
