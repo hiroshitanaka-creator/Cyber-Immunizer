@@ -17,6 +17,7 @@ related:
   - docs/PHASE_2_COMPLETION_CHECKPOINT.md
   - docs/audit_gate/PR_AUDIT_PROTOCOL.md
 last_reviewed: 2026-06-04
+pr_66_fallthrough_guard: check 9 added — last top-level node must be ast.Return
 AI_DOC_META_END
 -->
 # Cyber-Immunizer API Activation Runbook
@@ -151,6 +152,33 @@ Preflight run #26733824493 が成功しました:
 | **禁止** | `def` / `async def` 文を含めない（任意のインデントレベルで禁止）/ mutation marker を含めない / Markdown code fence (` ``` `) を含めない / 列 0 のコードを含めない / 4 の倍数でないインデントを使わない |
 | **検証失敗分類** | tab あり → `tab indentation is forbidden` / min indent < 4 → `indentation contract violation` / min indent > 4 → `top-level statements must start with exactly 4 spaces` / 4の倍数違反 → `all indentation must be a multiple of 4 spaces` / function definition → function definition エラー / code fence → markdown code fence エラー / 空・コメントのみ → `replacement_code body is empty` / return 文なし → `must contain at least one return statement` |
 | **意味検証** | AST parse 成功後、replacement body が空・コメントのみ・pass のみ・return 文なしの場合も拒否される（Propose 段階で fail-closed）。空や comments-only の Gemini 応答も `mutation_patch.json` には書き込まれない。さらに、すべての return 文は `return DetectionResult(...)` の形式でなければならない（`return None` / `return result` / `return True` 等は拒否） |
+
+#### fallthrough/default return guard（PR #66）
+
+**PR #66 で追加された check 9**: `replacement_code` の最後のトップレベル文は `return DetectionResult(...)` でなければならない。
+
+| 項目 | 内容 |
+|---|---|
+| **問題** | `return` 文が存在しても、すべての `return` が if/for/while ブロック内の nested return だけの場合、いずれの分岐も取られなければ関数は暗黙の `None` を返す（Python の fallthrough 動作）。check 7 の「少なくとも 1 つの return が存在すること」チェックはこの問題を検出できない |
+| **check 9 の要件** | `replacement_nodes` の最後のトップレベルノード（`_mutation_anchor` 後の function body 直下の最終 AST ノード）が `ast.Return` でなければならない。check 8 がすべての `return` の形式を `DetectionResult(...)` に検証済みなので、check 9 はノード型が `ast.Return` かを確認するだけでよい |
+| **拒否されるパターン** | ① nested return のみで最後のトップレベル文が if/for/while ブロック ② nested return の後に代入・式文が続いて最後が return でない |
+| **受理されるパターン** | nested return + 最後に 4 スペースインデントのトップレベル `return DetectionResult(...)` fallback |
+| **エラーメッセージ** | `replacement_code fallthrough guard violation: the last top-level statement must be a direct return DetectionResult(...) fallback; nested-only return paths can fall through to implicit None` |
+| **Protocol lesson** | return 文の存在確認（check 7）は fallthrough 安全性を保証しない。「safe fallback return path exists」の保証には別途トップレベル fallback return チェック（check 9）が必要 |
+
+#### _validate_replacement_code チェック順（PR #65 / PR #66）
+
+| # | チェック | 失敗時エラーキーワード |
+|---|---|---|
+| 1 | mutation marker 禁止 | `mutation marker` |
+| 2 | markdown code fence 禁止 | `markdown code fence` |
+| 3 | function definition 禁止 | `function definition` |
+| 4 | forbidden token 禁止 (import/eval/exec/os. 等) | `forbidden token` |
+| 5 | indentation contract (tab/min-4/multiple-of-4) | `indentation contract violation` |
+| 6 | Python syntax (ast.parse のみ、実行しない) | `not valid Python syntax` |
+| 7 | semantic body (空・pass のみ・return なし を拒否) | `body is empty` / `pass-only` / `must contain at least one return` |
+| 8 | return shape (全 return が `DetectionResult(...)` 形式) | `return contract violation` |
+| 9 | fallthrough guard (最後のトップレベルノードが `ast.Return`) | `fallthrough guard violation` |
 
 #### paid-credit run で replacement_code 検証が失敗した場合
 

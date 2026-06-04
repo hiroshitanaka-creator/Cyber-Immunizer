@@ -282,12 +282,21 @@ REQUIRED:
   body level must be at exactly 4 spaces.
 - replacement_code must contain executable detector logic.
 - replacement_code must contain at least one return DetectionResult(...).
+- replacement_code must end with a top-level (4-space) fallback return
+  DetectionResult(...) after all conditional branches. Nested-only returns
+  (inside if/for/while) leave an implicit-None fallthrough when no branch
+  is taken. Always close the body with a top-level default, e.g.:
+      return DetectionResult(blocked=False, reason="no match", confidence=0.0, matched_signals=())
 - Empty lines are allowed.
 
 FORBIDDEN:
 - Do NOT return an empty body (only blank lines or only comments).
 - Do NOT produce a pass-only body.
 - Do NOT omit return DetectionResult(...) — a return statement is mandatory.
+- Do NOT end replacement_code without a top-level fallback return DetectionResult(...).
+  If the last top-level statement is an if/for/while block (even one with nested
+  returns inside), the body falls through to None when no branch is taken. Always
+  provide a fallback return at top-level (4-space indent) after all branches.
 - Do NOT use any return shape other than: return DetectionResult(...)
   The following are ALL rejected:
     return None
@@ -319,6 +328,11 @@ BAD example 2 — function definition included (will be REJECTED):
 BAD example 3 — markdown fence included (will be REJECTED):
 {
   "replacement_code": "```python\\n    return DetectionResult(blocked=False, reason=\"no suspicious indicator matched\", confidence=0.0, matched_signals=())\\n```"
+}
+
+BAD example 4 — nested-only return, no top-level fallback (will be REJECTED with fallthrough guard violation):
+{
+  "replacement_code": "    surface = request.path.lower()\\n    if \"path_traversal_indicator\" in surface:\\n        return DetectionResult(blocked=True, reason=\"traversal detected\", confidence=0.9, matched_signals=(\"path_traversal_indicator\",))\\n    # Implicit None fallthrough — MISSING top-level fallback return!"
 }
 
 Return a JSON object with these exact fields (no others):
@@ -417,6 +431,11 @@ def _validate_replacement_code(code: str) -> str:
     8. Return shape validation: every return statement must return DetectionResult(...)
        directly (ast.Return → ast.Call → ast.Name(id="DetectionResult")).
        return None, return result, return True/False, and helper calls are rejected.
+    9. Fallthrough guard: the last top-level replacement node must be a direct
+       ast.Return (return DetectionResult(...)). A body that ends with a conditional
+       block (if/for/while) containing only nested returns falls through to implicit
+       None when no branch is taken. The top-level fallback return DetectionResult(...)
+       at the end of the body prevents inspect_request() from returning None.
 
     Returns empty string if the code passes all checks.
     """
@@ -569,6 +588,22 @@ def _validate_replacement_code(code: str) -> str:
                                     "every return statement must return "
                                     "DetectionResult(...)"
                                 )
+                # 9. Fallthrough guard: the last top-level replacement node must
+                # be a direct ast.Return.  A body ending with a conditional block
+                # (if/for/while) that contains only nested returns can fall through
+                # to implicit None when no conditional branch is taken.
+                # Requiring a top-level fallback return DetectionResult(...) at
+                # the end of the body prevents inspect_request() from returning None.
+                # Check 8 above already validated every return is DetectionResult(...),
+                # so this check only needs to verify the node type is ast.Return.
+                last_node = replacement_nodes[-1]
+                if not isinstance(last_node, ast.Return):
+                    return (
+                        "replacement_code fallthrough guard violation: "
+                        "the last top-level statement must be a direct "
+                        "return DetectionResult(...) fallback; "
+                        "nested-only return paths can fall through to implicit None"
+                    )
                 break
     return ""
 

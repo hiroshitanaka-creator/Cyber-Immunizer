@@ -799,6 +799,19 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | **PR #61** | `replacement_code` の構文検証を Propose 段階に追加（`ast.parse()` のみ、実行なし）。不正 Python 構文・無インデント・lone surrogate を fail-closed に |
 | **PR #62** | primary model を `gemini-3-flash-preview` に変更。`ThinkingConfig(thinking_level="low")` を Gemini 3 系に注入。`thoughts_token_count` を `actual_thinking_tokens` として取得し ledger/cost に反映 |
 
+### PR #63–#66 Hardening Progress
+
+| PR | 変更内容 | 状態 |
+|---|---|---|
+| **PR #63** | `replacement_code` AST 意味検証強化（空 body・pass-only・return なし拒否）、`_LLM_SYSTEM_PROMPT` 調整 | ✅ merged |
+| **PR #64** | Project Owner 用語統一（terminology standardization） | ✅ merged |
+| **PR #65** | indentation contract 検証追加（check 5a/5b/5c）、return shape validation（check 8）追加。すべての return が `return DetectionResult(...)` 形式でなければ拒否。runbook wrapper description を実装と一致させた（`_candidate_body(request)` / `_mutation_anchor = None`） | ✅ merged |
+| **PR #66** | **H-2 fallthrough guard**: check 9 を追加。最後のトップレベル文が `return DetectionResult(...)` でなければ拒否。nested-only return は fallthrough して `None` を返す可能性があるため fail-closed に。 | 🔄 **current task** |
+
+> ℹ️ **PR #65 は main に merge 済み。**  
+> PR #66 は H-2: CFG/fallthrough reachability の最小実装です。  
+> PR #67+ の残課題: H-3 argument count/keyword-name validation、X-007 type/value-range static checks、X-002/X-003/X-006 policy alignment は PR #66 のスコープ外です。
+
 ### Gemini 3 技術詳細（PR #62）
 
 | 項目 | 内容 |

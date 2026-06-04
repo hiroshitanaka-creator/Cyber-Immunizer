@@ -822,6 +822,182 @@ class TestReplacementCodeSyntaxValidation:
 
 
 # ---------------------------------------------------------------------------
+# 9c. PR #66 — Fallthrough return guard (check 9)
+# ---------------------------------------------------------------------------
+
+
+class TestFallthroughReturnGuard:
+    """Tests for check 9: the last top-level replacement node must be ast.Return.
+
+    CR-66-02: nested-only returns can fall through to implicit None when no
+    branch is taken. Check 9 requires a top-level fallback return DetectionResult(...)
+    as the final statement so inspect_request() is always fail-closed.
+    """
+
+    def test_rejects_nested_only_return_if_block(self) -> None:
+        """Check 9 rejects code where only nested returns exist (if block only).
+
+        The body ends with an if statement. When no branch is taken, the function
+        falls through to implicit None — the validator must reject this.
+        """
+        code = (
+            "    surface = request.path.lower()\n"
+            "    if 'path_traversal_indicator' in surface:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='traversal detected',\n"
+            "            confidence=0.9,\n"
+            "            matched_signals=('path_traversal_indicator',),\n"
+            "        )\n"
+            # No top-level fallback return — falls through to None
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", (
+            "Nested-only return (last top-level node is if block) must be rejected "
+            "by fallthrough guard (check 9)"
+        )
+        assert "fallthrough" in err.lower(), (
+            f"Error must mention fallthrough guard, got: {err!r}"
+        )
+
+    def test_rejects_nested_only_return_multiple_if_blocks(self) -> None:
+        """Check 9 rejects code with multiple if blocks but no top-level fallback."""
+        code = (
+            "    surface = request.path.lower()\n"
+            "    if 'sqli_indicator' in surface:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True, reason='sqli', confidence=0.8, matched_signals=(),\n"
+            "        )\n"
+            "    if 'script_injection_indicator' in surface:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True, reason='xss', confidence=0.8, matched_signals=(),\n"
+            "        )\n"
+            # Last top-level node is an if block — no fallback return
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", (
+            "Multiple if-block-only returns must be rejected by fallthrough guard"
+        )
+        assert "fallthrough" in err.lower(), (
+            f"Error must mention fallthrough guard, got: {err!r}"
+        )
+
+    def test_accepts_nested_return_plus_top_level_fallback(self) -> None:
+        """Check 9 accepts code with nested returns followed by a top-level fallback.
+
+        The last top-level statement is return DetectionResult(...) — fallback is present.
+        """
+        code = (
+            "    surface = request.path.lower() + ' ' + request.body.lower()\n"
+            "    indicators = ['path_traversal_indicator', 'sqli_indicator']\n"
+            "    matched = [ind for ind in indicators if ind in surface]\n"
+            "    if matched:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='indicator matched: ' + matched[0],\n"
+            "            confidence=min(1.0, 0.5 + 0.12 * len(matched)),\n"
+            "            matched_signals=tuple(matched),\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no suspicious indicator matched',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err == "", (
+            f"Nested return + top-level fallback must be accepted, got: {err!r}"
+        )
+
+    def test_accepts_top_level_only_return(self) -> None:
+        """Check 9 accepts code where the only return is at top level (no nesting)."""
+        code = (
+            "    surface = request.path.lower()\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err == "", (
+            f"Top-level-only return must be accepted, got: {err!r}"
+        )
+
+    def test_rejects_last_top_level_is_assignment_after_nested_return(self) -> None:
+        """Check 9 rejects code where the last top-level statement is an assignment.
+
+        Even though a nested return exists, the last top-level node is not a return,
+        so the function can fall through when no branch is taken.
+        """
+        code = (
+            "    surface = request.path.lower()\n"
+            "    if 'path_traversal_indicator' in surface:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True, reason='traversal', confidence=0.9, matched_signals=(),\n"
+            "        )\n"
+            "    result_label = 'no match'\n"  # non-return last statement
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", (
+            "Last top-level assignment after nested return must be rejected by fallthrough guard"
+        )
+        assert "fallthrough" in err.lower(), (
+            f"Error must mention fallthrough guard, got: {err!r}"
+        )
+
+    def test_return_none_at_top_level_rejected_by_shape_check(self) -> None:
+        """return None at top level is rejected by check 8 (shape), not check 9.
+
+        This test verifies that the existing return-shape validation (check 8)
+        continues to reject return None even when it appears as the final top-level
+        statement. Check 9 does not weaken check 8.
+        """
+        code = (
+            "    if 'path_traversal_indicator' in request.path:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True, reason='traversal', confidence=0.9, matched_signals=(),\n"
+            "        )\n"
+            "    return None\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "return None must be rejected (check 8 shape validation)"
+        assert "return contract" in err.lower() or "DetectionResult" in err, (
+            f"return None rejection must come from check 8 (shape), got: {err!r}"
+        )
+
+    def test_return_result_var_at_top_level_rejected_by_shape_check(self) -> None:
+        """return result_var at top level is rejected by check 8 (shape), not check 9.
+
+        This covers the case where code ends with `return some_variable`, which
+        check 8 rejects regardless of check 9.
+        """
+        code = (
+            "    if 'sqli_indicator' in request.path:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True, reason='sqli', confidence=0.8, matched_signals=(),\n"
+            "        )\n"
+            "    final_result = 'no_match'\n"
+            "    return final_result\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "return variable must be rejected (check 8 shape validation)"
+        assert "return contract" in err.lower() or "DetectionResult" in err, (
+            f"return variable rejection must come from check 8 (shape), got: {err!r}"
+        )
+
+    def test_sample_mutation_passes_fallthrough_guard(self) -> None:
+        """The built-in sample mutation passes check 9 (ends with top-level return)."""
+        code = pm._SAMPLE_MUTATION["replacement_code"]
+        err = pm._validate_replacement_code(code)
+        assert err == "", (
+            f"Sample mutation must pass all checks including fallthrough guard, got: {err!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # 10. offline-sample still works
 # ---------------------------------------------------------------------------
 

@@ -7,6 +7,48 @@ This is not a project status document. Keep entries focused on protocol lessons.
 
 ---
 
+## PR #66 — Return presence ≠ fallthrough safety
+
+Lessons that drove protocol additions:
+
+- **Return existence is not fallthrough safety**: Check 7 of `_validate_replacement_code`
+  verifies that at least one `ast.Return` exists anywhere in the replacement body
+  (via `ast.walk`, which descends into nested blocks). Check 8 verifies every return
+  is `return DetectionResult(...)`. Neither check guarantees that the function cannot
+  fall through to implicit `None`. A body whose only returns are inside conditional
+  blocks (`if`/`for`/`while`) silently returns `None` when no branch is taken, violating
+  the `inspect_request()` contract. Protocol now requires check 9: the last top-level
+  AST node in the replacement body must be `ast.Return`.
+
+- **"Some return exists" ≠ "safe return path exists"**: These two properties are
+  orthogonal. A validator must explicitly distinguish between them. The fail-closed
+  design principle requires that every execution path through the body reaches a
+  safe return, not merely that a safe return is reachable from *some* path.
+  Protocol now requires this distinction to be documented in the PR body and CHANGELOG
+  whenever a new semantic validation check is added to `_validate_replacement_code`.
+
+- **Minimal fallthrough guard is sufficient for H-2**: Full CFG/reachability analysis
+  is not required for this guard. Requiring the last top-level node to be `ast.Return`
+  is a minimal fail-closed rule that catches the most common fallthrough pattern
+  (if-block with nested return, no fallback). Deferred scope:
+  H-3 argument count/keyword-name validation, X-007 type/value-range checks,
+  X-002/X-003/X-006 policy alignment remain PR #67+ work.
+
+- **LLM prompt must reflect validator constraints**: When check 9 was added, the
+  `_LLM_SYSTEM_PROMPT` REQUIRED/FORBIDDEN sections must be updated in the same PR
+  so the model is instructed to generate code that satisfies the new rule.
+  A validator rule without a matching prompt constraint leaves the model generating
+  code that will be rejected on the first paid-credit run. Protocol now requires
+  prompt and validator to stay in sync.
+
+- **X-002/X-003/X-006/X-007 remain Project Owner-overridable recommendations**:
+  These policy extension items were deferred in PR #66 as non-binding follow-ups.
+  X-007 excludes only type/value-range static checks; H-3 argument count/keyword-name
+  validation is a separate pending item. Protocol now records this explicitly to
+  prevent future agents from conflating X-007 scope with H-3 scope.
+
+---
+
 ## PR #65 — Task prompt construction and PR completion gates
 
 Lessons that drove protocol additions:
