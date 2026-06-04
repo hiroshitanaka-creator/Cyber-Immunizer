@@ -50,6 +50,9 @@ and historical background.
 | Phase 2.5 closeout / post-hardening audit | docs/PHASE_2_5_CLOSEOUT_AUDIT.md | docs/PHASE_3_GO_NO_GO_CHECKLIST.md |
 | Human Owner roadmap / Phase 3–7 planning | docs/human用roadmap/phase3_to_phase7_roadmap.md | docs/PHASE_3_GO_NO_GO_CHECKLIST.md |
 | Phase 3 readiness / Go-No-Go decision / activation decision | docs/PHASE_3_GO_NO_GO_CHECKLIST.md | docs/PHASE_2_5_CLOSEOUT_AUDIT.md, docs/API_ACTIVATION_CHECKLIST.md |
+| Phase 3 paid-credit 現在地 / Gemini 3 runbook | docs/API_ACTIVATION_CHECKLIST.md | docs/API_ACTIVATION_RUNBOOK.md |
+| Phase 3 paid-credit run 実行手順 / 初回 run 前確認 | docs/API_ACTIVATION_RUNBOOK.md | docs/API_ACTIVATION_CHECKLIST.md |
+| Phase 3 activation PR #60–#62 内容確認 | docs/PHASE_3_GO_NO_GO_CHECKLIST.md | docs/API_ACTIVATION_RUNBOOK.md |
 | API activation (only after Go/No-Go checklist approved) | docs/API_ACTIVATION_CHECKLIST.md | docs/API_ACTIVATION_RUNBOOK.md |
 | Secret boundary / GEMINI_API_KEY wording | docs/API_ACTIVATION_CHECKLIST.md | docs/audit_gate/PR_AUDIT_PROTOCOL.md |
 | Rollback/backtrack design | docs/ROLLBACK_BACKTRACK_DESIGN.md | docs/EVOLUTION_HISTORY_AUDIT.md |

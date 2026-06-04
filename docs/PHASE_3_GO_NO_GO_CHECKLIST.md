@@ -1,15 +1,15 @@
 <!--
 AI_DOC_META
 status: CANONICAL
-scope: Phase 3 Go/No-Go readiness audit before any activation PR.
+scope: Phase 3 Go/No-Go readiness audit and Phase 3 activation record (PR #58-#62 merged, first paid-credit run pending).
 use_for:
-  - deciding whether a Phase 3 activation PR may be opened
+  - reviewing Phase 3 activation PR history and current paid-credit state
+  - deciding whether a Phase 3 promote or next-run PR may be opened
   - separating repository-verifiable checks from Human Owner external checks
-  - identifying No-Go conditions before API activation
-  - recording a Human Owner Go/No-Go decision
+  - identifying No-Go conditions before API activation or promotion
 do_not_use_for:
-  - executing Phase 3 activation
-  - setting live_model_enabled=true
+  - executing paid-credit runs (Project Owner triggers these manually)
+  - setting promote_approved=true before reviewing first run results
   - registering or modifying GitHub Secrets
   - calling Gemini API
 related:
@@ -20,17 +20,25 @@ related:
   - docs/API_ACTIVATION_CHECKLIST.md
   - docs/API_ACTIVATION_RUNBOOK.md
   - docs/audit_gate/PR_AUDIT_PROTOCOL.md
-last_reviewed: 2026-05-31
+last_reviewed: 2026-06-03
 AI_DOC_META_END
 -->
 
 # Phase 3 Go/No-Go Readiness Audit
 
+> **⚠️ 2026-06-03 更新: Phase 3 activation PR #58–#62 が main に merge 済み。**  
+> **paid-credit path 準備完了。過去の paid-credit API call 記録は存在する（`data/api_usage_ledger.json` 参照）。gemini-3-flash-preview での controlled run は未実行。**  
+> **詳細は下記「Phase 3 Activation Record」セクションを参照。**
+
+---
+
 > **This document is not Phase 3 activation.**
-> Phase 3 is not started.
-> API is not connected.
+> Phase 3 is not started as a completed first live run.
+> API is not connected to a completed execution.
 > live_model_enabled must remain false until a dedicated Phase 3 activation PR is approved.
 > Human Owner explicit approval is required before any Phase 3 activation PR.
+
+> *(Note: The above declaration reflects the original Go/No-Go gate language. Phase 3 activation PRs #58–#62 have been merged. The first paid-credit run has not yet been executed. See Section 2a below.)*
 
 ---
 
@@ -45,26 +53,66 @@ This document is a Go/No-Go readiness checklist that must be reviewed before any
 
 ---
 
-## 2. Current Non-Activation State
+## 2. Historical Pre-Activation State（PR #53 時点）
+
+> *このセクションは Phase 3 activation PR を開く前の Go/No-Go 審査基準を記録したものです。*  
+> *現在の状態については下記「2a. Phase 3 Activation Record」セクションを参照してください。*
 
 | Field | Value |
 |---|---|
 | Phase 2 | Complete |
 | Phase 2.5 hardening | Complete through PR #53 |
-| Phase 3 | Not started |
-| API connection | Not connected |
-| live_model_enabled | false |
+| Phase 3 | Not started (as of Phase 2.5 closeout) |
+| API connection | Not connected (as of Phase 2.5 closeout) |
+| live_model_enabled | false (as of Phase 2.5 closeout) |
 | Gemini API real calls | Not executed by repository work |
 | GitHub Secrets state | Not asserted by repository files; Human Owner controlled |
-| Human Owner Phase 3 GO | Not given |
+| Human Owner Phase 3 GO | Not given (as of Phase 2.5 closeout) |
 | Human Owner external verification | Human Owner controls external secret and billing verification |
 
-> Phase 3 is not started. API is not connected. live_model_enabled remains false.
+> Phase 3 is not started (as of Phase 2.5 closeout / PR #53). API is not connected. live_model_enabled remains false.
 > GitHub Secrets state is not asserted by repository files.
 > Human Owner verifies GitHub Secrets state out-of-band before Phase 3.
 >
 > See [docs/PHASE_2_5_CLOSEOUT_AUDIT.md](./PHASE_2_5_CLOSEOUT_AUDIT.md) for the Phase 2.5 hardening ledger.
 > See [docs/human用roadmap/phase3_to_phase7_roadmap.md](./human用roadmap/phase3_to_phase7_roadmap.md) for Human Owner roadmap guidance.
+
+---
+
+## 2a. Phase 3 Activation Record（PR #58–#62）
+
+> **Phase 3 activation PR は main に merge 済み。**  
+> **paid-credit path 準備完了。過去の paid-credit API call 記録は存在する（`data/api_usage_ledger.json` 参照）。gemini-3-flash-preview での controlled run は未実行。**
+
+| Field | Value |
+|---|---|
+| Phase 3 activation PRs | ✅ #58, #59, #60, #61, #62 — all merged into main |
+| Phase 3 activation date | 2026-06-01 (PR #58) through 2026-06-03 (PR #62) |
+| `live_model_enabled` | `true` (PR #58) |
+| Primary model | `gemini-3-flash-preview` (PR #62) |
+| Fallback model | `gemini-3.1-flash-lite` (PR #62) |
+| Past paid-credit API call records | Exist (see `data/api_usage_ledger.json` — gemini-3.1-flash-lite success × 1 etc.) |
+| Gemini 3 Flash Preview controlled run | **Not yet executed** — gemini-3-flash-preview 構成での確認 run が次ステップ |
+| `promote_approved` | `false` — prohibited until first run result reviewed |
+| Apply / Evaluate / Promote 自動昇格 | **Prohibited** — pending first run result |
+
+### Activation PR サマリー
+
+| PR | 変更内容 |
+|---|---|
+| **PR #58** | `live_model_enabled=true`、`--live-model` path Phase 3 でブロック、`gemini-paid-credit` のみ許可 |
+| **PR #59** | Gemini ClientError 安全診断情報（許可リストベース、payload redaction 強化） |
+| **PR #60** | model_name を `gemini-3.1-flash-lite` に更新（404 NOT_FOUND 解消） |
+| **PR #61** | `replacement_code` の Python 構文検証を Propose 段階に追加（`ast.parse()` のみ） |
+| **PR #62** | Primary model を `gemini-3-flash-preview` に変更、`ThinkingConfig(thinking_level="low")`、actual thinking tokens の ledger 反映 |
+
+### 次の Project Owner 手順
+
+1. **PR #62 merge 確認** — `data/genome.json` が `gemini-3-flash-preview` であること
+2. **docs PR merge**（このドキュメントを含む PR）
+3. **paid-credit run を 1 回だけ実行** — `workflow_dispatch` → mode: `gemini-paid-credit`、`promote_approved=false`
+4. **結果確認** — ledger artifact / candidate patch / apply / evaluate 結果を確認
+5. **次 PR 判断** — promote / fix / halt を結果に基づいて判断
 
 ---
 

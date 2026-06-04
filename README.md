@@ -782,14 +782,65 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 
 ---
 
+---
+
+## Phase 3: Paid-Credit API 実行待機中
+
+> **⚠️ Phase 3 activation PR (#58–#62) は main に merge 済み。**  
+> **paid-credit path は準備完了。過去の paid-credit API call 記録は存在する（`data/api_usage_ledger.json` 参照）。**  
+> **gemini-3-flash-preview での controlled paid-credit run は未実行。次のステップ: Project Owner が 1 回だけ手動実行する。**  
+> **promote_approved=true はまだ禁止。Apply / Evaluate / Promote の自動昇格はまだ許可しない。**
+
+### PR #60–#62 反映内容
+
+| PR | 変更内容 |
+|---|---|
+| **PR #60** | 停止済み Gemini 2.0 Flash 系から移行。404 NOT_FOUND 主因の model_name を `gemini-3.1-flash-lite` に更新し API 疎通前進 |
+| **PR #61** | `replacement_code` の構文検証を Propose 段階に追加（`ast.parse()` のみ、実行なし）。不正 Python 構文・無インデント・lone surrogate を fail-closed に |
+| **PR #62** | primary model を `gemini-3-flash-preview` に変更。`ThinkingConfig(thinking_level="low")` を Gemini 3 系に注入。`thoughts_token_count` を `actual_thinking_tokens` として取得し ledger/cost に反映 |
+
+### Gemini 3 技術詳細（PR #62）
+
+| 項目 | 内容 |
+|---|---|
+| Primary model | `gemini-3-flash-preview` |
+| Fallback model | `gemini-3.1-flash-lite` |
+| Thinking config | `ThinkingConfig(thinking_level="low")` — Gemini 3 系のみ |
+| `thinking_budget` | 使用しない（Gemini 3 API 非対応、`thinking_level` で代替） |
+| `_GEMINI3_THINKING_ESTIMATE_LOW_TOKENS` | pre-call budget estimate 専用。API hard cap ではない |
+| Actual thinking tokens | `response.usage_metadata.thoughts_token_count` から取得 |
+| Billable tokens | `actual_output_tokens + actual_thinking_tokens`（片方 None なら fallback） |
+| Cost 記録 | `max(pre-call estimate, actual billable response tokens)` で過小記録を防止 |
+| 超過時の動作 | actual > estimate の場合、usage 記録後に patch 返却を拒否（fail-closed） |
+| SDK guard | `ThinkingConfig` 構築失敗は `except Exception as exc` で fail-closed |
+
+### Phase 3 安全境界
+
+| 禁止事項 | 理由 |
+|---|---|
+| `promote_approved=true` | 最初の run 結果確認前に昇格禁止 |
+| paid-credit run の連続実行 | 1 回実行し結果を確認してから次 PR を判断する |
+| workflow / scripts / data / ledger の変更 | docs PR の対象外 |
+| GEMINI_API_KEY の表示・確認・推測 | Secret 境界 |
+
+### 次の Project Owner 手順
+
+1. **PR #62 merge 確認**（main の `data/genome.json` が `gemini-3-flash-preview` であること）
+2. **この docs PR を merge**
+3. **paid-credit run を 1 回だけ実行** (`workflow_dispatch` → mode: `gemini-paid-credit`、`promote_approved=false`)
+4. **ledger artifact / candidate patch / apply / evaluate 結果を確認**
+5. **結果に基づいて次 PR を判断**（promote, fix, or halt）
+
+---
+
 ## 今後のロードマップ
 
 | フェーズ | 内容 |
 |---|---|
 | **v0.1** | ローカルファーストの MVP スキャフォールド |
 | **v0.2** | Gemini API 統合基盤（安全なフリーティア戦略・スキーマ拘束・プリフライトスキャン・API予算管理） |
-| **v0.2.x（現在 / Phase 2）** | API未接続運用強化（rollback設計・evolution_history監査・offline-sample dry-run分離・運用チェックリスト整備） |
-| **v0.3（Phase 3 以降）** | 実 Gemini API 接続（Human Owner の明示的決定が必要）・プロセス隔離強化（`resource.setrlimit`）・スコア履歴ダッシュボード |
+| **v0.2.x（Phase 2）** | API未接続運用強化（rollback設計・evolution_history監査・offline-sample dry-run分離・運用チェックリスト整備）— **完了** |
+| **v0.3（Phase 3 / 現在）** | 実 Gemini API 接続 — activation PR #58–#62 merge 済み、初回 paid-credit run 待機中 |
 | **v0.4** | 複数検出器の並列評価、アンサンブル昇格 |
 | **将来** | 実WAFへの統合（別途セキュリティレビュー必須） |
 
@@ -809,9 +860,13 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 
 | Field | Value |
 |---|---|
-| Current Phase | Phase 2 — API-disconnected operations |
-| API Connection | Not connected |
-| live_model_enabled | false |
+| Current Phase | Phase 3 — paid-credit path ready, Gemini 3 Flash Preview run pending |
+| Phase 3 Activation | Complete (PR #58-#62) |
+| Phase 3 First Paid-Credit Run | Not yet executed |
+| Gemini Primary Model | gemini-3-flash-preview |
+| Gemini Fallback Model | gemini-3.1-flash-lite |
+| promote_approved | false (workflow gate — Human Owner approval required) |
+| live_model_enabled | true |
 | API Mode | gemini_paid_credit |
 | Model Provider | gemini |
 | Max Model Requests / Run | 1 |
@@ -836,6 +891,6 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | Fitness Report | Not available — run baseline fitness to populate TP/FP/TN/FN |
 | Adoption Gate | ✅ Passed (generation 2) |
 | Active Threat IDs | `THREAT-2024-001` `THREAT-2024-002` `THREAT-2024-003` `THREAT-2024-004` `THREAT-2024-005` |
-| Status Block Updated | 2026-05-26 14:23 UTC |
+| Status Block Updated | 2026-06-04 00:04 UTC |
 
 <!-- CYBER_IMMUNIZER_STATUS_END -->
