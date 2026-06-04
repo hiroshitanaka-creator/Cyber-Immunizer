@@ -1314,6 +1314,90 @@ class TestDetectionResultNonReturnCalls:
 
 
 # ---------------------------------------------------------------------------
+# 9f. PR #67 Codex P2 — check 10 rejects duplicate keyword names
+# ---------------------------------------------------------------------------
+
+
+class TestDetectionResultDuplicateKeywords:
+    """Regression tests for Codex P2 finding: set-based keyword validation
+    collapses duplicates, allowing DetectionResult(blocked=False, ..., blocked=True)
+    to pass. Check 10 must detect duplicates before the missing/extra comparison.
+    """
+
+    _VALID_FALLBACK = (
+        "    return DetectionResult(\n"
+        "        blocked=False,\n"
+        "        reason='no match',\n"
+        "        confidence=0.0,\n"
+        "        matched_signals=(),\n"
+        "    )\n"
+    )
+
+    def test_rejects_duplicate_canonical_keyword_in_return(self) -> None:
+        """Duplicate canonical keyword in a returned DetectionResult is rejected."""
+        code = (
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "        blocked=True,\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Duplicate keyword in returned DetectionResult must be rejected"
+        assert "argument shape" in err.lower() or "duplicate" in err.lower(), (
+            f"Error must mention argument shape or duplicate, got: {err!r}"
+        )
+
+    def test_rejects_duplicate_canonical_keyword_in_expression_statement(self) -> None:
+        """Duplicate canonical keyword in a non-return expression-statement call is rejected."""
+        code = (
+            "    DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "        reason='duplicate reason',\n"
+            "    )\n"
+            + self._VALID_FALLBACK
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", (
+            "Duplicate keyword in non-return DetectionResult expression must be rejected"
+        )
+        assert "argument shape" in err.lower() or "duplicate" in err.lower(), (
+            f"Error must mention argument shape or duplicate, got: {err!r}"
+        )
+
+    def test_rejects_duplicate_keyword_in_nested_branch(self) -> None:
+        """Duplicate keyword in a nested-branch DetectionResult call is rejected."""
+        code = (
+            "    if 'sqli_indicator' in request.path:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='sqli',\n"
+            "            confidence=0.8,\n"
+            "            matched_signals=('sqli_indicator',),\n"
+            "            confidence=0.9,\n"
+            "        )\n"
+            + self._VALID_FALLBACK
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", (
+            "Duplicate keyword in nested-branch DetectionResult must be rejected"
+        )
+        assert "argument shape" in err.lower() or "duplicate" in err.lower(), (
+            f"Error must mention argument shape or duplicate, got: {err!r}"
+        )
+
+    def test_valid_keyword_only_constructor_still_passes(self) -> None:
+        """Valid keyword-only DetectionResult with no duplicates still passes check 10."""
+        err = pm._validate_replacement_code(self._VALID_FALLBACK)
+        assert err == "", f"Valid keyword-only constructor must pass, got: {err!r}"
+
+
+# ---------------------------------------------------------------------------
 # 10. offline-sample still works
 # ---------------------------------------------------------------------------
 

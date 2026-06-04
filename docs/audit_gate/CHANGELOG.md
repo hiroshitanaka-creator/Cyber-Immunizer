@@ -44,7 +44,7 @@ Lessons that drove protocol additions:
   constraint in the same PR.
 
 - **Constructor-shape validation must cover all constructor calls, not only
-  returned ones (Codex P2)**: The initial PR #67 check 10 implementation
+  returned ones (Codex P2, round 1)**: The initial PR #67 check 10 implementation
   iterated only over `ast.Return` nodes. Codex P2 review found that a
   malformed non-return `DetectionResult(...)` call (expression statement,
   assignment, or nested branch call) would pass check 10 and could raise
@@ -52,6 +52,16 @@ Lessons that drove protocol additions:
   requires that argument-shape validation covers every bare `DetectionResult`
   `ast.Call` in the replacement body, regardless of whether it appears inside
   a `return` statement.
+
+- **Set-based keyword validation collapses duplicates (Codex P2, round 2)**:
+  The set comprehension `{kw.arg for kw in n.keywords}` used for missing/extra
+  comparison silently deduplicates keyword names. `DetectionResult(blocked=False,
+  ..., blocked=True)` produces `provided == _REQUIRED_DR_KWARGS` and passes
+  check 10, even though Python compilation would raise `TypeError: keyword
+  argument repeated`. `ast.parse()` accepts duplicate keywords without raising
+  `SyntaxError` (verified on Python 3.11), so check 6 does not catch this.
+  Protocol now requires that duplicate keyword detection runs before the
+  set-based comparison, using a list-based scan with an explicit `seen` set.
 
 - **X-002 / X-003 / X-006 / X-007 remain Project Owner-overridable
   recommendations**: These policy extension items remain deferred. X-007

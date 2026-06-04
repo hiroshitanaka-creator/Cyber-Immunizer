@@ -460,8 +460,8 @@ def _validate_replacement_code(code: str) -> str:
         statements, assignments, and nested contexts — must use keyword-only
         arguments with exactly the four canonical keyword names:
         blocked, reason, confidence, matched_signals.
-        Rejected: positional arguments, **kwargs expansion, missing keyword
-        names, extra keyword names, wrong keyword names.
+        Rejected: positional arguments, **kwargs expansion, duplicate keyword
+        names, missing keyword names, extra keyword names, wrong keyword names.
 
     Returns empty string if the code passes all checks.
     """
@@ -657,7 +657,19 @@ def _validate_replacement_code(code: str) -> str:
                                     "shape violation: DetectionResult(...) must "
                                     "not use **kwargs expansion"
                                 )
-                        provided = {kw.arg for kw in n.keywords}
+                        # Duplicate keyword names collapse under set conversion;
+                        # detect them before the missing/extra comparison.
+                        kw_names_list = [kw.arg for kw in n.keywords]
+                        seen_kw: set[str] = set()
+                        for kw_name in kw_names_list:
+                            if kw_name in seen_kw:
+                                return (
+                                    "replacement_code DetectionResult argument "
+                                    "shape violation: DetectionResult(...) has "
+                                    f"duplicate keyword argument: {kw_name!r}"
+                                )
+                            seen_kw.add(kw_name)
+                        provided = seen_kw
                         missing_kw = _REQUIRED_DR_KWARGS - provided
                         extra_kw = provided - _REQUIRED_DR_KWARGS
                         if missing_kw:
