@@ -7,6 +7,31 @@ This is not a project status document. Keep entries focused on protocol lessons.
 
 ---
 
+## PR #65 — Task prompt construction and PR completion gates
+
+Lessons that drove protocol additions:
+
+- **Under-specified task prompts cause scope drift**: Implementation prompts that
+  omit ALLOWED / REFERENCE_ONLY / FROZEN / IMPACT boundaries can cause an agent
+  to touch adjacent files or perform opportunistic refactors. Protocol now
+  requires `docs/audit_gate/TASK_PROMPT_PROTOCOL.md` before writing any task
+  prompt.
+- **IMPACT cannot be blank**: An empty impact section hides possible call-site,
+  docs, or workflow propagation. Protocol now requires `なし（理由）` when there
+  is no impact.
+- **ALLOWED files require justification**: Listing editable files without a
+  reason makes scope expansion easier. Protocol now requires a one-line reason
+  for every ALLOWED file.
+- **Change Request fields must be complete even for one-line changes**: Small
+  changes can still violate invariants. Protocol now requires WHAT, WHY,
+  INVARIANT, DO_NOT, and VERIFY for every task prompt.
+- **PR completion requires documentation / history verification**: A PR is not
+  complete until README, docs, changelog/history, generator scripts, and data
+  history / ledger update needs are explicitly checked or ruled out with a
+  reason.
+
+---
+
 ## PR #33 — Fitness schema hardening
 
 Lessons that drove protocol additions:
