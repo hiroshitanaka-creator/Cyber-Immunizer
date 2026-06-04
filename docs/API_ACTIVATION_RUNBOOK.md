@@ -136,9 +136,9 @@ Preflight run #26733824493 が成功しました:
 | 項目 | 内容 |
 |---|---|
 | **契約** | `replacement_code` は `inspect_request()` 関数内部に **そのまま挿入** される 4 スペースインデント済み function body fragment |
-| **必須** | すべての実行行・コメント行は 4 スペース以上でインデントする。`return DetectionResult(...)` も 4 スペース |
-| **禁止** | `def inspect_request(...)` を含めない / mutation marker を含めない / Markdown code fence (` ``` `) を含めない / トップレベル（列 0）のコードを含めない |
-| **検証失敗分類** | 列 0 のコードがあれば `indentation contract violation` / function definition があれば function definition エラー / code fence があれば markdown code fence エラー |
+| **必須** | トップレベル実行行・コメント行は **正確に 4 スペース**でインデントする。`return DetectionResult(...)` も 4 スペース。ネストブロック（if/for/while 内）は **8 スペース**（さらにネストは 12, 16, …）。**すべてのインデントは 4 の倍数**でなければならない（1, 2, 3, 5, 6 スペース等は拒否）。**leading tab は禁止**（スペースのみ） |
+| **禁止** | `def` / `async def` 文を含めない（任意のインデントレベルで禁止）/ mutation marker を含めない / Markdown code fence (` ``` `) を含めない / 列 0 のコードを含めない / 4 の倍数でないインデントを使わない |
+| **検証失敗分類** | tab あり → `tab indentation is forbidden` / min indent < 4 → `indentation contract violation` / min indent > 4 → `top-level statements must start with exactly 4 spaces` / 4の倍数違反 → `all indentation must be a multiple of 4 spaces` / function definition → function definition エラー / code fence → markdown code fence エラー |
 
 #### paid-credit run で replacement_code 検証が失敗した場合
 

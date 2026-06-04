@@ -1986,6 +1986,20 @@ class TestReplacementCodeIndentationContract:
             f"Error must contain 'indentation contract violation', got: {err!r}"
         )
 
+    def test_rejects_6space_nested_indentation(self) -> None:
+        """6-space nested indentation is rejected (not a multiple of 4) (CR-65-02)."""
+        bad_code = (
+            "    surface = request.path.lower()\n"
+            "    if 'path_traversal_indicator' in surface:\n"
+            "      return DetectionResult(blocked=True, reason='matched', confidence=0.7, matched_signals=())\n"
+            "    return DetectionResult(blocked=False, reason='no match', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "6-space nested indentation must be rejected (non-multiple-of-4)"
+        assert "indentation contract violation" in err, (
+            f"Error must contain 'indentation contract violation', got: {err!r}"
+        )
+
     def test_rejects_indented_def_helper(self) -> None:
         """Indented 'def helper():' inside replacement_code is rejected (P2 regression)."""
         bad_code = (

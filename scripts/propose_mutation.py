@@ -269,16 +269,19 @@ replacement_code is inserted as-is as the body of inspect_request().
 Every line must be a function-body fragment with correct indentation.
 
 REQUIRED:
-- All execution lines must be indented with 4 spaces (or more for nested
-  blocks, following normal Python indentation rules).
+- Top-level replacement statements must start with EXACTLY 4 spaces.
+- Nested blocks (inside if/for/while) must use exactly 8 spaces.
+- Deeper nesting uses 12, 16, … spaces (always a multiple of 4).
+- ALL indentation must be a multiple of 4 — never 1, 2, 3, 5, 6 spaces.
+- Leading tabs are forbidden; use spaces only.
 - Comment lines must also start with at least 4 spaces.
-- return DetectionResult(...) must be indented with 4 spaces.
-- Nested if/for/while blocks use 8 spaces (or 12 for deeper nesting).
+- return DetectionResult(...) must be at exactly 4-space indentation.
 - Empty lines are allowed.
 
 FORBIDDEN:
 - Do NOT start any line at column 0 (no top-level / unindented code).
-- Do NOT include def inspect_request(...) or any def statement.
+- Do NOT use non-multiple-of-4 indentation (e.g. 6 spaces is rejected).
+- Do NOT include def inspect_request(...) or any def / async def statement.
 - Do NOT include mutation markers (# === MUTATION_START === etc.).
 - Do NOT wrap in markdown fences (```python ... ```).
 
@@ -382,12 +385,14 @@ def _validate_replacement_code(code: str) -> str:
     2. Markdown code fences forbidden (```) — Gemini must not wrap in fences.
     3. Function definition forbidden — replacement_code is a body fragment only.
     4. Forbidden security tokens (import, eval, exec, os., etc.).
-    5. Indentation contract:
-       - No tab characters in leading whitespace.
-       - Minimum indentation of non-empty lines must be exactly 4 spaces
-         (top-level body lines at 4; nested blocks at 8, 12, … per Python rules).
-       - min < 4: unindented or under-indented top-level code.
-       - min > 4: all lines over-indented (missing top-level body statements).
+    5. Indentation contract (all three must pass):
+       a. No tab characters in leading whitespace.
+       b. Minimum indentation of non-empty lines must be exactly 4 spaces
+          (top-level body at 4; nested blocks at 8, 12, … per Python rules).
+          min < 4: unindented or under-indented.
+          min > 4: all lines over-indented (no top-level body present).
+       c. All indentation counts must be multiples of 4; non-multiples
+          (e.g. 6 spaces) indicate misaligned indentation and are rejected.
     6. Python syntax (AST parse only — code is never executed).
 
     Returns empty string if the code passes all checks.
@@ -419,9 +424,11 @@ def _validate_replacement_code(code: str) -> str:
                 f"replacement_code contains forbidden token {token!r}. "
                 "Unsafe replacement_code rejected before writing patch."
             )
-    # 5. Indentation contract: tab-free; top-level lines at exactly 4 spaces.
+    # 5. Indentation contract: tab-free; top-level lines at exactly 4 spaces;
+    # all indentation must be a multiple of 4.
     # replacement_code is inserted inside inspect_request() as-is.
-    # Top-level body lines must start with 4 spaces; nested blocks use 8+.
+    # Top-level body lines must start with exactly 4 spaces.
+    # Nested blocks use 8, 12, 16, … spaces (multiples of 4).
     # Collecting non-empty lines (blank lines and whitespace-only lines are OK).
     non_empty = [ln for ln in code.splitlines() if ln.strip()]
     if non_empty:
@@ -448,6 +455,17 @@ def _validate_replacement_code(code: str) -> str:
                 f"minimum indentation found is {min_indent} "
                 "(all lines are over-indented — missing top-level body)"
             )
+        # 5c. All indentation must be a multiple of 4 spaces.
+        # Nested blocks use 8, 12, 16, … spaces; non-multiples (e.g. 6) are
+        # invalid and indicate misaligned indentation.
+        for ln in non_empty:
+            indent = len(ln) - len(ln.lstrip())
+            if indent % 4 != 0:
+                return (
+                    "replacement_code indentation contract violation: "
+                    "all indentation must be a multiple of 4 spaces; "
+                    f"line has {indent}-space indentation"
+                )
     # 6. Validate Python syntax by splicing replacement_code into a function
     # body whose suite indentation is already established by _mutation_anchor.
     # This mirrors the actual apply_mutation.py splice context more closely.
