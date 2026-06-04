@@ -906,6 +906,50 @@ def _run_update_with_report(
         mod._LEDGER_PATH = original_ledger
 
 
+def _run_update_with_ledger(
+    tmp_path: Path,
+    ledger_data: list,
+    genome_overrides: dict | None = None,
+) -> tuple[str, str]:
+    """Run update_readme with a specific ledger content.
+
+    ledger_data is a list of dicts (each a ledger entry).
+    Returns (full_readme_content, status_block_content).
+    """
+    readme_path = _make_readme(tmp_path)
+    genome_path = _make_genome(tmp_path, genome_overrides)
+    ledger_path = tmp_path / "custom_ledger.json"
+    ledger_path.write_text(json.dumps(ledger_data))
+
+    import scripts.update_readme as mod
+    original_genome = mod._GENOME_PATH
+    original_history = mod._HISTORY_PATH
+    original_threats = mod._THREATS_PATH
+    original_report = mod._REPORT_PATH
+    original_ledger = mod._LEDGER_PATH
+
+    mod._GENOME_PATH = genome_path
+    mod._HISTORY_PATH = tmp_path / "evolution_history.json"
+    (tmp_path / "evolution_history.json").write_text("[]")
+    mod._THREATS_PATH = tmp_path / "active_threats.json"
+    (tmp_path / "active_threats.json").write_text("[]")
+    mod._REPORT_PATH = tmp_path / "nonexistent_report.json"
+    mod._LEDGER_PATH = ledger_path
+
+    try:
+        success = update_readme(readme_path)
+        assert success, "update_readme returned False"
+        content = readme_path.read_text(encoding="utf-8")
+        block = _extract_block(content)
+        return content, block
+    finally:
+        mod._GENOME_PATH = original_genome
+        mod._HISTORY_PATH = original_history
+        mod._THREATS_PATH = original_threats
+        mod._REPORT_PATH = original_report
+        mod._LEDGER_PATH = original_ledger
+
+
 _SAMPLE_FITNESS_REPORT = {
     "fitness_report": {
         "total_cases": 20,
@@ -1103,13 +1147,13 @@ class TestPhase3MandatoryFields:
         )
 
     def test_phase3_shows_not_yet_executed_when_empty_ledger(self, tmp_path: Path) -> None:
-        """When ledger has no successful runs for primary model, show Not yet executed."""
+        """When ledger has no paid-credit attempts for primary model, show Not yet executed."""
         _, block = _run_update(tmp_path, genome_overrides={
             "live_model_enabled": True,
             "model_name": "gemini-3-flash-preview",
         })
         assert "Not yet executed" in block, (
-            "Phase 3 First Paid-Credit Run must show 'Not yet executed' when ledger has no primary model successes"
+            "Phase 3 First Paid-Credit Run must show 'Not yet executed' when ledger has no primary model paid-credit attempts"
         )
 
     def test_phase3_shows_promote_approved(self, tmp_path: Path) -> None:
@@ -1129,52 +1173,134 @@ class TestPhase3MandatoryFields:
     def test_phase3_executed_count_when_ledger_has_primary_success(
         self, tmp_path: Path
     ) -> None:
-        """When ledger has a successful primary model run, show Executed count."""
-        import scripts.update_readme as mod
-
-        readme_path = _make_readme(tmp_path)
-        genome_path = _make_genome(tmp_path, overrides={
-            "live_model_enabled": True,
-            "model_name": "gemini-3-flash-preview",
-        })
-        ledger_path = tmp_path / "ledger_with_success.json"
-        ledger_path.write_text(json.dumps([
-            {
+        """When ledger has a successful paid-credit run for primary model, show Executed."""
+        _, block = _run_update_with_ledger(
+            tmp_path,
+            ledger_data=[{
                 "model": "gemini-3-flash-preview",
                 "success": True,
                 "api_mode": "gemini_paid_credit",
-            }
-        ]))
+            }],
+            genome_overrides={
+                "live_model_enabled": True,
+                "model_name": "gemini-3-flash-preview",
+            },
+        )
+        assert "Executed" in block, (
+            "Phase 3 First Paid-Credit Run must show Executed when ledger has primary model success"
+        )
+        assert "successful" in block, (
+            "Executed status must include successful count"
+        )
+        assert "attempt" in block, (
+            "Executed status must include total attempt count"
+        )
+        assert "Not yet executed" not in block, (
+            "Not yet executed must not appear when there are primary model paid-credit successes"
+        )
 
-        original_genome = mod._GENOME_PATH
-        original_history = mod._HISTORY_PATH
-        original_threats = mod._THREATS_PATH
-        original_report = mod._REPORT_PATH
-        original_ledger = mod._LEDGER_PATH
-        mod._GENOME_PATH = genome_path
-        mod._HISTORY_PATH = tmp_path / "evolution_history.json"
-        (tmp_path / "evolution_history.json").write_text("[]")
-        mod._THREATS_PATH = tmp_path / "active_threats.json"
-        (tmp_path / "active_threats.json").write_text("[]")
-        mod._REPORT_PATH = tmp_path / "nonexistent_report.json"
-        mod._LEDGER_PATH = ledger_path
+    def test_phase3_attempted_but_failed_when_primary_only_fails(
+        self, tmp_path: Path
+    ) -> None:
+        """When ledger has failed paid-credit attempts for primary model, show Attempted but failed."""
+        _, block = _run_update_with_ledger(
+            tmp_path,
+            ledger_data=[{
+                "model": "gemini-3-flash-preview",
+                "success": False,
+                "api_mode": "gemini_paid_credit",
+                "error": "ClientError",
+            }],
+            genome_overrides={
+                "live_model_enabled": True,
+                "model_name": "gemini-3-flash-preview",
+            },
+        )
+        assert "Attempted but failed" in block, (
+            "Phase 3 First Paid-Credit Run must show 'Attempted but failed' when all primary paid-credit attempts failed"
+        )
+        assert "Not yet executed" not in block, (
+            "Failed attempt must NOT be shown as 'Not yet executed'"
+        )
+        assert "inspect ledger" in block.lower(), (
+            "Attempted but failed status must prompt to inspect ledger before rerun"
+        )
 
-        try:
-            success = update_readme(readme_path)
-            assert success
-            block = _extract_block(readme_path.read_text(encoding="utf-8"))
-            assert "Executed" in block, (
-                "Phase 3 First Paid-Credit Run must show Executed when ledger has primary model success"
-            )
-            assert "Not yet executed" not in block, (
-                "Not yet executed must not appear when there are primary model successes"
-            )
-        finally:
-            mod._GENOME_PATH = original_genome
-            mod._HISTORY_PATH = original_history
-            mod._THREATS_PATH = original_threats
-            mod._REPORT_PATH = original_report
-            mod._LEDGER_PATH = original_ledger
+    def test_phase3_not_yet_executed_when_only_fallback_model_in_ledger(
+        self, tmp_path: Path
+    ) -> None:
+        """Ledger records for a different (fallback) model must not count as primary attempts."""
+        _, block = _run_update_with_ledger(
+            tmp_path,
+            ledger_data=[{
+                "model": "gemini-3.1-flash-lite",
+                "success": True,
+                "api_mode": "gemini_paid_credit",
+            }],
+            genome_overrides={
+                "live_model_enabled": True,
+                "model_name": "gemini-3-flash-preview",
+                "fallback_model_name": "gemini-3.1-flash-lite",
+            },
+        )
+        assert "Not yet executed" in block, (
+            "gemini-3.1-flash-lite success must not count as gemini-3-flash-preview attempt"
+        )
+
+    def test_phase3_not_yet_executed_when_non_paid_credit_mode(
+        self, tmp_path: Path
+    ) -> None:
+        """Records with api_mode other than gemini_paid_credit must not count as paid-credit attempts."""
+        _, block = _run_update_with_ledger(
+            tmp_path,
+            ledger_data=[{
+                "model": "gemini-3-flash-preview",
+                "success": True,
+                "api_mode": "offline_sample",
+            }],
+            genome_overrides={
+                "live_model_enabled": True,
+                "model_name": "gemini-3-flash-preview",
+            },
+        )
+        assert "Not yet executed" in block, (
+            "non-gemini_paid_credit api_mode records must not count as paid-credit attempts"
+        )
+
+    def test_phase3_failed_attempt_not_shown_as_not_yet_executed_regression(
+        self, tmp_path: Path
+    ) -> None:
+        """Regression guard: success=False primary model record must never show Not yet executed."""
+        _, block = _run_update_with_ledger(
+            tmp_path,
+            ledger_data=[
+                {
+                    "model": "gemini-3-flash-preview",
+                    "success": False,
+                    "api_mode": "gemini_paid_credit",
+                    "error": "NOT_FOUND",
+                },
+                {
+                    "model": "gemini-3-flash-preview",
+                    "success": False,
+                    "api_mode": "gemini_paid_credit",
+                    "error": "QUOTA_EXCEEDED",
+                },
+            ],
+            genome_overrides={
+                "live_model_enabled": True,
+                "model_name": "gemini-3-flash-preview",
+            },
+        )
+        assert "Not yet executed" not in block, (
+            "Regression: failed attempts must NOT be shown as 'Not yet executed'"
+        )
+        assert "Attempted but failed" in block, (
+            "Multiple failures must show 'Attempted but failed'"
+        )
+        assert "2" in block, (
+            "Attempted but failed must show the attempt count (2)"
+        )
 
 
 # ---------------------------------------------------------------------------

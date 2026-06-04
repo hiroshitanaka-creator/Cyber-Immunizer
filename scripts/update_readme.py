@@ -119,22 +119,31 @@ def _build_status_block() -> str:
     # Phase 3 when live_model_enabled=true; Phase 2 otherwise.
     if live_model_enabled:
         current_phase = "Phase 3 — paid-credit path ready, Gemini 3 Flash Preview run pending"
-        # Check ledger for successful runs with the current primary model.
-        # "Gemini API first live call" is intentionally NOT used here: past ledger records
-        # may exist for earlier models (e.g. gemini-3.1-flash-lite). This field tracks
-        # runs for the current genome's primary model only.
-        primary_successes = []
+        # Check ledger for paid-credit attempts with the current primary model.
+        # Both success=True and success=False records count as "attempted" — a
+        # failed run still reached the API and must not be shown as "Not yet executed".
+        # Only records with api_mode=="gemini_paid_credit" count; other modes
+        # (noop, offline-sample) do not constitute a paid-credit attempt.
+        primary_attempts: list[dict] = []
         if isinstance(ledger, list):
-            primary_successes = [
+            primary_attempts = [
                 e for e in ledger
                 if isinstance(e, dict)
                 and e.get("model") == model_name
-                and e.get("success") is True
+                and e.get("api_mode") == "gemini_paid_credit"
             ]
-        if primary_successes:
-            p3_run_status = f"Executed ({len(primary_successes)} successful run(s))"
-        else:
+        if not primary_attempts:
             p3_run_status = "Not yet executed"
+        else:
+            n_total = len(primary_attempts)
+            n_success = sum(1 for e in primary_attempts if e.get("success") is True)
+            if n_success > 0:
+                p3_run_status = f"Executed ({n_success} successful / {n_total} attempt(s))"
+            else:
+                p3_run_status = (
+                    f"Attempted but failed ({n_total} attempt(s))"
+                    " — inspect ledger before rerun"
+                )
         phase_rows: list[str] = [
             f"| Phase 3 Activation | Complete (PR #58-#62) |",
             f"| Phase 3 First Paid-Credit Run | {p3_run_status} |",
