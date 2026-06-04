@@ -747,7 +747,7 @@ class TestOtherJobsHaveNoRawApiKey:
 # ===========================================================================
 
 class TestPromoteGate:
-    """Promote job must require explicit Human Owner approval via workflow_dispatch.
+    """Promote job must require explicit Project Owner approval via workflow_dispatch.
 
     All checks use text / regex inspection of the workflow file — no YAML parser.
     """
@@ -759,7 +759,7 @@ class TestPromoteGate:
         wf_dispatch = _workflow_dispatch_section(loop_workflow_text)
         assert "promote_approved:" in wf_dispatch, (
             "workflow_dispatch inputs must include 'promote_approved:'. "
-            "Without this input, Human Owner cannot gate the promote job."
+            "Without this input, Project Owner cannot gate the promote job."
         )
 
     def test_promote_approved_default_is_false(
@@ -784,7 +784,7 @@ class TestPromoteGate:
         block = m.group(1)
         assert 'default: "false"' in block, (
             f"promote_approved input default must be '\"false\"'. "
-            "A truthy default would allow unintended promotion without Human Owner approval. "
+            "A truthy default would allow unintended promotion without Project Owner approval. "
             f"promote_approved block:\n{block}"
         )
 
@@ -808,7 +808,7 @@ class TestPromoteGate:
         assert "promote_approved == 'true'" in if_str, (
             "promote job if condition must require "
             "github.event.inputs.promote_approved == 'true'. "
-            "Without this, generated code could be promoted without Human Owner approval. "
+            "Without this, generated code could be promoted without Project Owner approval. "
             f"Extracted if condition: {if_str!r}"
         )
 

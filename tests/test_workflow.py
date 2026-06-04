@@ -956,7 +956,7 @@ class TestCommitPromotedChangesShellQuoting:
 
 
 # ---------------------------------------------------------------------------
-# 15. Critical #1: Human Owner promote_approved gate
+# 15. Critical #1: Project Owner promote_approved gate
 # ---------------------------------------------------------------------------
 
 
@@ -982,12 +982,12 @@ class TestPromoteApprovedInputExists:
     ) -> None:
         """workflow_dispatch inputs must include promote_approved.
 
-        Human Owner approval gate requires a promote_approved input so the
-        promote job can be gated on explicit Human Owner selection.
+        Project Owner approval gate requires a promote_approved input so the
+        promote job can be gated on explicit Project Owner selection.
         """
         assert "promote_approved" in workflow_dispatch_inputs_section, (
             "workflow_dispatch inputs must include 'promote_approved'. "
-            "The promote job must require Human Owner explicit approval."
+            "The promote job must require Project Owner explicit approval."
         )
 
     def test_promote_approved_default_is_false(
@@ -996,7 +996,7 @@ class TestPromoteApprovedInputExists:
         """promote_approved input must default to 'false'.
 
         Defaulting to 'false' ensures the promote job is never triggered
-        accidentally without explicit Human Owner decision.
+        accidentally without explicit Project Owner decision.
         """
         # Extract the promote_approved sub-section
         match = re.search(
@@ -1010,7 +1010,7 @@ class TestPromoteApprovedInputExists:
         block = match.group(1)
         assert 'default: "false"' in block or "default: 'false'" in block, (
             "promote_approved input must have default: \"false\". "
-            "Defaulting to 'true' would allow promote without Human Owner approval."
+            "Defaulting to 'true' would allow promote without Project Owner approval."
         )
 
     def test_promote_approved_default_is_not_true(
@@ -1019,7 +1019,7 @@ class TestPromoteApprovedInputExists:
         """promote_approved input must NOT default to 'true'.
 
         A default of 'true' would allow the promote job to run without explicit
-        Human Owner approval on every workflow_dispatch run.
+        Project Owner approval on every workflow_dispatch run.
         """
         match = re.search(
             r"promote_approved:(.*?)(?=\n      [a-zA-Z]|\Z)",
@@ -1032,7 +1032,7 @@ class TestPromoteApprovedInputExists:
         block = match.group(1)
         assert 'default: "true"' not in block and "default: 'true'" not in block, (
             "promote_approved input must NOT have default: \"true\". "
-            "The default must be 'false' to require explicit Human Owner approval."
+            "The default must be 'false' to require explicit Project Owner approval."
         )
 
     def test_promote_approved_options_include_false(
@@ -1075,7 +1075,7 @@ class TestPromoteApprovedInputExists:
         """promote_approved options must be exactly ["false", "true"] — no other values.
 
         Extra options (e.g. "maybe", "auto", "skip") would widen the gate beyond
-        the two-value safe/unsafe boundary expected by the Human Owner approval design.
+        the two-value safe/unsafe boundary expected by the Project Owner approval design.
         This test parses the YAML options list under promote_approved and verifies
         only the two canonical values are present.
         """
@@ -1107,7 +1107,7 @@ class TestPromoteApprovedInputExists:
         assert set(found_options) == {"false", "true"}, (
             f"promote_approved options must be exactly ['false', 'true']. "
             f"Found: {found_options!r}. "
-            "Extra or missing options would break the two-value Human Owner gate."
+            "Extra or missing options would break the two-value Project Owner gate."
         )
         assert len(found_options) == 2, (
             f"promote_approved options must have exactly 2 entries ('false' and 'true'). "
@@ -1116,7 +1116,7 @@ class TestPromoteApprovedInputExists:
 
 
 class TestPromoteJobIfConditionHumanOwnerGate:
-    """Verify the promote job if condition enforces Human Owner approval gate."""
+    """Verify the promote job if condition enforces Project Owner approval gate."""
 
     def test_promote_if_requires_workflow_dispatch(
         self, promote_section: str
@@ -1137,12 +1137,12 @@ class TestPromoteJobIfConditionHumanOwnerGate:
     ) -> None:
         """promote job if condition must require promote_approved == 'true'.
 
-        Without this gate, the promote job can run without Human Owner approval.
+        Without this gate, the promote job can run without Project Owner approval.
         """
         assert "github.event.inputs.promote_approved == 'true'" in promote_section, (
             "promote job if condition must include "
             "github.event.inputs.promote_approved == 'true'. "
-            "Human Owner must explicitly set promote_approved=true to allow promotion."
+            "Project Owner must explicitly set promote_approved=true to allow promotion."
         )
 
     def test_promote_if_still_requires_passed_adoption_gate(
@@ -1156,7 +1156,7 @@ class TestPromoteJobIfConditionHumanOwnerGate:
         assert "needs.evaluate.outputs.passed_adoption_gate == 'true'" in promote_section, (
             "promote job if condition must still include "
             "needs.evaluate.outputs.passed_adoption_gate == 'true'. "
-            "The adoption gate must remain in addition to the Human Owner gate."
+            "The adoption gate must remain in addition to the Project Owner gate."
         )
 
     def test_promote_if_still_requires_propose_not_failed(
@@ -1248,7 +1248,7 @@ class TestOfflineSampleAloneCannotPromote:
         assert "github.event.inputs.promote_approved == 'true'" in promote_section, (
             "promote job must check promote_approved == 'true'. "
             "offline-sample success alone (adoption gate passed) must not trigger promote. "
-            "Human Owner must explicitly set promote_approved=true."
+            "Project Owner must explicitly set promote_approved=true."
         )
 
 
@@ -1300,7 +1300,7 @@ class TestNormalCINotAffected:
             ci_content = ci_path.read_text(encoding="utf-8")
             assert "promote_approved" not in ci_content, (
                 "ci.yml must NOT contain 'promote_approved'. "
-                "Normal CI workflow must not be affected by the Human Owner gate changes."
+                "Normal CI workflow must not be affected by the Project Owner gate changes."
             )
 
     def test_ci_workflow_does_not_have_contents_write(self) -> None:
@@ -1351,7 +1351,7 @@ class TestRegressionGuardPromoteApproved:
         """Regression guard: promote job must reference promote_approved."""
         assert "promote_approved" in promote_section, (
             "REGRESSION: promote job does not reference promote_approved. "
-            "Human Owner gate is not enforced."
+            "Project Owner gate is not enforced."
         )
 
     def test_promote_job_checks_workflow_dispatch_regression(

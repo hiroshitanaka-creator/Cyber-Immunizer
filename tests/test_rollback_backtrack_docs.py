@@ -188,16 +188,16 @@ class TestRollbackBacktrackDesignContent:
         )
 
     def test_human_owner_approval_required(self) -> None:
-        """ROLLBACK_BACKTRACK_DESIGN.md must state that Human Owner approval is required."""
-        assert "Human Owner" in self.content, (
-            "ROLLBACK_BACKTRACK_DESIGN.md must mention Human Owner"
+        """ROLLBACK_BACKTRACK_DESIGN.md must state that Project Owner approval is required."""
+        assert "Project Owner" in self.content, (
+            "ROLLBACK_BACKTRACK_DESIGN.md must mention Project Owner"
         )
         assert (
             "承認" in self.content
             or "approval" in self.content.lower()
             or "承認なしにcommitしない" in self.content
         ), (
-            "ROLLBACK_BACKTRACK_DESIGN.md must state that Human Owner approval is required "
+            "ROLLBACK_BACKTRACK_DESIGN.md must state that Project Owner approval is required "
             "before committing rollback/backtrack"
         )
 

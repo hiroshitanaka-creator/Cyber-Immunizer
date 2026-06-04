@@ -1,9 +1,9 @@
 <!--
 AI_DOC_META
 status: CURRENT
-scope: Human Owner roadmap for Phase 3 through Phase 7. Thread handoff guidance for future AI instances. Updated to reflect Phase 3 activation (PR #58-#62 merged, first paid-credit run pending).
+scope: Project Owner roadmap for Phase 3 through Phase 7. Thread handoff guidance for future AI instances. Updated to reflect Phase 3 activation (PR #58-#62 merged, first paid-credit run pending).
 use_for:
-  - Human Owner planning for Phase 3 paid-credit execution and Phase 4–7
+  - Project Owner planning for Phase 3 paid-credit execution and Phase 4–7
   - thread handoff: what to paste at the start of a new AI thread
   - identifying which docs to read first in a new thread
   - understanding Phase 3 current state (activation complete, first run pending)
@@ -22,9 +22,9 @@ last_reviewed: 2026-06-03
 AI_DOC_META_END
 -->
 
-# Human Owner Roadmap: Phase 3 through Phase 7
+# Project Owner Roadmap: Phase 3 through Phase 7
 
-> **This is a Human Owner roadmap and thread handoff document.**
+> **This is a Project Owner roadmap and thread handoff document.**
 > This is not Phase 3 activation.
 > This does not permit API connection.
 > This does not permit GitHub Secrets setup.
@@ -35,7 +35,7 @@ AI_DOC_META_END
 
 ## 1. Purpose
 
-This document provides the Human Owner with a roadmap for Phase 3 through Phase 7 of Project Cyber-Immunizer.
+This document provides the Project Owner with a roadmap for Phase 3 through Phase 7 of Project Cyber-Immunizer.
 
 It also serves as a thread handoff document so that later AI instances (GPT, Claude, Codex) do not drift from the established project boundaries and safety constraints.
 
@@ -59,7 +59,7 @@ Current state as of PR #62 (merged into main on 2026-06-03):
 - Gemini API FIRST LIVE CALL: NOT YET EXECUTED.
 - paid-credit run: NOT YET EXECUTED — Project Owner triggers 1 run manually.
 - promote_approved: false — prohibited until first run result reviewed.
-- GitHub Secrets are Human Owner managed (not set by AI).
+- GitHub Secrets are Project Owner managed (not set by AI).
 
 Before doing any work, read these documents in order:
 1. docs/AI_ENTRYPOINT.md
@@ -82,7 +82,7 @@ Current state as of PR #53 (merged):
 - Phase 3 has NOT started.
 - Gemini API is NOT connected.
 - live_model_enabled=false.
-- GitHub Secrets are Human Owner managed (not set by AI).
+- GitHub Secrets are Project Owner managed (not set by AI).
 - No real Gemini API calls have been made by repository work.
 
 (This block is now HISTORICAL. See the current state block above for PR #62 state.)
@@ -114,8 +114,8 @@ Current state as of PR #53 (merged):
 | Primary model | gemini-3-flash-preview (PR #62) |
 | Fallback model | gemini-3.1-flash-lite (PR #62) |
 | promote_approved | false (prohibited until first run result reviewed) |
-| GitHub Secrets | Human Owner managed |
-| Human Owner Phase 3 GO | Given (PR #58 merged with Human Owner approval) |
+| GitHub Secrets | Project Owner managed |
+| Project Owner Phase 3 GO | Given (PR #58 merged with Project Owner approval) |
 
 ### Phase 3 Activation PR Summary
 
@@ -135,20 +135,20 @@ Current state as of PR #53 (merged):
 | Phase 3 | Not started |
 | Gemini API | Not connected |
 | live_model_enabled | false |
-| GitHub Secrets | Human Owner managed |
-| Human Owner Phase 3 GO | Not given |
+| GitHub Secrets | Project Owner managed |
+| Project Owner Phase 3 GO | Not given |
 
 ---
 
 ## 4. Phase 3 Activation Gate
 
-Before any Phase 3 activation work begins, the following gate question **must be asked by the AI and answered GO by the Human Owner**:
+Before any Phase 3 activation work begins, the following gate question **must be asked by the AI and answered GO by the Project Owner**:
 
 > "ここからは Phase 3 activation PR です。
 > Gemini API接続、live_model_enabled、GitHub Secrets使用に関係します。
 > 進めてよいですか？"
 
-**Without explicit Human Owner GO to this exact question, Phase 3 activation work is prohibited.**
+**Without explicit Project Owner GO to this exact question, Phase 3 activation work is prohibited.**
 
 This gate applies to any work involving:
 - Connecting the Gemini API
@@ -171,7 +171,7 @@ This gate applies to any work involving:
 - All Phase 2.5 PRs merged into main.
 - All tests passing on current head.
 - Phase 2.5 closeout audit document created (`docs/PHASE_2_5_CLOSEOUT_AUDIT.md`).
-- Human Owner roadmap document created (this file).
+- Project Owner roadmap document created (this file).
 
 **Status:** Complete as of PR #53.
 
@@ -179,7 +179,7 @@ This gate applies to any work involving:
 
 ### Phase 3 Go/No-Go Review (Complete ✅)
 
-**Status: Complete.** Human Owner reviewed all Go/No-Go conditions and authorized Phase 3 activation.
+**Status: Complete.** Project Owner reviewed all Go/No-Go conditions and authorized Phase 3 activation.
 
 **Key documents:**
 - `docs/PHASE_3_GO_NO_GO_CHECKLIST.md` — Section 2a: Phase 3 Activation Record
@@ -215,14 +215,14 @@ This gate applies to any work involving:
 - Budget cap is exceeded or approaching.
 - Ledger write fails after API success (expected behavior: return no patch; stop and investigate).
 - Any unexpected system behavior during first live run.
-- Human Owner decides to stop.
+- Project Owner decides to stop.
 
 **Completion conditions:**
 - First real Gemini API call succeeds in a controlled `workflow_dispatch` run.
 - Ledger records the API usage correctly (including thinking tokens).
 - Budget caps are respected.
-- No patch is promoted unless all adoption gates pass AND Human Owner reviews.
-- Human Owner reviews and accepts the first live run result.
+- No patch is promoted unless all adoption gates pass AND Project Owner reviews.
+- Project Owner reviews and accepts the first live run result.
 
 ---
 
@@ -235,12 +235,12 @@ This gate applies to any work involving:
 **Key activities:**
 - Multiple `workflow_dispatch` runs with `gemini-paid-credit` or `live-model` mode.
 - Review of fitness scores, adoption gate pass/fail rates, and ledger entries.
-- Human Owner monitors each run.
+- Project Owner monitors each run.
 - Adjustment of genome parameters (budget caps, resource limits) as needed.
 
 **Prohibitions:**
-- No cron/scheduled live API runs until Human Owner explicitly authorizes.
-- No promotion of candidates without Human Owner review (if adoption gate is not yet trusted).
+- No cron/scheduled live API runs until Project Owner explicitly authorizes.
+- No promotion of candidates without Project Owner review (if adoption gate is not yet trusted).
 - No weakening of AST policy or evaluation gates.
 - No removal of resource limits.
 
@@ -248,23 +248,23 @@ This gate applies to any work involving:
 - Repeated adoption gate failures without understood root cause.
 - Budget unexpectedly consumed faster than expected.
 - Ledger integrity issues.
-- Human Owner decides to pause.
+- Project Owner decides to pause.
 
 **Completion conditions:**
 - Multiple successful mutation cycles with understood outcomes.
-- Human Owner trusts the adoption gate behavior.
+- Project Owner trusts the adoption gate behavior.
 - Budget management is proven stable.
 
 ---
 
 ### Phase 5 Promotion Governance (Future)
 
-**Objective:** Establish a repeatable, audited promotion process. Define when promoted detectors require Human Owner review vs. automated approval.
+**Objective:** Establish a repeatable, audited promotion process. Define when promoted detectors require Project Owner review vs. automated approval.
 
 **Prerequisites:** Phase 4 complete and stable.
 
 **Key activities:**
-- Define promotion tiers: automated vs. Human Owner reviewed.
+- Define promotion tiers: automated vs. Project Owner reviewed.
 - Establish promotion audit log requirements.
 - Add tests for promotion governance rules.
 - Document rollback procedures for promoted detectors.
@@ -280,7 +280,7 @@ This gate applies to any work involving:
 **Completion conditions:**
 - Promotion governance policy documented and tested.
 - Rollback procedure tested end-to-end (dry run acceptable).
-- Human Owner approves governance policy.
+- Project Owner approves governance policy.
 
 ---
 
@@ -311,16 +311,16 @@ This gate applies to any work involving:
 
 **Objective:** Enable more frequent, partially automated evolution cycles with strong governance and monitoring.
 
-**Prerequisites:** Phases 4–6 complete. Human Owner explicitly authorizes increased automation.
+**Prerequisites:** Phases 4–6 complete. Project Owner explicitly authorizes increased automation.
 
 **Key activities:**
-- Enable cron-scheduled `gemini-paid-credit` runs (requires explicit Human Owner authorization).
+- Enable cron-scheduled `gemini-paid-credit` runs (requires explicit Project Owner authorization).
 - Increase `max_model_requests_per_run` carefully (requires genome PR review).
 - Expand AST policy whitelist as needed (requires dedicated whitelist PR).
 - Extend regression test suite to match expanded mutation space.
 
 **Prohibitions:**
-- No cron activation without explicit Human Owner authorization.
+- No cron activation without explicit Project Owner authorization.
 - No `max_model_requests_per_run` increase without genome PR review.
 - No AST policy relaxation without documented justification.
 - No weakening of adoption gates.
@@ -329,12 +329,12 @@ This gate applies to any work involving:
 - Budget consumed faster than modeled.
 - Adoption gate failures spike.
 - Unexpected candidate promotions.
-- Human Owner decides to scale back.
+- Project Owner decides to scale back.
 
 **Completion conditions:**
 - Cron runs stable across multiple weeks.
 - Budget under control.
-- Human Owner satisfied with automation level.
+- Project Owner satisfied with automation level.
 
 ---
 
@@ -363,7 +363,7 @@ The following prohibitions apply across all phases, regardless of phase:
 
 ---
 
-*This is a Human Owner roadmap for Project Cyber-Immunizer.*
+*This is a Project Owner roadmap for Project Cyber-Immunizer.*
 *Phase 3 activation complete (PR #58–#62) / first paid-credit run pending / live_model_enabled=true.*
 *This document does not authorize running paid-credit or setting promote_approved=true.*
 *Created: 2026-05-31 / Updated: 2026-06-03*

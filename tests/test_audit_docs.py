@@ -70,7 +70,7 @@ class TestAuditCharterContent:
 
     def test_charter_has_role_assignments(self) -> None:
         """Charter must define role assignments."""
-        assert "Human Owner" in self.content, "Charter must define Human Owner role"
+        assert "Project Owner" in self.content, "Charter must define Project Owner role"
         assert "GPT Audit Gate" in self.content, "Charter must define GPT Audit Gate role"
         assert "Claude Code" in self.content, "Charter must define Claude Code role"
 
@@ -221,13 +221,13 @@ class TestPRTemplateContent:
         )
 
     def test_template_has_human_owner_section(self) -> None:
-        """PR template must have a Human Owner final decision section."""
-        assert "Human Owner" in self.content, (
-            "PR template must have a Human Owner final decision section"
+        """PR template must have a Project Owner final decision section."""
+        assert "Project Owner" in self.content, (
+            "PR template must have a Project Owner final decision section"
         )
 
     def test_template_has_merge_approval_checkbox(self) -> None:
-        """PR template Human Owner section must include merge approval checkbox."""
+        """PR template Project Owner section must include merge approval checkbox."""
         assert "マージ承認" in self.content or "merge" in self.content.lower(), (
             "PR template must include a merge approval checkbox"
         )

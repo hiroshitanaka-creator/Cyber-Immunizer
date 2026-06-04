@@ -99,11 +99,11 @@ class TestApiActivationChecklistSections(_ChecklistFixture):
         )
 
     def test_has_human_owner_approval_gate_section(self) -> None:
-        """Checklist must have a Human Owner approval gate section."""
-        assert "Human Owner approval gate" in self.content or (
-            "Human Owner" in self.content and "approval gate" in self.content
+        """Checklist must have a Project Owner approval gate section."""
+        assert "Project Owner approval gate" in self.content or (
+            "Project Owner" in self.content and "approval gate" in self.content
         ), (
-            "docs/API_ACTIVATION_CHECKLIST.md must have a 'Human Owner approval gate' section"
+            "docs/API_ACTIVATION_CHECKLIST.md must have a 'Project Owner approval gate' section"
         )
 
     def test_has_required_pre_activation_checks_section(self) -> None:
@@ -216,16 +216,16 @@ class TestApiActivationChecklistSafetyBoundaries(_ChecklistFixture):
         )
 
     def test_states_phase3_requires_human_owner_decision(self) -> None:
-        """Checklist must state that Phase 3 requires Human Owner decision."""
+        """Checklist must state that Phase 3 requires Project Owner decision."""
         assert "Phase 3" in self.content, (
             "Checklist must mention Phase 3"
         )
         content_lower = self.content.lower()
         assert (
-            "human owner" in content_lower
-            or "Human Owner" in self.content
+            "project owner" in content_lower
+            or "Project Owner" in self.content
         ), (
-            "Checklist must mention Human Owner"
+            "Checklist must mention Project Owner"
         )
         assert (
             "requires" in content_lower
@@ -233,7 +233,7 @@ class TestApiActivationChecklistSafetyBoundaries(_ChecklistFixture):
             or "判断" in self.content
             or "明示的" in self.content
         ), (
-            "Checklist must state that Phase 3 requires Human Owner decision"
+            "Checklist must state that Phase 3 requires Project Owner decision"
         )
 
     def test_states_api_activation_in_dedicated_pr(self) -> None:
@@ -588,25 +588,25 @@ class TestReadmeAndPlanChecklistLinks:
         assert (
             "phase 3 is not started" in content_lower
             or "phase 3 not started" in content_lower
-            or "phase 3（実" in self.readme and "human owner" in content_lower
+            or "phase 3（実" in self.readme and "project owner" in content_lower
         ), (
             "README.md must state that Phase 3 is not started"
         )
 
     def test_phase2_plan_phase3_not_started(self) -> None:
-        """PHASE_2_PLAN.md must state that Phase 3 is not started / requires Human Owner decision."""
+        """PHASE_2_PLAN.md must state that Phase 3 is not started / requires Project Owner decision."""
         content_lower = self.plan.lower()
         assert (
             "phase 3 not started" in content_lower
             or "phase 3 requires" in content_lower
-            or "phase 3 への移行は human owner" in content_lower
+            or "phase 3 への移行は project owner" in content_lower
             or (
                 "phase 3" in content_lower
-                and "human owner" in content_lower
+                and "project owner" in content_lower
                 and "decision" in content_lower
             )
         ), (
-            "PHASE_2_PLAN.md must state that Phase 3 is not started / requires Human Owner decision"
+            "PHASE_2_PLAN.md must state that Phase 3 is not started / requires Project Owner decision"
         )
 
     def test_readme_api_not_connected(self) -> None:
@@ -653,8 +653,8 @@ class TestReadmeAndPlanChecklistLinks:
         assert (
             "does not mean phase 3 is underway" in content_lower
             or "does not mean phase 3" in content_lower
-            or "phase 3 requires human owner" in content_lower
-            or "phase 3 への移行は human owner" in content_lower
+            or "phase 3 requires project owner" in content_lower
+            or "phase 3 への移行は project owner" in content_lower
         ), (
             "PHASE_2_PLAN.md must clarify that Phase 2 complete does not mean Phase 3 is underway"
         )
@@ -783,8 +783,8 @@ class TestForbiddenPhrases:
         self._assert_phrase_absent("ledger can be rolled back")
 
     def test_no_human_owner_approval_is_optional(self) -> None:
-        """'Human Owner approval is optional' must not appear in any target document."""
-        self._assert_phrase_absent("Human Owner approval is optional")
+        """'Project Owner approval is optional' must not appear in any target document."""
+        self._assert_phrase_absent("Project Owner approval is optional")
 
     def test_no_gpt_audit_gate_approval_is_optional(self) -> None:
         """'GPT Audit Gate approval is optional' must not appear in any target document."""
@@ -852,8 +852,8 @@ class TestForbiddenPhrases:
         self._assert_phrase_absent("ledgerを巻き戻してよい")
 
     def test_no_human_owner_approval_unnecessary_japanese(self) -> None:
-        """'Human Owner承認は不要' must not appear in any target document."""
-        self._assert_phrase_absent("Human Owner承認は不要")
+        """'Project Owner承認は不要' must not appear in any target document."""
+        self._assert_phrase_absent("Project Owner承認は不要")
 
     def test_no_gpt_audit_gate_approval_unnecessary_japanese(self) -> None:
         """'GPT Audit Gate承認は不要' must not appear in any target document."""

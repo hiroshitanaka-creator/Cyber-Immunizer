@@ -14,7 +14,7 @@ on:
           - gemini-paid-credit
           - gemini-paid-credit-preflight
       promote_approved:
-        description: "Human Owner explicit approval for promote job"
+        description: "Project Owner explicit approval for promote job"
         required: true
         default: "false"
         type: choice

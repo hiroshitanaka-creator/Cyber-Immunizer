@@ -27,7 +27,7 @@ AI_DOC_META_END
 
 - `core/detector.py` の退化・誤昇格・fitness低下・regression破壊に備える
 - API未接続の Phase 2 で、将来実装前に安全境界を固定する
-- Human Owner の承認なく過去世代へ戻ることを防ぐ設計を定義する
+- Project Owner の承認なく過去世代へ戻ることを防ぐ設計を定義する
 
 ---
 
@@ -73,28 +73,28 @@ rollback / backtrack の対象になり得るファイル:
 
 ## Rollback trigger conditions
 
-以下を候補として記載する。実装時はこのリストを起点に Human Owner が判断する。
+以下を候補として記載する。実装時はこのリストを起点に Project Owner が判断する。
 
 - promote後にregressionが失敗した
 - false positive が急増した
 - all-block detector化した（全リクエストをブロックする状態）
 - all-allow detector化した（全リクエストを許可する状態）
 - detector hash が期待値と一致しない
-- Human Owner が明示的にrollbackを要求した
+- Project Owner が明示的にrollbackを要求した
 - GPT Audit Gate がBLOCKを出した
 
 ---
 
 ## Backtrack trigger conditions
 
-以下を候補として記載する。実装時はこのリストを起点に Human Owner が判断する。
+以下を候補として記載する。実装時はこのリストを起点に Project Owner が判断する。
 
 - N世代連続でbest_scoreが更新されない
 - fitness scoreが連続低下した
 - regression維持に失敗した
 - adoption gateの連続失敗
 - 新規適応により過去の防御性能が退化した
-- Human Ownerが明示的にbacktrackを要求した
+- Project Owner が明示的にbacktrackを要求した
 
 ---
 
@@ -107,7 +107,7 @@ rollback / backtrack 実装時に必ず遵守すること:
 - rollback後もfitness/regressionを再実行する
 - rollback/backtrackはdry-runをデフォルトにする
 - API usage ledgerは巻き戻さない
-- rollback/backtrackはHuman Owner承認なしにcommitしない
+- rollback/backtrackはProject Owner承認なしにcommitしない
 - promote jobが未検証artifactを信用してはならない
 - rollback対象のdetector hashを検証する
 - rollback後のdetector hashを記録する
@@ -125,14 +125,14 @@ python scripts/rollback_generation.py --to-generation 2 --dry-run
 # 過去最高世代へdry-run
 python scripts/rollback_generation.py --to-best --dry-run
 
-# Human Owner承認後の実適用（--dry-runなし）
+# Project Owner承認後の実適用（--dry-runなし）
 python scripts/rollback_generation.py --to-generation 2 --apply
 ```
 
 設計方針:
 
 - デフォルトは必ずdry-run
-- `--apply` はHuman Owner承認後のみ
+- `--apply` はProject Owner承認後のみ
 - `--apply`時も事前にAST policy / fitness / regressionを通す
 - API usage ledgerは変更しない
 - 実装時はGPT Audit Gateレビュー必須
@@ -154,7 +154,7 @@ rollback/backtrack実行時に将来記録すべき項目:
 - `fitness_before`
 - `fitness_after`
 - `regression_result`
-- `human_owner_approval`
+- `human_owner_approval`  (Historical wording: `Human Owner`, now standardized as `Project Owner`)
 - `audit_gate_decision`
 - `timestamp`
 - `commit_sha`

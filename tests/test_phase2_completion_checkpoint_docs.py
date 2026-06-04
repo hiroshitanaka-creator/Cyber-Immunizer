@@ -550,15 +550,15 @@ class TestGitHubSecretsBoundary:
         )
 
     def test_states_human_owner_controls_secrets_out_of_band(self) -> None:
-        """Checkpoint must state Human Owner controls GitHub Secrets out-of-band."""
+        """Checkpoint must state Project Owner controls GitHub Secrets out-of-band."""
         content_lower = self.content.lower()
         assert (
-            "out-of-band by the human owner" in content_lower
-            or "human owner controlled" in content_lower
-            or ("out-of-band" in content_lower and "human owner" in content_lower)
+            "out-of-band by the project owner" in content_lower
+            or "project owner controlled" in content_lower
+            or ("out-of-band" in content_lower and "project owner" in content_lower)
         ), (
             "PHASE_2_COMPLETION_CHECKPOINT.md must state "
-            "GitHub Secrets are controlled out-of-band by the Human Owner"
+            "GitHub Secrets are controlled out-of-band by the Project Owner"
         )
 
     def test_states_gpt_audit_gate_cannot_verify_secret_contents(self) -> None:
@@ -683,9 +683,9 @@ class TestTraceabilityMatrixContent:
 
     def test_matrix_has_promote_requires_human_owner(self) -> None:
         section_lower = self.matrix_section.lower()
-        assert "promote requires human owner" in section_lower or \
-               ("promote" in section_lower and "human owner" in section_lower), (
-            "Traceability Matrix must include 'promote requires Human Owner approval'"
+        assert "promote requires project owner" in section_lower or \
+               ("promote" in section_lower and "project owner" in section_lower), (
+            "Traceability Matrix must include 'promote requires Project Owner approval'"
         )
 
     def test_matrix_has_phase3_requires_dedicated_pr(self) -> None:
@@ -823,8 +823,8 @@ class TestGoNoGoTemplateContent:
         )
 
     def test_has_human_owner_field(self) -> None:
-        assert "human owner" in self.content.lower(), (
-            "Go / No-Go template must have a Human Owner field"
+        assert "project owner" in self.content.lower(), (
+            "Go / No-Go template must have a Project Owner field"
         )
 
     def test_has_billing_budget_cap_confirmed(self) -> None:
@@ -887,7 +887,7 @@ class TestPhaseStateRegressionGuard:
         "live_model_enabled=true is active",
         "Phase 2 completion authorizes API activation",
         "Phase 2 completion starts Phase 3",
-        "Human Owner approval is optional",
+        "Project Owner approval is optional",
         "API activation can proceed automatically",
         "schedule calls Gemini API",
         "normal CI calls Gemini API",
@@ -904,7 +904,7 @@ class TestPhaseStateRegressionGuard:
         "live_model_enabled=true有効化済み",
         "Phase 2完了によりAPI接続を開始する",
         "Phase 2完了によりPhase 3開始",
-        "Human Owner承認は不要",
+        "Project Owner承認は不要",
         "API有効化を自動実行する",
         "scheduleでGemini APIを呼ぶ",
         "通常CIでGemini APIを呼ぶ",
@@ -1074,15 +1074,15 @@ class TestReviewPromptHygiene:
         )
 
     def test_human_owner_must_verify_prompt_target(self) -> None:
-        """Checkpoint must state Human Owner must verify review prompt target."""
+        """Checkpoint must state Project Owner must verify review prompt target."""
         content_lower = self.content.lower()
         assert (
-            "human owner" in content_lower
+            "project owner" in content_lower
             and "review prompt" in content_lower
         ) or (
             "verify the review prompt target" in content_lower
         ), (
-            "PHASE_2_COMPLETION_CHECKPOINT.md must state Human Owner must verify "
+            "PHASE_2_COMPLETION_CHECKPOINT.md must state Project Owner must verify "
             "the review prompt target"
         )
 
@@ -1184,11 +1184,11 @@ class TestCheckpointPhaseState:
     def test_states_human_owner_decision_required(self) -> None:
         content_lower = self.content.lower()
         assert (
-            "human owner" in content_lower
+            "project owner" in content_lower
             and ("decision required" in content_lower or "explicit decision" in content_lower
                  or "controlled" in content_lower or "required before" in content_lower)
         ), (
-            "PHASE_2_COMPLETION_CHECKPOINT.md must state Human Owner decision is required before Phase 3"
+            "PHASE_2_COMPLETION_CHECKPOINT.md must state Project Owner decision is required before Phase 3"
         )
 
     def test_states_phase3_requires_dedicated_pr(self) -> None:
@@ -1213,7 +1213,7 @@ class TestPromoteApprovalGateNotClaimedCovered:
     """Verify that promote approval gate unenforced state is correctly documented.
 
     Critical #1: immunization_loop.yml promote job checks only passed_adoption_gate.
-    There is no promote_approved=true gate requiring Human Owner or GPT Audit Gate.
+    There is no promote_approved=true gate requiring Project Owner or GPT Audit Gate.
     The Traceability Matrix must NOT mark these invariants as 'Covered' while
     workflow enforcement is pending.
     """
@@ -1224,7 +1224,7 @@ class TestPromoteApprovalGateNotClaimedCovered:
         self.content = _CHECKPOINT.read_text(encoding="utf-8")
 
     def test_promote_approval_gate_not_claimed_covered_until_workflow_enforced(self) -> None:
-        """promote requires Human Owner approval must NOT be 'Covered' while
+        """promote requires Project Owner approval must NOT be 'Covered' while
         immunization_loop.yml lacks promote_approved=true gate.
         """
         content = self.content
@@ -1238,11 +1238,11 @@ class TestPromoteApprovalGateNotClaimedCovered:
             "PHASE_2_COMPLETION_CHECKPOINT.md must state 'Not enforced' or "
             "'workflow enforcement pending' for promote approval gate invariants (Critical #1)"
         )
-        # Matrix row for 'promote requires Human Owner approval' must NOT be 'Covered'
+        # Matrix row for 'promote requires Project Owner approval' must NOT be 'Covered'
         for line in content.splitlines():
-            if "promote requires human owner approval" in line.lower() and line.strip().startswith("|"):
+            if "promote requires project owner approval" in line.lower() and line.strip().startswith("|"):
                 assert "| Covered |" not in line, (
-                    f"Traceability Matrix row 'promote requires Human Owner approval' "
+                    f"Traceability Matrix row 'promote requires Project Owner approval' "
                     f"must NOT be marked as '| Covered |' while workflow lacks promote_approved gate. "
                     f"Got: {line!r}"
                 )
@@ -1341,15 +1341,15 @@ class TestSafetyInvariantsPreservedExcludesUnenforced:
     # --- Negative: preamble bullet list must NOT contain the two promote items ---
 
     def test_preserved_preamble_excludes_promote_human_owner_approval(self) -> None:
-        """Safety Invariants Preserved preamble must NOT list 'promote requires Human Owner approval'.
+        """Safety Invariants Preserved preamble must NOT list 'promote requires Project Owner approval'.
 
         That invariant is not workflow-enforced (Critical #1) and must live only in the
         'Documented but Not Yet Workflow-Enforced Invariants' subsection.
         """
         preamble_lower = self.preamble.lower()
-        assert "- promote requires human owner approval" not in preamble_lower, (
+        assert "- promote requires project owner approval" not in preamble_lower, (
             "Safety Invariants Preserved preamble must NOT include "
-            "'- promote requires Human Owner approval' as a preserved/enforced bullet. "
+            "'- promote requires Project Owner approval' as a preserved/enforced bullet. "
             "It is not yet workflow-enforced (Critical #1). "
             "Move it to 'Documented but Not Yet Workflow-Enforced Invariants'."
         )
@@ -1377,13 +1377,13 @@ class TestSafetyInvariantsPreservedExcludesUnenforced:
         )
 
     def test_documented_not_enforced_contains_promote_human_owner(self) -> None:
-        """The subsection must list 'promote requires Human Owner approval'."""
+        """The subsection must list 'promote requires Project Owner approval'."""
         assert self.not_enforced, (
             "Could not extract 'Documented but Not Yet Workflow-Enforced' section"
         )
-        assert "promote requires human owner approval" in self.not_enforced.lower(), (
+        assert "promote requires project owner approval" in self.not_enforced.lower(), (
             "'Documented but Not Yet Workflow-Enforced' section must contain "
-            "'promote requires Human Owner approval'"
+            "'promote requires Project Owner approval'"
         )
 
     def test_documented_not_enforced_contains_promote_gpt_audit_gate(self) -> None:
@@ -1601,11 +1601,11 @@ class TestCritical1PrePhase3HardeningPR:
         for line in self.content.splitlines():
             line_lower = line.lower()
             if (
-                "promote requires human owner approval" in line_lower
+                "promote requires project owner approval" in line_lower
                 and line.strip().startswith("|")
             ):
                 assert "| covered |" not in line_lower, (
-                    f"Traceability Matrix must NOT mark 'promote requires Human Owner approval' "
+                    f"Traceability Matrix must NOT mark 'promote requires Project Owner approval' "
                     f"as '| Covered |'. Got: {line!r}"
                 )
             if (
@@ -1657,7 +1657,7 @@ class TestCritical1DocumentedAsUnresolved:
         )
 
     def test_promote_human_owner_row_is_not_covered_literal(self) -> None:
-        """Traceability Matrix row for 'promote requires Human Owner approval' must
+        """Traceability Matrix row for 'promote requires Project Owner approval' must
         NOT use '| Covered |' literal.
 
         After Critical #1 fix, the row correctly shows 'Enforced' status via
@@ -1666,11 +1666,11 @@ class TestCritical1DocumentedAsUnresolved:
         """
         for line in self.content.splitlines():
             if (
-                "promote requires human owner approval" in line.lower()
+                "promote requires project owner approval" in line.lower()
                 and line.strip().startswith("|")
             ):
                 assert "| Covered |" not in line, (
-                    "Traceability Matrix row 'promote requires Human Owner approval' "
+                    "Traceability Matrix row 'promote requires Project Owner approval' "
                     "must NOT use literal '| Covered |'. "
                     f"Got: {line!r}"
                 )
@@ -1681,7 +1681,7 @@ class TestCritical1DocumentedAsUnresolved:
                     or "enforced" in line.lower()
                     or "process" in line.lower()
                 ), (
-                    "Traceability Matrix row 'promote requires Human Owner approval' "
+                    "Traceability Matrix row 'promote requires Project Owner approval' "
                     "must show enforcement status (Enforced / Not enforced / Process-enforced). "
                     f"Got: {line!r}"
                 )
@@ -1730,10 +1730,10 @@ class TestCritical1DocumentedAsUnresolved:
             "(even after Critical #1 fix, as historical record of what was enforced)"
         )
         section_lower = not_enforced.lower()
-        assert "promote requires human owner approval" in section_lower or \
-               "human owner approval" in section_lower, (
+        assert "promote requires project owner approval" in section_lower or \
+               "project owner approval" in section_lower, (
             "'Documented but Not Yet Workflow-Enforced' subsection must reference "
-            "'promote requires Human Owner approval' (or 'Human Owner approval')"
+            "'promote requires Project Owner approval' (or 'Project Owner approval')"
         )
         assert "promote requires gpt audit gate" in section_lower or \
                "gpt audit gate" in section_lower, (
@@ -1811,11 +1811,11 @@ class TestCritical1DocumentedAsUnresolved:
         for line in self.content.splitlines():
             line_lower = line.lower()
             if (
-                "promote requires human owner approval" in line_lower
+                "promote requires project owner approval" in line_lower
                 and line.strip().startswith("|")
             ):
                 assert "| covered |" not in line_lower, (
-                    f"Traceability Matrix must NOT mark 'promote requires Human Owner approval' "
+                    f"Traceability Matrix must NOT mark 'promote requires Project Owner approval' "
                     f"as '| Covered |'. Got: {line!r}"
                 )
             if (

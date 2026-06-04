@@ -142,22 +142,22 @@ class TestPhase2PlanContent:
             "PHASE_2_PLAN.md must mention Phase 3 transition conditions"
         )
         assert (
-            "Human Owner" in self.content
+            "Project Owner" in self.content
         ), (
-            "PHASE_2_PLAN.md must state that Phase 3 requires Human Owner decision"
+            "PHASE_2_PLAN.md must state that Phase 3 requires Project Owner decision"
         )
 
     def test_plan_mentions_human_owner_decision(self) -> None:
-        """PHASE_2_PLAN.md must state that phase transition requires Human Owner decision."""
-        assert "Human Owner" in self.content, (
-            "PHASE_2_PLAN.md must mention Human Owner's required decision"
+        """PHASE_2_PLAN.md must state that phase transition requires Project Owner decision."""
+        assert "Project Owner" in self.content, (
+            "PHASE_2_PLAN.md must mention Project Owner's required decision"
         )
         assert (
             "明示" in self.content
             or "判断" in self.content
             or "決定" in self.content
         ), (
-            "PHASE_2_PLAN.md must state that Human Owner must explicitly decide"
+            "PHASE_2_PLAN.md must state that Project Owner must explicitly decide"
         )
 
 
@@ -319,7 +319,7 @@ class TestAuditCharterPhase2TransitionRule:
         )
 
     def test_charter_phase3_requires_human_owner_decision(self) -> None:
-        """AUDIT_CHARTER.md must state that Phase 3 start requires Human Owner decision."""
+        """AUDIT_CHARTER.md must state that Phase 3 start requires Project Owner decision."""
         phase2_section_start = self.content.find("Phase 2 transition rule")
         assert phase2_section_start != -1, (
             "AUDIT_CHARTER.md must have 'Phase 2 transition rule' section"
@@ -328,8 +328,8 @@ class TestAuditCharterPhase2TransitionRule:
         assert "Phase 3" in phase2_section, (
             "Phase 2 transition rule section must mention Phase 3"
         )
-        assert "Human Owner" in phase2_section, (
-            "Phase 2 transition rule section must require Human Owner decision for Phase 3"
+        assert "Project Owner" in phase2_section, (
+            "Phase 2 transition rule section must require Project Owner decision for Phase 3"
         )
 
 
@@ -461,7 +461,7 @@ class TestAuditCharterPhase2Consistency:
 class TestReadmePhase1BaselineExpression:
     """Verify that README.md no longer contains the ambiguous 'Next phase' phrasing.
 
-    The old table row 'Next phase starts only after human owner decides' was written
+    The old table row 'Next phase starts only after project owner decides' was written
     when Phase 1 was current. Now that Phase 2 is in progress, 'next phase' is ambiguous.
     The corrected text must clearly reference Phase 3 (API activation).
     """
@@ -481,7 +481,7 @@ class TestReadmePhase1BaselineExpression:
         """
         assert "Next phase starts only after" not in self.content, (
             "README.md must NOT contain 'Next phase starts only after'. "
-            "Use explicit 'Phase 3 (API activation) starts only after Human Owner decides' instead."
+            "Use explicit 'Phase 3 (API activation) starts only after Project Owner decides' instead."
         )
 
     def test_readme_phase1_baseline_table_references_phase3_for_api_activation(self) -> None:
