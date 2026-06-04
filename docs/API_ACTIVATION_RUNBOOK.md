@@ -189,9 +189,9 @@ Preflight run #26733824493 が成功しました:
 | 項目 | 内容 |
 |---|---|
 | **問題** | check 8 は `return DetectionResult(...)` の形式を検証するが、コンストラクタの引数形式は検証しない。`DetectionResult(True, "x", 0.5, ())` のような positional 引数や、`DetectionResult(blocked=True, reason="x")` のような不完全な keyword 引数が通過してしまう |
-| **check 10 の要件** | 全 `return` 文の `DetectionResult(...)` 呼び出しについて: ① positional 引数なし（`call.args` が空）② `**kwargs` 展開なし（`keyword.arg is None` の keyword なし）③ keyword 名が正確に `{blocked, reason, confidence, matched_signals}` の 4 つ |
-| **拒否されるパターン** | positional 引数 / **kwargs 展開 / keyword 名不足 / keyword 名過剰 / keyword 名誤り / mixed positional+keyword |
-| **受理されるパターン** | `DetectionResult(blocked=..., reason=..., confidence=..., matched_signals=...)` のみ |
+| **check 10 の要件** | `replacement_nodes` 配下の **すべての bare `DetectionResult(...)` `ast.Call`** について（returned / 式文 / 代入 / nested branch 問わず）: ① positional 引数なし（`call.args` が空）② `**kwargs` 展開なし（`keyword.arg is None` の keyword なし）③ keyword 名が正確に `{blocked, reason, confidence, matched_signals}` の 4 つ。非 return 呼び出しも検証する（Codex P2 対応） |
+| **拒否されるパターン** | positional 引数 / **kwargs 展開 / keyword 名不足 / keyword 名過剰 / keyword 名誤り / mixed positional+keyword（return 文内外問わず） |
+| **受理されるパターン** | `DetectionResult(blocked=..., reason=..., confidence=..., matched_signals=...)` のみ（呼び出し場所問わず） |
 | **エラーメッセージ prefix** | `replacement_code DetectionResult argument shape violation:` |
 | **適用範囲** | nested return（if/for/while 内）とトップレベル fallback return の両方に適用される |
 | **型・値レンジの検証** | check 10 は引数の存在と名前のみ検証する。型（`blocked` が bool か）や値レンジ（`confidence` が 0.0-1.0 か）は PR #68+ スコープ（X-007） |

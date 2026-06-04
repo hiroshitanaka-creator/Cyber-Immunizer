@@ -1190,6 +1190,130 @@ class TestDetectionResultArgumentShape:
 
 
 # ---------------------------------------------------------------------------
+# 9e. PR #67 Codex P2 — check 10 covers non-return DetectionResult calls
+# ---------------------------------------------------------------------------
+
+
+class TestDetectionResultNonReturnCalls:
+    """Regression tests for Codex P2 finding: check 10 must validate every bare
+    DetectionResult(...) call, not only calls inside return statements.
+
+    A malformed non-return constructor call (expression statement, assignment,
+    nested branch) can raise TypeError at runtime before any fallback return
+    is reached.
+    """
+
+    _VALID_FALLBACK = (
+        "    return DetectionResult(\n"
+        "        blocked=False,\n"
+        "        reason='no match',\n"
+        "        confidence=0.0,\n"
+        "        matched_signals=(),\n"
+        "    )\n"
+    )
+
+    def test_rejects_expression_statement_with_extra_kwarg(self) -> None:
+        """Expression-statement DetectionResult(...) with extra keyword is rejected."""
+        code = (
+            "    DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "        severity='low',\n"
+            "    )\n"
+            + self._VALID_FALLBACK
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", (
+            "Expression-statement DetectionResult with extra kwarg must be rejected"
+        )
+        assert "argument shape" in err.lower() or "extra" in err.lower(), (
+            f"Error must mention argument shape or extra, got: {err!r}"
+        )
+
+    def test_rejects_assignment_with_extra_kwarg(self) -> None:
+        """Assignment DetectionResult(...) with extra keyword is rejected."""
+        code = (
+            "    tmp = DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "        extra=1,\n"
+            "    )\n"
+            + self._VALID_FALLBACK
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", (
+            "Assignment DetectionResult with extra kwarg must be rejected"
+        )
+        assert "argument shape" in err.lower() or "extra" in err.lower(), (
+            f"Error must mention argument shape or extra, got: {err!r}"
+        )
+
+    def test_rejects_nested_non_return_call_with_malformed_args(self) -> None:
+        """Malformed nested non-return DetectionResult call is rejected even when
+        the top-level fallback return has valid shape.
+        """
+        code = (
+            "    if 'sqli_indicator' in request.path:\n"
+            "        tmp = DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='sqli',\n"
+            "            confidence=0.8,\n"
+            "            matched_signals=('sqli_indicator',),\n"
+            "            debug='yes',\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", (
+            "Malformed nested non-return DetectionResult call must be rejected"
+        )
+        assert "argument shape" in err.lower() or "extra" in err.lower(), (
+            f"Error must mention argument shape or extra, got: {err!r}"
+        )
+
+    def test_accepts_non_return_call_with_valid_shape(self) -> None:
+        """A non-return DetectionResult(...) with correct keyword shape is accepted
+        when all other checks also pass.
+        """
+        code = (
+            "    cached = DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+            + self._VALID_FALLBACK
+        )
+        err = pm._validate_replacement_code(code)
+        assert err == "", (
+            f"Non-return DetectionResult with valid shape must be accepted, got: {err!r}"
+        )
+
+    def test_rejects_expression_statement_with_positional_args(self) -> None:
+        """Expression-statement DetectionResult(...) with positional args is rejected."""
+        code = (
+            "    DetectionResult(False, 'no match', 0.0, ())\n"
+            + self._VALID_FALLBACK
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", (
+            "Expression-statement DetectionResult with positional args must be rejected"
+        )
+        assert "argument shape" in err.lower() or "positional" in err.lower(), (
+            f"Error must mention argument shape or positional, got: {err!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # 10. offline-sample still works
 # ---------------------------------------------------------------------------
 

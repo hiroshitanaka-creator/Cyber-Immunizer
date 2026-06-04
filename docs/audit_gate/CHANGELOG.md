@@ -43,6 +43,16 @@ Lessons that drove protocol additions:
   the lesson from PR #66: every new validator rule must have a matching prompt
   constraint in the same PR.
 
+- **Constructor-shape validation must cover all constructor calls, not only
+  returned ones (Codex P2)**: The initial PR #67 check 10 implementation
+  iterated only over `ast.Return` nodes. Codex P2 review found that a
+  malformed non-return `DetectionResult(...)` call (expression statement,
+  assignment, or nested branch call) would pass check 10 and could raise
+  `TypeError` at runtime before any fallback return is reached. Protocol now
+  requires that argument-shape validation covers every bare `DetectionResult`
+  `ast.Call` in the replacement body, regardless of whether it appears inside
+  a `return` statement.
+
 - **X-002 / X-003 / X-006 / X-007 remain Project Owner-overridable
   recommendations**: These policy extension items remain deferred. X-007
   excludes only type/value-range static checks; H-3 argument count/keyword-name

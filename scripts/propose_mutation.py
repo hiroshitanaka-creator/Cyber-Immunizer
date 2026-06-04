@@ -455,8 +455,10 @@ def _validate_replacement_code(code: str) -> str:
        block (if/for/while) containing only nested returns falls through to implicit
        None when no branch is taken. The top-level fallback return DetectionResult(...)
        at the end of the body prevents inspect_request() from returning None.
-    10. DetectionResult argument shape: every DetectionResult(...) call must use
-        keyword-only arguments with exactly the four canonical keyword names:
+    10. DetectionResult argument shape: every bare DetectionResult(...) ast.Call
+        in the replacement body — including returned calls, expression
+        statements, assignments, and nested contexts — must use keyword-only
+        arguments with exactly the four canonical keyword names:
         blocked, reason, confidence, matched_signals.
         Rejected: positional arguments, **kwargs expansion, missing keyword
         names, extra keyword names, wrong keyword names.
@@ -629,44 +631,49 @@ def _validate_replacement_code(code: str) -> str:
                         "nested-only return paths can fall through to implicit None"
                     )
                 # 10. DetectionResult argument shape.
-                # Check 8 proved every return calls DetectionResult(...).
-                # Check 10 requires keyword-only arguments and exactly the four
-                # canonical keyword names: blocked, reason, confidence, matched_signals.
+                # Walk every ast.Call whose func is bare DetectionResult —
+                # returned calls, expression statements, assignments, and any
+                # other executable context. A malformed non-return constructor
+                # call can raise before the fallback return is reached.
                 for stmt in replacement_nodes:
                     for n in ast.walk(stmt):
-                        if isinstance(n, ast.Return):
-                            call = n.value  # ast.Call confirmed by check 8
-                            if call.args:
+                        if not (
+                            isinstance(n, ast.Call)
+                            and isinstance(n.func, ast.Name)
+                            and n.func.id == "DetectionResult"
+                        ):
+                            continue
+                        if n.args:
+                            return (
+                                "replacement_code DetectionResult argument "
+                                "shape violation: DetectionResult(...) must "
+                                "use keyword-only arguments; positional "
+                                "arguments are not allowed"
+                            )
+                        for kw in n.keywords:
+                            if kw.arg is None:
                                 return (
                                     "replacement_code DetectionResult argument "
                                     "shape violation: DetectionResult(...) must "
-                                    "use keyword-only arguments; positional "
-                                    "arguments are not allowed"
+                                    "not use **kwargs expansion"
                                 )
-                            for kw in call.keywords:
-                                if kw.arg is None:
-                                    return (
-                                        "replacement_code DetectionResult argument "
-                                        "shape violation: DetectionResult(...) must "
-                                        "not use **kwargs expansion"
-                                    )
-                            provided = {kw.arg for kw in call.keywords}
-                            missing_kw = _REQUIRED_DR_KWARGS - provided
-                            extra_kw = provided - _REQUIRED_DR_KWARGS
-                            if missing_kw:
-                                return (
-                                    "replacement_code DetectionResult argument "
-                                    "shape violation: DetectionResult(...) is "
-                                    "missing required keyword argument(s): "
-                                    f"{sorted(missing_kw)}"
-                                )
-                            if extra_kw:
-                                return (
-                                    "replacement_code DetectionResult argument "
-                                    "shape violation: DetectionResult(...) has "
-                                    "extra keyword argument(s): "
-                                    f"{sorted(extra_kw)}"
-                                )
+                        provided = {kw.arg for kw in n.keywords}
+                        missing_kw = _REQUIRED_DR_KWARGS - provided
+                        extra_kw = provided - _REQUIRED_DR_KWARGS
+                        if missing_kw:
+                            return (
+                                "replacement_code DetectionResult argument "
+                                "shape violation: DetectionResult(...) is "
+                                "missing required keyword argument(s): "
+                                f"{sorted(missing_kw)}"
+                            )
+                        if extra_kw:
+                            return (
+                                "replacement_code DetectionResult argument "
+                                "shape violation: DetectionResult(...) has "
+                                "extra keyword argument(s): "
+                                f"{sorted(extra_kw)}"
+                            )
                 break
     return ""
 
