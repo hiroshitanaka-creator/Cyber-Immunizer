@@ -2410,3 +2410,100 @@ class TestActualThinkingTokensInLedger:
         assert rec["estimated_output_tokens"] == expected_est, (
             f"Fallback estimate expected {expected_est}, got {rec['estimated_output_tokens']!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# CR-65-MIN-03: Invalid model response must not create mutation_patch.json
+# ---------------------------------------------------------------------------
+
+
+class TestInvalidResponseNoPatchArtifact:
+    """CR-65-MIN-03: Invalid Gemini/model response must not create mutation_patch.json.
+
+    Proves the artifact boundary: when _propose_via_gemini_paid_credit returns
+    (None, error), the CLI must not write mutation_patch.json to disk.
+    No real Gemini API call is made; monkeypatch/mocks only.
+    """
+
+    def test_forbidden_token_response_no_patch_file(
+        self,
+        tmp_path: Path,
+        genome_file: Path,
+        detector_file: Path,
+        threats_file: Path,
+        ledger_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """CLI must not write mutation_patch.json when validation returns an error.
+
+        Simulates _propose_via_gemini_paid_credit rejecting replacement_code
+        that contains a forbidden token. The artifact boundary must be
+        respected: no patch file on disk after the failed run.
+        """
+        patch_path = tmp_path / "mutation_patch.json"
+        _patch_paths(monkeypatch, genome_file, detector_file, threats_file, ledger_file, tmp_path)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-test")
+
+        monkeypatch.setattr(
+            pm, "_propose_via_gemini_paid_credit",
+            lambda genome, det, key, ledger: (
+                None,
+                "Gemini replacement_code validation failed: "
+                "replacement_code contains forbidden token 'import'. "
+                "Unsafe replacement_code rejected before writing patch.",
+            ),
+        )
+
+        result = pm.main(["--gemini-paid-credit", "--allow-live-model", "--json"])
+        assert result != 0, "CLI must exit nonzero when replacement_code validation fails"
+        assert not patch_path.exists(), (
+            "mutation_patch.json must NOT be created when replacement_code "
+            "validation fails (CR-65-MIN-03 artifact boundary)"
+        )
+
+    def test_invalid_replacement_code_via_call_boundary_no_patch(
+        self,
+        tmp_path: Path,
+        genome_file: Path,
+        detector_file: Path,
+        threats_file: Path,
+        ledger_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Forbidden token in _call_gemini_api response → validator rejects → no patch file.
+
+        Mocks _call_gemini_api to return raw JSON with 'import os' in
+        replacement_code. _parse_and_validate_response must reject it and
+        mutation_patch.json must not be written to disk (CR-65-MIN-03).
+        """
+        patch_path = tmp_path / "mutation_patch.json"
+        _patch_paths(monkeypatch, genome_file, detector_file, threats_file, ledger_file, tmp_path)
+        monkeypatch.setenv("GEMINI_API_KEY", "fake-key-for-test")
+        monkeypatch.setattr(pm, "_build_user_prompt", lambda g, d: "# short safe prompt\n")
+
+        invalid_response = json.dumps({
+            "mutation_rationale": "ok",
+            "target_threats": ["T1"],
+            "expected_improvement": "better",
+            "risk": "low",
+            "replacement_code": "import os\n    return os.system('ls')",
+        })
+        monkeypatch.setattr(
+            pm, "_call_gemini_api",
+            lambda *args, **kwargs: (invalid_response, 100, 50, None, ""),
+        )
+
+        patch_result, err = pm.propose_mutation(
+            gemini_paid_credit=True, allow_live_model=True
+        )
+        assert patch_result is None, (
+            "Must return no patch when replacement_code contains forbidden token"
+        )
+        assert err != "", "Must return a non-empty error string"
+        assert "import" in err or "forbidden" in err.lower(), (
+            f"Error must mention forbidden token, got: {err!r}"
+        )
+        assert not patch_path.exists(), (
+            "mutation_patch.json must NOT be written when replacement_code "
+            "validation fails (CR-65-MIN-03 artifact boundary test)"
+        )

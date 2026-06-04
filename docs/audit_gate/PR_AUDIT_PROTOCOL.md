@@ -47,6 +47,7 @@ Verify and report every field below for each PR audit.
 | unresolved / outdated status | Per thread |
 | scope-in | Changes within stated scope |
 | scope-out | Changes outside stated scope |
+| documentation / history gate | README / docs / changelog / generator / data-history update need checked before PR completion |
 
 If the head SHA is unchanged from a previous audit, state explicitly:
 "headが変わっていないため、前回指摘は未対応です。"
@@ -121,6 +122,24 @@ For any PR that changes README.md, docs, or status blocks, apply the following c
 
 ---
 
+## PR completion documentation / history gate
+
+Before marking any PR complete or merge-ready, verify whether the PR requires updates to repository-facing documentation or history.
+
+This gate is mandatory for every PR, including code-only, test-only, and docs-only PRs. If an item is not updated, the audit response or PR body must state why it is not required.
+
+| Area | Required question |
+|---|---|
+| README | Does `README.md` need a status block, architecture, usage, or file-list update? If no, state why. |
+| docs | Do any `docs/**` files need runbook, design, phase, or audit-gate updates? If no, state why. |
+| changelog / history docs | Does `docs/audit_gate/CHANGELOG.md` or another changelog/history document need a lesson or status entry? If no, state why. |
+| generator scripts | If README/status output is generated, does `scripts/update_readme.py` or another generator need updating? If no, state why. |
+| data history / ledger | Does `data/evolution_history.json`, `data/api_usage_ledger.json`, or another data-history file need updating? If no, state why. |
+
+A PR is not complete until this gate is explicitly checked.
+
+---
+
 ## Self-report rule
 
 PR bodies and Claude Code reports are self-reports. They must be verified
@@ -169,6 +188,7 @@ Do not give APPROVE unless all are true:
 - Unresolved thread status checked
 - Scope drift checked
 - Secret/API/Phase-3 wording checked
+- Documentation / history gate checked
 - Real file content checked where needed
 - Stale PR body discarded where contradicted by diff
 
@@ -201,7 +221,14 @@ Do not give APPROVE unless all are true:
 3. Findings
    [Finding format below]
 
-4. Merge decision
+4. Documentation / history gate
+   README:
+   docs:
+   changelog / history docs:
+   generator scripts:
+   data history / ledger:
+
+5. Merge decision
    Code Audit:
    CI Verification:
    Codex Verification:
@@ -218,6 +245,3 @@ Finding format:
 - Before / After:
 - 必要な修正:
 ```
-
-Include a required fix prompt only when the decision is REQUEST CHANGES, HOLD
-for a fixable defect, or BLOCK.

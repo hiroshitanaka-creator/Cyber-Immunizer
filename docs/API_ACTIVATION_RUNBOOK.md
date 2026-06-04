@@ -16,7 +16,7 @@ related:
   - docs/API_ACTIVATION_CHECKLIST.md
   - docs/PHASE_2_COMPLETION_CHECKPOINT.md
   - docs/audit_gate/PR_AUDIT_PROTOCOL.md
-last_reviewed: 2026-06-03
+last_reviewed: 2026-06-04
 AI_DOC_META_END
 -->
 # Cyber-Immunizer API Activation Runbook
@@ -124,12 +124,52 @@ Preflight run #26733824493 が成功しました:
 - `type(exc).__name__` をエラーメッセージに含め、SDK validation 例外（`ValueError` 等）も fail-closed
 - ThinkingConfig 構築失敗 → 即時 `(None, None, None, None, error_str)` 返却
 
-### Syntax Validation Guard（PR #61）
+### Syntax Validation Guard（PR #61 / PR #65）
 
 - `replacement_code` は Propose 段階で `ast.parse()` のみで検証（実行しない）
-- `def _candidate_body():\n...` にラップして parse
-- `SyntaxError` → patch 返却拒否（`mutation_patch.json` に書き込まない）
+- 以下のラッパーに splice して `ast.parse()` を実行（コードは**絶対に実行しない**）:
+  ```
+  def _candidate_body(request):
+      _mutation_anchor = None
+      # === MUTATION_START ===
+  {replacement_code（as-is、インデント維持）}
+  # === MUTATION_END ===
+  ```
+  - 先頭行: `def _candidate_body(request):` — `request` パラメータあり
+  - `_mutation_anchor = None` — AST 意味検証用のアンカー文（body[0]）; `body[1:]` が replacement region
+  - `MUTATION_START` は 4 スペースインデント、`MUTATION_END` はカラム 0（`core/detector.py` に合わせる）
+- `SyntaxError` / `IndentationError` → patch 返却拒否（`mutation_patch.json` に書き込まない）
+- `UnicodeError` → fail-closed（エラー文字列は `replacement_code` 本文をエコーしない）
 - 対象: 不正 Python 構文、無インデント、lone surrogate / Unicode 系 parser failure
+
+#### replacement_code インデント契約（PR #65）
+
+| 項目 | 内容 |
+|---|---|
+| **契約** | `replacement_code` は `inspect_request()` 関数内部に **そのまま挿入** される 4 スペースインデント済み function body fragment |
+| **必須** | トップレベル実行行・コメント行は **正確に 4 スペース**でインデントする。トップレベルの `return DetectionResult(...)` は 4 スペース。**ただし** if/for/while ブロック内の nested `return DetectionResult(...)` は **8 スペース**（さらにネストは 12, 16, …）で正しい — これは valid な Python であり拒否されない。ネストブロック（if/for/while 内）は **8 スペース**（さらにネストは 12, 16, …）。**すべてのインデントは 4 の倍数**でなければならない（1, 2, 3, 5, 6 スペース等は拒否）。**leading tab は禁止**（スペースのみ） |
+| **禁止** | `def` / `async def` 文を含めない（任意のインデントレベルで禁止）/ mutation marker を含めない / Markdown code fence (` ``` `) を含めない / 列 0 のコードを含めない / 4 の倍数でないインデントを使わない |
+| **検証失敗分類** | tab あり → `tab indentation is forbidden` / min indent < 4 → `indentation contract violation` / min indent > 4 → `top-level statements must start with exactly 4 spaces` / 4の倍数違反 → `all indentation must be a multiple of 4 spaces` / function definition → function definition エラー / code fence → markdown code fence エラー / 空・コメントのみ → `replacement_code body is empty` / return 文なし → `must contain at least one return statement` |
+| **意味検証** | AST parse 成功後、replacement body が空・コメントのみ・pass のみ・return 文なしの場合も拒否される（Propose 段階で fail-closed）。空や comments-only の Gemini 応答も `mutation_patch.json` には書き込まれない。さらに、すべての return 文は `return DetectionResult(...)` の形式でなければならない（`return None` / `return result` / `return True` 等は拒否） |
+
+#### paid-credit run で replacement_code 検証が失敗した場合
+
+> **すぐに paid-credit を再実行しない。**
+
+1. Propose ジョブのログを確認し、`validation error` の分類を特定する。
+2. `data/api_usage_ledger.json` を確認する — **API call と ledger 保存は成功している場合がある**（mutation patch 生成が失敗しても）。
+3. 同種エラー（`indentation contract violation` 等）が再発し得る場合は、prompt/validation 契約を修正してから再実行する。
+4. 修正 PR をレビュー・マージしてから次の paid-credit run を実施する。
+
+```
+Gemini 応答は構文検証で失敗する場合がある。
+replacement_code は inspect_request() 関数内部にそのまま挿入される
+4 スペースインデント済み function body でなければならない。
+replacement_code の構文・インデント検証で失敗した場合、すぐに paid-credit を再実行しない。
+まず Propose ログ、ledger 記録、validation error を確認する。
+同種エラーが再発し得る場合は、再実行前に prompt/validation 契約を修正する。
+mutation patch 生成が失敗しても、API call と ledger 保存は成功している場合がある。
+```
 
 ### Model Migration 履歴（PR #60）
 

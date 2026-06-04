@@ -243,6 +243,12 @@ STRICT RULES — YOU MUST FOLLOW ALL OF THEM:
     DetectionResult(blocked, reason, confidence, matched_signals) exactly.
 11. Modify only logic inside inspect_request. Do not change the function
     signature, do not add new top-level definitions.
+    replacement_code is inserted as-is between # === MUTATION_START === and
+    # === MUTATION_END === inside inspect_request() — it is a function body
+    fragment, NOT a complete function definition.
+    Do NOT include def inspect_request(...) or any def statement.
+    Do NOT include # === MUTATION_START === or # === MUTATION_END === markers.
+    Do NOT wrap code in markdown fences (```python ... ```).
 12. Prefer low false positives. Maximize true positive rate while keeping
     false positive rate at or below 5%.
 13. Use only neutralized symbolic indicators from the local test corpus.
@@ -258,13 +264,70 @@ STRICT RULES — YOU MUST FOLLOW ALL OF THEM:
 15. Do not include raw offensive payloads. Use only the neutralized
     symbolic indicator tokens defined in the test corpus.
 
+REPLACEMENT_CODE FORMAT CONTRACT:
+replacement_code is inserted as-is as the body of inspect_request().
+Every line must be a function-body fragment with correct indentation.
+
+REQUIRED:
+- Top-level replacement statements must start with EXACTLY 4 spaces.
+- Nested blocks (inside if/for/while) must use exactly 8 spaces.
+- Deeper nesting uses 12, 16, … spaces (always a multiple of 4).
+- ALL indentation must be a multiple of 4 — never 1, 2, 3, 5, 6 spaces.
+- Leading tabs are forbidden; use spaces only.
+- Comment lines must also start with at least 4 spaces.
+- return DetectionResult(...) must be at exactly 4-space indentation.
+  Exception: a return DetectionResult(...) nested inside an if/for/while
+  block follows block depth — 8 spaces for one level of nesting, 12 for
+  two levels, etc. Top-level return DetectionResult(...) at the function
+  body level must be at exactly 4 spaces.
+- replacement_code must contain executable detector logic.
+- replacement_code must contain at least one return DetectionResult(...).
+- Empty lines are allowed.
+
+FORBIDDEN:
+- Do NOT return an empty body (only blank lines or only comments).
+- Do NOT produce a pass-only body.
+- Do NOT omit return DetectionResult(...) — a return statement is mandatory.
+- Do NOT use any return shape other than: return DetectionResult(...)
+  The following are ALL rejected:
+    return None
+    return result
+    return True / return False
+    return make_result()
+    return core.types.DetectionResult(...)  (qualified name — use bare DetectionResult)
+- Do NOT start any line at column 0 (no top-level / unindented code).
+- Do NOT use non-multiple-of-4 indentation (e.g. 6 spaces is rejected).
+- Do NOT include def inspect_request(...) or any def / async def statement.
+- Do NOT include mutation markers (# === MUTATION_START === etc.).
+- Do NOT wrap in markdown fences (```python ... ```).
+
+GOOD example — 4-space-indented function body (this WILL be accepted):
+{
+  "replacement_code": "    surface = request.path.lower() + \" \" + request.body.lower()\\n    matched = []\\n    if \"path_traversal_indicator\" in surface:\\n        matched.append(\"path_traversal_indicator\")\\n    if matched:\\n        return DetectionResult(blocked=True, reason=\"suspicious indicator matched\", confidence=0.7, matched_signals=tuple(matched))\\n    return DetectionResult(blocked=False, reason=\"no suspicious indicator matched\", confidence=0.0, matched_signals=())"
+}
+
+BAD example 1 — unindented body (will be REJECTED with indentation contract violation):
+{
+  "replacement_code": "surface = request.path.lower()\\nreturn DetectionResult(blocked=False, reason=\"no suspicious indicator matched\", confidence=0.0, matched_signals=())"
+}
+
+BAD example 2 — function definition included (will be REJECTED):
+{
+  "replacement_code": "def inspect_request(request):\\n    return DetectionResult(blocked=False, reason=\"no suspicious indicator matched\", confidence=0.0, matched_signals=())"
+}
+
+BAD example 3 — markdown fence included (will be REJECTED):
+{
+  "replacement_code": "```python\\n    return DetectionResult(blocked=False, reason=\"no suspicious indicator matched\", confidence=0.0, matched_signals=())\\n```"
+}
+
 Return a JSON object with these exact fields (no others):
 {
   "mutation_rationale": "short explanation (max 600 chars)",
   "target_threats": ["threat-id-or-category"],
   "expected_improvement": "what metric is expected to improve (max 600 chars)",
   "risk": "brief risk summary (max 600 chars)",
-  "replacement_code": "Python code string for the function body only (no def statement)"
+  "replacement_code": "4-space-indented Python function body fragment for inspect_request() — no def statement, no markers, no markdown fences"
 }
 """
 
@@ -331,47 +394,182 @@ def _preflight_secret_scan(prompt: str) -> str:
 
 
 def _validate_replacement_code(code: str) -> str:
-    """Return an error message if replacement_code contains forbidden tokens.
+    """Return an error message if replacement_code violates safety or format rules.
 
-    Also rejects mutation markers (which would break apply_mutation.py).
-    Also rejects code that is not valid Python syntax (AST parse only — never executed).
-    Returns empty string if the code is clean.
+    Checks (in order):
+    1. Mutation markers forbidden (would break apply_mutation.py).
+    2. Markdown code fences forbidden (```) — Gemini must not wrap in fences.
+    3. Function definition forbidden — replacement_code is a body fragment only.
+    4. Forbidden security tokens (import, eval, exec, os., etc.).
+    5. Indentation contract (all three must pass):
+       a. No tab characters in leading whitespace.
+       b. Minimum indentation of non-empty lines must be exactly 4 spaces
+          (top-level body at 4; nested blocks at 8, 12, … per Python rules).
+          min < 4: unindented or under-indented.
+          min > 4: all lines over-indented (no top-level body present).
+       c. All indentation counts must be multiples of 4; non-multiples
+          (e.g. 6 spaces) indicate misaligned indentation and are rejected.
+    6. Python syntax (AST parse only — code is never executed).
+    7. Semantic body validation (after successful AST parse):
+       - replacement body (function body past _mutation_anchor) must not be empty.
+       - replacement body must not contain only pass / comments.
+       - replacement body must contain at least one ast.Return statement.
+    8. Return shape validation: every return statement must return DetectionResult(...)
+       directly (ast.Return → ast.Call → ast.Name(id="DetectionResult")).
+       return None, return result, return True/False, and helper calls are rejected.
+
+    Returns empty string if the code passes all checks.
     """
-    # Reject mutation markers in replacement code
+    # 1. Reject mutation markers in replacement code
     if _MUTATION_START_MARKER in code or _MUTATION_END_MARKER in code:
         return (
             "replacement_code contains mutation marker(s). "
             "Markers are forbidden inside replacement_code."
         )
-    # Reject forbidden code patterns
+    # 2. Reject markdown code fences
+    if "```" in code:
+        return (
+            "replacement_code contains a markdown code fence (```). "
+            "Markdown formatting is forbidden in replacement_code."
+        )
+    # 3. Reject function definitions at any indentation level
+    # (replacement_code must be a body fragment — no nested helpers, no wrapper)
+    if re.search(r"(?m)^\s*(?:async\s+def|def)\s+\w+\s*\(", code):
+        return (
+            "replacement_code must not include a function definition. "
+            "Provide the function body only — no def statement, "
+            "no inspect_request wrapper."
+        )
+    # 4. Reject forbidden security tokens
     for token in _BLOCKED_CODE_TOKENS:
         if token in code:
             return (
                 f"replacement_code contains forbidden token {token!r}. "
                 "Unsafe replacement_code rejected before writing patch."
             )
-    # Validate Python syntax by splicing replacement_code into the same
-    # indentation context that apply_mutation.py uses: inserted as-is between
-    # the mutation markers inside a function body.  The MUTATION_END marker is
-    # at column 0 (matching core/detector.py).  Code is never executed —
-    # ast.parse() only builds the parse tree.
-    # Unindented code (e.g. bare `return`) triggers IndentationError.
-    # Semicolon-joined compound statements trigger SyntaxError.
+    # 5. Indentation contract: tab-free; top-level lines at exactly 4 spaces;
+    # all indentation must be a multiple of 4.
+    # replacement_code is inserted inside inspect_request() as-is.
+    # Top-level body lines must start with exactly 4 spaces.
+    # Nested blocks use 8, 12, 16, … spaces (multiples of 4).
+    # Collecting non-empty lines (blank lines and whitespace-only lines are OK).
+    non_empty = [ln for ln in code.splitlines() if ln.strip()]
+    if non_empty:
+        # 5a. No tabs in leading whitespace (TabError at runtime)
+        for ln in non_empty:
+            leading = ln[: len(ln) - len(ln.lstrip())]
+            if "\t" in leading:
+                return (
+                    "replacement_code indentation contract violation: "
+                    "tab indentation is forbidden; use 4-space indentation"
+                )
+        # 5b. Minimum indentation must be exactly 4 spaces.
+        min_indent = min(len(ln) - len(ln.lstrip()) for ln in non_empty)
+        if min_indent < 4:
+            return (
+                "replacement_code indentation contract violation: "
+                "replacement_code must be a 4-space-indented function body "
+                "for inspect_request()"
+            )
+        if min_indent > 4:
+            return (
+                "replacement_code indentation contract violation: "
+                "top-level statements must start with exactly 4 spaces; "
+                f"minimum indentation found is {min_indent} "
+                "(all lines are over-indented — missing top-level body)"
+            )
+        # 5c. All indentation must be a multiple of 4 spaces.
+        # Nested blocks use 8, 12, 16, … spaces; non-multiples (e.g. 6) are
+        # invalid and indicate misaligned indentation.
+        for ln in non_empty:
+            indent = len(ln) - len(ln.lstrip())
+            if indent % 4 != 0:
+                return (
+                    "replacement_code indentation contract violation: "
+                    "all indentation must be a multiple of 4 spaces; "
+                    f"line has {indent}-space indentation"
+                )
+    # 6 & 7. Validate Python syntax and then check semantic body requirements.
+    # The wrapper establishes a function body with _mutation_anchor so the
+    # suite is valid even for empty replacement_code; semantic validation
+    # (check 7) then enforces that there is actual detector logic.
+    # Code is never executed — ast.parse() only builds the parse tree.
+    # IndentationError (subclass of SyntaxError) signals residual indentation
+    # problems not caught by the pre-checks above.
     # Lone surrogates or other ill-formed Unicode may trigger UnicodeError;
     # caught separately so the class name (not the message, which could echo
     # replacement_code content) is returned as the validation error.
     wrapped = (
         "def _candidate_body(request):\n"
+        "    _mutation_anchor = None\n"
         "    " + _MUTATION_START_MARKER + "\n"
         + code
         + "\n" + _MUTATION_END_MARKER + "\n"
     )
     try:
-        ast.parse(wrapped)
+        tree = ast.parse(wrapped)
+    except IndentationError:
+        return (
+            "replacement_code indentation contract violation: "
+            "replacement_code must be a 4-space-indented function body "
+            "for inspect_request()"
+        )
     except SyntaxError as exc:
         return f"replacement_code is not valid Python syntax: {exc}"
     except UnicodeError as exc:
         return f"replacement_code is not valid Python source text: {type(exc).__name__}"
+    else:
+        # 7. Semantic body validation.
+        # Find _candidate_body in the parsed tree and inspect its body.
+        # body[0] is always _mutation_anchor = None (the anchor statement).
+        # body[1:] is the replacement region — it must not be empty, must not
+        # consist solely of pass statements, and must contain at least one
+        # return statement anywhere (guaranteeing a DetectionResult return path).
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "_candidate_body":
+                func_body = node.body
+                replacement_nodes = func_body[1:]  # skip _mutation_anchor
+                if not replacement_nodes:
+                    return (
+                        "replacement_code body is empty: replacement_code must "
+                        "contain executable detector logic and at least one "
+                        "return DetectionResult(...) statement"
+                    )
+                if all(isinstance(n, ast.Pass) for n in replacement_nodes):
+                    return (
+                        "replacement_code must contain executable detector logic; "
+                        "pass-only body is not valid — at least one "
+                        "return DetectionResult(...) is required"
+                    )
+                has_return = any(
+                    isinstance(n, ast.Return)
+                    for stmt in replacement_nodes
+                    for n in ast.walk(stmt)
+                )
+                if not has_return:
+                    return (
+                        "replacement_code must contain at least one return "
+                        "statement; a DetectionResult return is required"
+                    )
+                # 8. Every return statement must return DetectionResult(...).
+                # Accepted shape: ast.Return → ast.Call → ast.Name(id="DetectionResult").
+                # return None, return result, return True/False, qualified names,
+                # and helper function calls are all rejected (intentionally strict).
+                for stmt in replacement_nodes:
+                    for n in ast.walk(stmt):
+                        if isinstance(n, ast.Return):
+                            val = n.value
+                            if not (
+                                isinstance(val, ast.Call)
+                                and isinstance(val.func, ast.Name)
+                                and val.func.id == "DetectionResult"
+                            ):
+                                return (
+                                    "replacement_code return contract violation: "
+                                    "every return statement must return "
+                                    "DetectionResult(...)"
+                                )
+                break
     return ""
 
 

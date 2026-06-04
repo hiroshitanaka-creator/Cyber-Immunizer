@@ -33,6 +33,15 @@ Detailed protocol for auditing a pull request. Defines all mandatory fields to
 verify, CI classification categories, Codex thread handling rules, and the
 merge decision template. Use this for every PR audit and merge decision.
 
+### TASK_PROMPT_PROTOCOL.md
+
+Mandatory construction protocol for every implementation task prompt written by
+GPT Audit Gate / Task Prompt Engineer. Defines the required task prompt
+template, ALLOWED / REFERENCE_ONLY / FROZEN / IMPACT file boundaries, Change
+Request fields, ambiguity handling, and the PR completion documentation gate.
+Use this before writing any Claude Code, Codex, or other implementation-agent
+prompt.
+
 ### TOOL_EXECUTION_ANOMALY_PROTOCOL.md
 
 Reporting rules for when a tool operation fails, is blocked, falls back, or

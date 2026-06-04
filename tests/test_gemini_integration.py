@@ -749,9 +749,11 @@ class TestReplacementCodeSyntaxValidation:
         assert err != "", (
             "Unindented return must be rejected — it would cause IndentationError at Apply step"
         )
-        assert "syntax" in err.lower() or "valid python" in err.lower(), (
-            f"Error must mention syntax/indentation issue, got: {err!r}"
-        )
+        assert (
+            "syntax" in err.lower()
+            or "valid python" in err.lower()
+            or "indentation" in err.lower()
+        ), f"Error must mention syntax/indentation issue, got: {err!r}"
 
     def test_rejects_unindented_multiline_code(self) -> None:
         """Multiple unindented lines are rejected (IndentationError inside function body)."""
@@ -764,9 +766,11 @@ class TestReplacementCodeSyntaxValidation:
         assert err != "", (
             "Unindented multi-line code must be rejected"
         )
-        assert "syntax" in err.lower() or "valid python" in err.lower(), (
-            f"Error must mention syntax/indentation issue, got: {err!r}"
-        )
+        assert (
+            "syntax" in err.lower()
+            or "valid python" in err.lower()
+            or "indentation" in err.lower()
+        ), f"Error must mention syntax/indentation issue, got: {err!r}"
 
     def test_rejects_lone_surrogate(self) -> None:
         """replacement_code containing a lone surrogate is rejected fail-closed.
@@ -1799,3 +1803,393 @@ class TestCallGeminiApiThinkingConfig:
 
         assert err == ""
         assert think is None, f"Expected think=None when thoughts_token_count absent, got {think!r}"
+
+
+# ---------------------------------------------------------------------------
+# 9c. replacement_code indentation contract (PR #65)
+# ---------------------------------------------------------------------------
+
+
+class TestReplacementCodeIndentationContract:
+    """Tests for the 4-space-indented function-body contract (PR #65).
+
+    replacement_code must be a function-body fragment for inspect_request().
+    Top-level statements must start with exactly 4 spaces; nested blocks use
+    8, 12, … spaces following normal Python indentation rules.
+    Tab characters in leading whitespace are forbidden.
+    All lines being at 8+ spaces (no top-level body) is also rejected.
+
+    These tests verify that:
+    - valid 4-space-indented body (with or without nested blocks) is accepted,
+    - bare return (column 0) is rejected with indentation contract violation,
+    - unindented assignment + return (column 0) is rejected,
+    - 1-space and 3-space top-level indentation are rejected,
+    - tab indentation is rejected,
+    - all-8-space (over-indented) top-level code is rejected,
+    - an included function definition (at any indent level) is rejected,
+    - a markdown code fence is rejected.
+    """
+
+    def test_accepts_4space_indented_body(self) -> None:
+        """4-space-indented function body passes all checks (test 4.1)."""
+        good_code = (
+            "    surface = request.path.lower()\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason=\"no suspicious indicator matched\",\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(good_code)
+        assert err == "", f"4-space-indented body must pass validation, got: {err!r}"
+
+    def test_rejects_bare_return_indentation_contract_violation(self) -> None:
+        """Bare (unindented) return is rejected with 'indentation contract violation' (test 4.2)."""
+        bad_code = (
+            "return DetectionResult(\n"
+            "    blocked=False,\n"
+            "    reason=\"no suspicious indicator matched\",\n"
+            "    confidence=0.0,\n"
+            "    matched_signals=(),\n"
+            ")\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Bare return must be rejected (indentation contract violation)"
+        assert "indentation contract violation" in err, (
+            f"Error must contain 'indentation contract violation', got: {err!r}"
+        )
+
+    def test_rejects_unindented_assignment_indentation_contract_violation(self) -> None:
+        """Unindented assignment + return is rejected with 'indentation contract violation' (test 4.3)."""
+        bad_code = (
+            "surface = request.path.lower()\n"
+            "return DetectionResult(\n"
+            "    blocked=False,\n"
+            "    reason=\"no suspicious indicator matched\",\n"
+            "    confidence=0.0,\n"
+            "    matched_signals=(),\n"
+            ")\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Unindented code must be rejected (indentation contract violation)"
+        assert "indentation contract violation" in err, (
+            f"Error must contain 'indentation contract violation', got: {err!r}"
+        )
+
+    def test_rejects_function_definition_in_replacement_code(self) -> None:
+        """replacement_code containing a function definition is rejected (test 4.4)."""
+        bad_code = (
+            "def inspect_request(request):\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason=\"no suspicious indicator matched\",\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Function definition in replacement_code must be rejected"
+        assert (
+            "function" in err.lower()
+            or "def" in err.lower()
+            or "body only" in err.lower()
+        ), f"Error must mention function/def/body-only violation, got: {err!r}"
+
+    def test_rejects_markdown_code_fence(self) -> None:
+        """replacement_code wrapped in a markdown code fence is rejected (test 4.5)."""
+        bad_code = (
+            "```python\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason=\"no suspicious indicator matched\",\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+            "```\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Markdown code fence in replacement_code must be rejected"
+        assert (
+            "markdown" in err.lower()
+            or "code fence" in err.lower()
+            or "```" in err
+        ), f"Error must mention markdown/code fence, got: {err!r}"
+
+    def test_accepts_4space_toplevel_with_nested_blocks(self) -> None:
+        """4-space top-level + 8-space nested block passes (explicit nested test)."""
+        good_code = (
+            "    surface = request.path.lower()\n"
+            "    matched = []\n"
+            "    if 'path_traversal_indicator' in surface:\n"
+            "        matched.append('path_traversal_indicator')\n"
+            "    if matched:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='indicator matched',\n"
+            "            confidence=0.7,\n"
+            "            matched_signals=tuple(matched),\n"
+            "        )\n"
+            "    return DetectionResult(blocked=False, reason='no match', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(good_code)
+        assert err == "", f"4-space top-level with 8-space nested must pass, got: {err!r}"
+
+    def test_rejects_1space_indentation(self) -> None:
+        """1-space top-level indentation is rejected (indentation contract violation)."""
+        bad_code = (
+            " surface = request.path.lower()\n"
+            " return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "1-space indentation must be rejected"
+        assert "indentation contract violation" in err, (
+            f"Error must contain 'indentation contract violation', got: {err!r}"
+        )
+
+    def test_rejects_3space_indentation(self) -> None:
+        """3-space top-level indentation is rejected (indentation contract violation)."""
+        bad_code = (
+            "   surface = request.path.lower()\n"
+            "   return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "3-space indentation must be rejected"
+        assert "indentation contract violation" in err, (
+            f"Error must contain 'indentation contract violation', got: {err!r}"
+        )
+
+    def test_rejects_tab_indentation(self) -> None:
+        """Tab-indented lines are rejected (indentation contract violation)."""
+        bad_code = (
+            "\tsurface = request.path.lower()\n"
+            "\treturn DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Tab indentation must be rejected"
+        assert "indentation contract violation" in err, (
+            f"Error must contain 'indentation contract violation', got: {err!r}"
+        )
+        assert "tab" in err.lower(), (
+            f"Error must mention 'tab', got: {err!r}"
+        )
+
+    def test_rejects_all_8space_toplevel(self) -> None:
+        """Code where all lines start at 8 spaces is rejected (missing top-level body)."""
+        bad_code = (
+            "        surface = request.path.lower()\n"
+            "        return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "All-8-space top-level code must be rejected"
+        assert "indentation contract violation" in err, (
+            f"Error must contain 'indentation contract violation', got: {err!r}"
+        )
+
+    def test_rejects_6space_nested_indentation(self) -> None:
+        """6-space nested indentation is rejected (not a multiple of 4) (CR-65-02)."""
+        bad_code = (
+            "    surface = request.path.lower()\n"
+            "    if 'path_traversal_indicator' in surface:\n"
+            "      return DetectionResult(blocked=True, reason='matched', confidence=0.7, matched_signals=())\n"
+            "    return DetectionResult(blocked=False, reason='no match', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "6-space nested indentation must be rejected (non-multiple-of-4)"
+        assert "indentation contract violation" in err, (
+            f"Error must contain 'indentation contract violation', got: {err!r}"
+        )
+
+    # -----------------------------------------------------------------------
+    # CR-65-03: Reject empty / comment-only / no-return replacement_code
+    # -----------------------------------------------------------------------
+
+    def test_rejects_empty_replacement_code_body(self) -> None:
+        """Empty string is rejected — no executable body (CR-65-03)."""
+        for bad_code in ("", "   \n   \n", "\n\n"):
+            err = pm._validate_replacement_code(bad_code)
+            assert err != "", f"Empty/whitespace replacement_code must be rejected, got '' for input {bad_code!r}"
+            assert (
+                "empty" in err.lower()
+                or "return" in err.lower()
+                or "executable" in err.lower()
+            ), f"Error must mention empty/return/executable, got: {err!r}"
+
+    def test_rejects_comment_only_replacement_code_body(self) -> None:
+        """Comment-only body is rejected — no executable AST nodes (CR-65-03)."""
+        bad_code = (
+            "    # only a comment\n"
+            "    # another comment\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Comment-only replacement_code must be rejected"
+        assert (
+            "empty" in err.lower()
+            or "return" in err.lower()
+            or "executable" in err.lower()
+        ), f"Error must mention empty body/return/executable, got: {err!r}"
+
+    def test_rejects_blank_and_comment_only_replacement_code_body(self) -> None:
+        """Blank lines + comment-only body is rejected (CR-65-03)."""
+        bad_code = "\n    # only comment after blank lines\n"
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Blank+comment-only replacement_code must be rejected"
+        assert (
+            "empty" in err.lower()
+            or "return" in err.lower()
+            or "executable" in err.lower()
+        ), f"Error must mention empty body/return/executable, got: {err!r}"
+
+    def test_rejects_pass_only_replacement_code_body(self) -> None:
+        """pass-only body is rejected — no DetectionResult return (CR-65-03)."""
+        bad_code = "    pass\n"
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "pass-only replacement_code must be rejected"
+        assert (
+            "return" in err.lower()
+            or "executable" in err.lower()
+            or "pass" in err.lower()
+        ), f"Error must mention return/executable/pass, got: {err!r}"
+
+    def test_rejects_assignment_only_no_return_replacement_code(self) -> None:
+        """Assignment-only body with no return is rejected (CR-65-03)."""
+        bad_code = (
+            "    surface = request.path.lower()\n"
+            "    matched = []\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Assignment-only (no return) replacement_code must be rejected"
+        assert "return" in err.lower(), (
+            f"Error must mention 'return', got: {err!r}"
+        )
+
+    # -----------------------------------------------------------------------
+    # CR-65-04: Require return DetectionResult(...), not merely any return
+    # -----------------------------------------------------------------------
+
+    def test_accepts_all_returns_detection_result(self) -> None:
+        """replacement_code with only direct DetectionResult returns is accepted (CR-65-04)."""
+        good_code = (
+            "    if 'path_traversal_indicator' in request.path.lower():\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='matched',\n"
+            "            confidence=0.7,\n"
+            "            matched_signals=('path_traversal_indicator',),\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(good_code)
+        assert err == "", f"Valid code with only DetectionResult returns must pass, got: {err!r}"
+
+    def test_rejects_return_none(self) -> None:
+        """return None is rejected — not a DetectionResult return (CR-65-04)."""
+        bad_code = "    return None\n"
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "return None must be rejected"
+        assert "return DetectionResult" in err, (
+            f"Error must contain 'return DetectionResult', got: {err!r}"
+        )
+
+    def test_rejects_return_string(self) -> None:
+        """return 'blocked' is rejected — not a DetectionResult return (CR-65-04)."""
+        bad_code = '    return "blocked"\n'
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", 'return "blocked" must be rejected'
+        assert "return DetectionResult" in err, (
+            f"Error must contain 'return DetectionResult', got: {err!r}"
+        )
+
+    def test_rejects_return_variable(self) -> None:
+        """return result (variable) is rejected — not a direct DetectionResult return (CR-65-04)."""
+        bad_code = (
+            "    result = DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+            "    return result\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "return result (variable) must be rejected"
+        assert "return DetectionResult" in err, (
+            f"Error must contain 'return DetectionResult', got: {err!r}"
+        )
+
+    def test_rejects_mixed_detection_result_and_none_return(self) -> None:
+        """Mixed returns: DetectionResult in one branch + return None → rejected (CR-65-04)."""
+        bad_code = (
+            "    if request.path:\n"
+            "        return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+            "    return None\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "return None in any branch must be rejected even if other returns are valid"
+        assert "return DetectionResult" in err, (
+            f"Error must contain 'return DetectionResult', got: {err!r}"
+        )
+
+    # -----------------------------------------------------------------------
+
+    def test_rejects_indented_def_helper(self) -> None:
+        """Indented 'def helper():' inside replacement_code is rejected (P2 regression)."""
+        bad_code = (
+            "    surface = request.path.lower()\n"
+            "    def helper():\n"
+            "        return surface\n"
+            "    return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Indented def helper() must be rejected (body-only contract)"
+        assert (
+            "function" in err.lower()
+            or "def" in err.lower()
+            or "body only" in err.lower()
+        ), f"Error must mention function/def/body-only violation, got: {err!r}"
+
+    def test_rejects_indented_async_def_helper(self) -> None:
+        """Indented 'async def helper():' inside replacement_code is rejected (P2 regression)."""
+        bad_code = (
+            "    surface = request.path.lower()\n"
+            "    async def helper():\n"
+            "        return surface\n"
+            "    return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
+        )
+        err = pm._validate_replacement_code(bad_code)
+        assert err != "", "Indented async def helper() must be rejected (body-only contract)"
+        assert (
+            "function" in err.lower()
+            or "def" in err.lower()
+            or "body only" in err.lower()
+        ), f"Error must mention function/def/body-only violation, got: {err!r}"
+
+    # -----------------------------------------------------------------------
+    # CR-65-MIN-01: Prompt wording must distinguish top-level from nested returns
+    # -----------------------------------------------------------------------
+
+    def test_system_prompt_indentation_wording_allows_nested_returns(self) -> None:
+        """_LLM_SYSTEM_PROMPT must not claim all return DetectionResult must be at 4 spaces.
+
+        CR-65-MIN-01: A return DetectionResult(...) nested inside an if/for/while
+        block must be at 8/12/16 spaces (block depth) — not at 4. The prompt must
+        explicitly describe this exception so the model generates correct code.
+        """
+        prompt = pm._LLM_SYSTEM_PROMPT
+        prompt_lower = prompt.lower()
+        # After the CR-65-MIN-01 fix, the prompt must mention that nested returns
+        # inside if/for/while blocks follow block depth (not 4 spaces).
+        assert (
+            "nested" in prompt_lower
+            or "exception" in prompt_lower
+            or "block depth" in prompt_lower
+        ), (
+            "_LLM_SYSTEM_PROMPT must acknowledge that return DetectionResult(...) "
+            "nested inside if/for/while blocks follows block depth (8/12/16 spaces), "
+            "not always exactly 4 spaces. CR-65-MIN-01 wording fix required."
+        )
+        # The wording must also still require that top-level returns start at 4 spaces.
+        assert "4 space" in prompt_lower or "exactly 4" in prompt_lower, (
+            "_LLM_SYSTEM_PROMPT must still require that top-level return "
+            "DetectionResult(...) starts at exactly 4 spaces."
+        )
