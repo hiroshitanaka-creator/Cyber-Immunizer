@@ -140,7 +140,7 @@ Cyber-Immunizer/
 │   ├── test_mutation_boundaries.py   # 変異境界テスト（12件）
 │   ├── test_promote_candidate.py     # 昇格ゲートテスト（tmp_path使用、実ファイル非破壊）（15件）
 │   ├── test_types.py                 # Request イミュータビリティテスト（24件）
-│   ├── test_gemini_integration.py    # Gemini API 統合テスト（68件、モック使用）
+│   ├── test_gemini_integration.py    # Gemini API 統合テスト（131件、モック使用）
 │   ├── test_api_budget.py            # API 予算管理テスト（51件）
 │   ├── test_gemini_paid_credit.py    # Gemini 有料クレジットモードテスト（48件）
 │   ├── test_audit_docs.py            # 監査ドキュメント存在・内容テスト（36件）
@@ -659,7 +659,7 @@ PR テンプレート（`.github/PULL_REQUEST_TEMPLATE.md`）に GPT Audit Gate 
 | `test_mutation_boundaries.py` | 12 | マーカー外の不変性、マーカーの存在、重複マーカーの拒否、マーカー含有コードの拒否、不正パッチの拒否 |
 | `test_promote_candidate.py` | 15 | ハッシュ検証・スキーマ検証・採用失敗時の拒否・ast_policy_ok=False時の拒否・fp_rate超過時の拒否（すべて `tmp_path` 使用、実ファイル非破壊） |
 | `test_types.py` | 24 | `Request.query` / `Request.headers` の MappingProxyType イミュータビリティ、構築後のソースdict変更の影響なし |
-| `test_gemini_integration.py` | 68 | noop・offline-sample・live-model モード、プリフライトスキャン、スキーマ検証、replacement_code 検証（モック使用） |
+| `test_gemini_integration.py` | 131 | noop・offline-sample・live-model モード、プリフライトスキャン、スキーマ検証、replacement_code 検証（モック使用） |
 | `test_api_budget.py` | 51 | トークン推定・月次/日次集計・月次/日次超過拒否・ledger 破損 fail-closed（上書き禁止）・不明モデル保守的コスト |
 | `test_gemini_paid_credit.py` | 48 | paid-credit ゲート拒否・予算超過拒否・シークレットスキャン・スキーマ検証・ledger 追記・ledger 書き込み失敗→hard error |
 | `test_audit_docs.py` | 36 | AUDIT_CHARTER.md 存在・PR テンプレート存在・BLOCK/REQUEST CHANGES/APPROVE 条件・symbolic indicator 整合性 |
@@ -799,6 +799,19 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | **PR #61** | `replacement_code` の構文検証を Propose 段階に追加（`ast.parse()` のみ、実行なし）。不正 Python 構文・無インデント・lone surrogate を fail-closed に |
 | **PR #62** | primary model を `gemini-3-flash-preview` に変更。`ThinkingConfig(thinking_level="low")` を Gemini 3 系に注入。`thoughts_token_count` を `actual_thinking_tokens` として取得し ledger/cost に反映 |
 
+### PR #63–#66 Hardening Progress
+
+| PR | 変更内容 | 状態 |
+|---|---|---|
+| **PR #63** | `replacement_code` AST 意味検証強化（空 body・pass-only・return なし拒否）、`_LLM_SYSTEM_PROMPT` 調整 | ✅ merged |
+| **PR #64** | Project Owner 用語統一（terminology standardization） | ✅ merged |
+| **PR #65** | indentation contract 検証追加（check 5a/5b/5c）、return shape validation（check 8）追加。すべての return が `return DetectionResult(...)` 形式でなければ拒否。runbook wrapper description を実装と一致させた（`_candidate_body(request)` / `_mutation_anchor = None`） | ✅ merged |
+| **PR #66** | **H-2 fallthrough guard**: check 9 を追加。最後のトップレベル文が `return DetectionResult(...)` でなければ拒否。nested-only return は fallthrough して `None` を返す可能性があるため fail-closed に。 | ✅ implemented in PR #66 |
+
+> ℹ️ **PR #65 は main に merge 済み。**  
+> PR #66 は H-2: CFG/fallthrough reachability の最小実装です。  
+> PR #67+ の残課題: H-3 argument count/keyword-name validation、X-007 type/value-range static checks、X-002/X-003/X-006 policy alignment は PR #66 のスコープ外です。
+
 ### Gemini 3 技術詳細（PR #62）
 
 | 項目 | 内容 |
@@ -840,7 +853,7 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | **v0.1** | ローカルファーストの MVP スキャフォールド |
 | **v0.2** | Gemini API 統合基盤（安全なフリーティア戦略・スキーマ拘束・プリフライトスキャン・API予算管理） |
 | **v0.2.x（Phase 2）** | API未接続運用強化（rollback設計・evolution_history監査・offline-sample dry-run分離・運用チェックリスト整備）— **完了** |
-| **v0.3（Phase 3 / 現在）** | 実 Gemini API 接続 — activation PR #58–#62 merge 済み、初回 paid-credit run 待機中 |
+| **v0.3（Phase 3 / 現在）** | 実 Gemini API 接続 — activation PR #58–#62 merge 済み、hardening PR #63–#66 完了、初回 paid-credit run 待機中 |
 | **v0.4** | 複数検出器の並列評価、アンサンブル昇格 |
 | **将来** | 実WAFへの統合（別途セキュリティレビュー必須） |
 
