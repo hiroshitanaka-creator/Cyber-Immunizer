@@ -113,6 +113,22 @@ Use the following template for every task prompt.
 
 ---
 
+## PR completion documentation gate
+
+When a task prompt is for completing any PR, its `Definition of Done` or explicit scope must include a documentation / history verification gate.
+
+The gate must check all of the following before the PR is considered complete:
+
+1. `README.md` update needed? If not, state the reason.
+2. `docs/**` update needed? If not, state the reason.
+3. `docs/audit_gate/CHANGELOG.md` or another changelog/history file update needed? If not, state the reason.
+4. Generator script consistency needed? If `README.md` or another generated section is affected, identify the generator path and whether it must be updated.
+5. `data/evolution_history.json`, `data/api_usage_ledger.json`, or another history / ledger file update needed? If not, state the reason.
+
+A PR completion task prompt that omits this gate is invalid.
+
+---
+
 ## Failure rule
 
 If GPT cannot fill this protocol without guessing, it must not produce an implementation prompt. It must instead report:
