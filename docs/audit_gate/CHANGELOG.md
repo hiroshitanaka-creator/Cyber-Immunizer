@@ -60,7 +60,7 @@ Lesson driven by repeated `GPT_PRE_PROMPT_FAILURE` classifications across PR #69
 
 ---
 
-## PR #72相当 — X-007 check 11 safe-subset implementation
+## PR #73 — X-007 check 11 safe-subset implementation
 
 Lessons from implementing Category A static literal rejection:
 
@@ -89,7 +89,7 @@ Lessons from implementing Category A static literal rejection:
   claiming check 11 provides stronger guarantees than it does.
 
 - **PR numbering may differ from reserved slots**: PR #70 was consumed by the Source Evidence
-  gate redesign; PR #71 by CLAUDE.md. This implementation is PR #72相当, not PR #70.
+  gate redesign; PR #71 by CLAUDE.md. This implementation is PR #73, not PR #70.
   Task prompts must use "PR #N相当" rather than hard-coding expected PR numbers.
 
 ---

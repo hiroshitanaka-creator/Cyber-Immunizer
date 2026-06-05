@@ -493,6 +493,13 @@ def _detection_result_static_value_violation(
                 f"{_P} blocked={kind} literal is not valid; "
                 "blocked must be bool (True or False)"
             )
+        # Check for signed numeric literal: -1 is UnaryOp(USub, Constant(1))
+        num_val = _numeric_literal_value(value)
+        if num_val is not None:
+            return (
+                f"{_P} blocked={num_val!r} is a numeric literal; "
+                "blocked must be bool (True or False)"
+            )
         return ""  # dynamic expression — defer
 
     if field_name == "reason":
@@ -518,6 +525,13 @@ def _detection_result_static_value_violation(
             kind = "list" if isinstance(value, ast.List) else "tuple"
             return (
                 f"{_P} reason={kind} literal is not valid; "
+                "reason must be str"
+            )
+        # Check for signed numeric literal: -1 is UnaryOp(USub, Constant(1))
+        num_val = _numeric_literal_value(value)
+        if num_val is not None:
+            return (
+                f"{_P} reason={num_val!r} is a numeric literal; "
                 "reason must be str"
             )
         return ""  # f-string, concatenation, variable, conditional — defer

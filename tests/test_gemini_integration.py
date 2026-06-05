@@ -1787,6 +1787,38 @@ class TestX007StaticValueChecks:
             "Check 11 must not fire when check 10 finds a shape violation"
         )
 
+    # ------------------------------------------------------------------
+    # Signed numeric literal gap for blocked / reason (PR #73 fix)
+    # ------------------------------------------------------------------
+
+    def test_43_rejects_blocked_negative_signed_int(self) -> None:
+        """blocked=-1 is a signed numeric literal (UnaryOp) and is rejected.
+
+        -1 parses as ast.UnaryOp(USub, Constant(1)), not ast.Constant(-1).
+        The implementation must reach this via _numeric_literal_value.
+        """
+        self._assert_static_violation(self._ok(blocked="-1"), "blocked=-1")
+
+    def test_44_rejects_blocked_positive_signed_int(self) -> None:
+        """blocked=+1 is a signed numeric literal (UnaryOp UAdd) and is rejected."""
+        self._assert_static_violation(self._ok(blocked="+1"), "blocked=+1")
+
+    def test_45_rejects_reason_negative_signed_int(self) -> None:
+        """reason=-1 is a signed numeric literal (UnaryOp) and is rejected."""
+        self._assert_static_violation(self._ok(reason="-1"), "reason=-1")
+
+    def test_46_rejects_reason_positive_signed_float(self) -> None:
+        """reason=+3.14 is a signed numeric literal (UnaryOp UAdd) and is rejected."""
+        self._assert_static_violation(self._ok(reason="+3.14"), "reason=+3.14")
+
+    def test_47_defers_blocked_unary_minus_expression(self) -> None:
+        """blocked=-score is a UnaryOp over a Name, not a numeric literal — deferred.
+
+        _numeric_literal_value returns None for UnaryOp(USub, Name) because
+        the operand is not a Constant, so the expression is deferred.
+        """
+        assert pm._validate_replacement_code(self._ok(blocked="-score")) == ""
+
 
 # ---------------------------------------------------------------------------
 # 10. offline-sample still works

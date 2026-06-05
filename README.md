@@ -813,11 +813,11 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | **PR #67** | **H-3 DetectionResult 引数形式チェック**: check 10 を追加。`DetectionResult(...)` のすべての呼び出しは keyword-only 引数で、正確に `blocked`, `reason`, `confidence`, `matched_signals` の 4 フィールドを指定しなければならない。positional 引数・**kwargs 展開・duplicate keyword・keyword 名不足/過剰を拒否。`_LLM_SYSTEM_PROMPT` rule 10 および FORBIDDEN section を更新。 | ✅ merged |
 | **PR #68** | **Task Prompt Gate v2 / Codex pre-emption requirement**: GPT task prompt の Adversarial Validation Matrix を必須化。Self-score gate（98/100 以上）追加。valid Codex P2 findings の分類ルール整備。docs/audit_gate/TASK_PROMPT_PROTOCOL.md を Audit Gate エントリポイント全体で必須化。 | ✅ merged |
 | **PR #69** | **X-007 static value-check policy specification freeze**: `DetectionResult` フィールドの型・値レンジ静的チェックポリシーを凍結（docs-only）。check 11 は未実装。PR #70 向けの安全サブセット契約と 31-case adversarial test matrix を定義。詳細: [`docs/REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md`](docs/REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md) | ✅ spec frozen (docs-only) |
-| **PR #72相当** | **X-007 safe-subset static implementation**: Category A obvious invalid literal rejection（check 11）を実装。`blocked`/`reason`/`confidence`/`matched_signals` の obvious invalid literal を AST のみで検証・拒否。Category B 動的式は引き続き defer。`_LLM_SYSTEM_PROMPT` rule 11 更新。42-case regression test suite 追加。 | ✅ merged |
+| **PR #73** | **X-007 safe-subset static implementation**: Category A obvious invalid literal rejection（check 11）を実装。`blocked`/`reason`/`confidence`/`matched_signals` の obvious invalid literal を AST のみで検証・拒否。signed numeric literal（`-1`, `+3.14`）も対象。Category B 動的式は引き続き defer。`_LLM_SYSTEM_PROMPT` rule 11 更新。51-case regression test suite 追加。 | 🔄 current PR |
 
-> ℹ️ **PR #63–#72相当 は main に merge 済み。**  
+> ℹ️ **PR #63–#71 は main に merge 済み。PR #72（thread handoff protocol）merge 済み。**  
 > PR #69 は X-007 type/value-range static checks のポリシー凍結（docs-only）です。  
-> PR #72相当 で Category A obvious invalid literal rejection（check 11）を実装済み。X-002/X-003/X-006 policy alignment は Project Owner-overridable 推奨事項として保留。
+> PR #73 で Category A obvious invalid literal rejection（check 11）を実装中。X-002/X-003/X-006 policy alignment は Project Owner-overridable 推奨事項として保留。
 
 ### Gemini 3 技術詳細（PR #62）
 
