@@ -186,13 +186,25 @@ Use the following template for every task prompt.
 ## Pre-Prompt Investigation Gate
 - main / PR / head SHA:
 - Canonical source of truth:
-- Current implementation reviewed:
+- Current implementation: → See Source Evidence block below (assertion alone is invalid)
 - Downstream effects:
 - Existing tests:
 - Missing/adversarial tests:
 - README / docs / changelog / history impact:
 - Likely Codex findings pre-empted:
 - Scope-out / PO-overridable items:
+
+## Source Evidence (必須 — assertion禁止)
+<!--
+ALLOWED ファイルのうち、変更ロジックに関係する箇所を1件以上、以下の形式で貼ること。
+「確認済み」「reviewed」「checked」などの assertion だけを書いた場合はこのプロンプトは無効。
+-->
+
+### <file_path>:<start_line>-<end_line>
+```
+<ここに実際のコードをそのまま貼る>
+```
+根拠: <この引用がなぜこのタスクに関係するか1行>
 
 ## Self Score
 - Score: ___ / 100
@@ -210,6 +222,8 @@ Use the following template for every task prompt.
 4. The five `Change Request` fields are mandatory even for one-line changes: `WHAT`, `WHY`, `INVARIANT`, `DO_NOT`, and `VERIFY`.
 5. `WHY` must describe what is wrong with the current code or current documentation. `変えたいから` or equivalent preference-only wording is forbidden.
 6. Do not mix opportunistic improvements, refactors, wording cleanup, or adjacent fixes into the task. Put them in `DO_NOT` unless they are required for the stated goal.
+7. The `Source Evidence` block is mandatory in every task prompt. For each ALLOWED file that affects the change logic, paste at least one verbatim code excerpt with a `file_path:start_line-end_line` header.
+8. Assertion-only evidence is invalid. Writing `「確認済み」`, `「reviewed」`, `「checked」`, or similar claims without accompanying verbatim code excerpts does not satisfy the Source Evidence requirement. The task prompt is invalid if Source Evidence is missing or assertion-only.
 
 ---
 

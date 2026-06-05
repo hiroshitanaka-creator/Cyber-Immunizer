@@ -7,6 +7,36 @@ This is not a project status document. Keep entries focused on protocol lessons.
 
 ---
 
+## Source Evidence Gate — GPT task prompt must include verbatim code citations
+
+Lesson driven by repeated `GPT_PRE_PROMPT_FAILURE` classifications across PR #69:
+
+- **Diff-only and assertion-only investigation produces systematically wrong specs**:
+  All three Codex P2 findings in PR #69 (broken runbook link, Category D factual error,
+  generator expression allow/defer conflict) shared the same root cause — GPT wrote the
+  task prompt and spec from diff inspection or memory without reading the actual source
+  files. Protocol now requires every task prompt to include a `Source Evidence` block with
+  verbatim code excerpts and `file_path:start_line-end_line` citations for each ALLOWED
+  file that affects the change logic.
+
+- **`「確認済み」` / `「reviewed」` without quoted code is invalid evidence**:
+  Writing an assertion that a file was read — without pasting actual content — cannot be
+  verified by the implementation agent or the auditor. Rule added: assertion-only evidence
+  is explicitly forbidden; the task prompt is invalid if Source Evidence is missing or
+  assertion-only.
+
+- **Claude Code must verify citations before starting implementation**:
+  `docs/AI_ENTRYPOINT.md` now instructs Claude Code to check each Source Evidence citation
+  against the actual file before proceeding. If a citation is wrong, Claude Code stops and
+  reports the mismatch rather than proceeding on a false foundation.
+
+- **Three P2s on one PR is not normal workflow**:
+  Three valid `GPT_PRE_PROMPT_FAILURE` findings in a single PR indicate a structural
+  prompt-design failure, not implementation error. The Source Evidence gate is the
+  structural fix: GPT cannot claim to have read a file without showing its work.
+
+---
+
 ## PR #69 — Static value checks require a docs-first freeze before implementation
 
 Lessons that drove the docs-first freeze decision:
