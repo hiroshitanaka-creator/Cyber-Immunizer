@@ -843,11 +843,24 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 
 ### 次の Project Owner 手順
 
-1. **PR #62 merge 確認**（main の `data/genome.json` が `gemini-3-flash-preview` であること）
-2. **この docs PR を merge**
-3. **paid-credit run を 1 回だけ実行** (`workflow_dispatch` → mode: `gemini-paid-credit`、`promote_approved=false`)
-4. **ledger artifact / candidate patch / apply / evaluate 結果を確認**
-5. **結果に基づいて次 PR を判断**（promote, fix, or halt）
+1. **PR #69 current-head gate を確認**
+   - PR #69 は X-007 static value-check policy の **docs-only specification freeze** である。
+   - check 11 は PR #69 では**未実装**。validator は現在 check 1–10 のみ。
+   - PR #70 は **reserved / not yet started**。
+2. **merge 前の必須確認**
+   - current PR head SHA を確認する。
+   - current head CI が **success** であることを確認する。
+   - current head に対する **Codex Review** を確認する。Codex Review が旧 commit 対象のみの場合は merge しない。
+   - inline review threads が **unresolved でない**ことを確認する。
+3. **PR #69 merge 後に実行してはいけないこと**
+   - PR #69 merge 直後に **paid-credit run を実行しない**。
+   - Gemini API / workflow_dispatch を PR #69 の後続手順として実行しない。
+   - check 11 が実装済みであると扱わない。
+4. **PR #69 merge 後の正しい次アクション**
+   - PR #70 用の実装タスクプロンプトを別途作成する。
+   - PR #70 は Category A obvious invalid literal rejection の safe-subset implementation のみを対象にする。
+   - Category B dynamic expressions は allow/defer する。
+   - **Project Owner 承認後にのみ PR #70 を開始する**。
 
 ---
 
