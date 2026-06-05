@@ -7,6 +7,70 @@ This is not a project status document. Keep entries focused on protocol lessons.
 
 ---
 
+## PR #67 — Direct constructor call ≠ valid constructor argument shape
+
+Lessons that drove protocol additions:
+
+- **Check 8 proves form, not shape**: Check 8 of `_validate_replacement_code`
+  verifies that every `return` statement returns `DetectionResult(...)` (an
+  `ast.Call` with `func.id == "DetectionResult"`). It does not inspect
+  `call.args`, `call.keywords`, or keyword names. A call such as
+  `DetectionResult(True, "x", 0.5, ())` or `DetectionResult(blocked=True,
+  reason="x")` passes check 8 and would fail at runtime against the dataclass
+  constructor. Protocol now requires check 10: zero positional args, no
+  `**kwargs`, exactly the four canonical keyword names.
+
+- **Canonical keyword names are a static contract**: The four keyword names
+  (`blocked`, `reason`, `confidence`, `matched_signals`) are a static contract
+  derived from `core/types.py`. An LLM that generates code with missing,
+  extra, or renamed keyword arguments produces code that will raise `TypeError`
+  at runtime. Validating keyword names statically (before any paid-credit run)
+  is both feasible and fail-closed. Protocol now records this as H-3 argument
+  count/keyword-name validation, completed in PR #67.
+
+- **H-3 is not X-007**: H-3 (argument count / keyword-name validation) and
+  X-007 (type/value-range static checks) are orthogonal. Check 10 validates
+  that the required keyword arguments are present and correctly named; it does
+  not check that `blocked` is a literal `bool`, that `confidence` is in
+  `[0.0, 1.0]`, or that `matched_signals` is a tuple. Those type/value-range
+  checks remain deferred as X-007 in PR #68+. Protocol now records this
+  distinction explicitly to prevent future agents from conflating the two.
+
+- **Prompt and validator must stay in sync (continued)**: When check 10 was
+  added, `_LLM_SYSTEM_PROMPT` rule 10 and the FORBIDDEN section were updated
+  in the same PR to reflect keyword-only requirement and explicitly list
+  rejected patterns (positional, **kwargs, missing, extra). Protocol reinforces
+  the lesson from PR #66: every new validator rule must have a matching prompt
+  constraint in the same PR.
+
+- **Constructor-shape validation must cover all constructor calls, not only
+  returned ones (Codex P2, round 1)**: The initial PR #67 check 10 implementation
+  iterated only over `ast.Return` nodes. Codex P2 review found that a
+  malformed non-return `DetectionResult(...)` call (expression statement,
+  assignment, or nested branch call) would pass check 10 and could raise
+  `TypeError` at runtime before any fallback return is reached. Protocol now
+  requires that argument-shape validation covers every bare `DetectionResult`
+  `ast.Call` in the replacement body, regardless of whether it appears inside
+  a `return` statement.
+
+- **Set-based keyword validation collapses duplicates (Codex P2, round 2)**:
+  The set comprehension `{kw.arg for kw in n.keywords}` used for missing/extra
+  comparison silently deduplicates keyword names. `DetectionResult(blocked=False,
+  ..., blocked=True)` produces `provided == _REQUIRED_DR_KWARGS` and passes
+  check 10, even though Python compilation would raise `TypeError: keyword
+  argument repeated`. `ast.parse()` accepts duplicate keywords without raising
+  `SyntaxError` (verified on Python 3.11), so check 6 does not catch this.
+  Protocol now requires that duplicate keyword detection runs before the
+  set-based comparison, using a list-based scan with an explicit `seen` set.
+
+- **X-002 / X-003 / X-006 / X-007 remain Project Owner-overridable
+  recommendations**: These policy extension items remain deferred. X-007
+  excludes only type/value-range static checks; H-3 argument count/keyword-name
+  validation is completed by PR #67. Protocol records this to prevent future
+  agents from reopening H-3 scope or conflating it with X-007.
+
+---
+
 ## PR #66 — Return presence ≠ fallthrough safety
 
 Lessons that drove protocol additions:
