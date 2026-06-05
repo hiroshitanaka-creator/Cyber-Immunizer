@@ -210,7 +210,7 @@ PR #69 でポリシーを凍結（docs-only）し、PR #70 で安全なサブセ
 | **PR #69** | X-007 ポリシー凍結（docs-only）— validator 変更なし |
 | **PR #70** | X-007 安全サブセット実装（check 11 予定） |
 
-凍結されたポリシーの詳細は **[`docs/REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md`](../REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md)** を参照してください。
+凍結されたポリシーの詳細は **[`docs/REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md`](REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md)** を参照してください。
 
 このドキュメントが定義する4つのカテゴリ:
 - **Category A**: PR #70 が静的に拒否してよい obvious invalid literal のケース
