@@ -133,24 +133,54 @@ This constraint is the same as checks 1–10 and must not be weakened in PR #70.
 
 ---
 
-## Category D — Fitness/Runtime Remains Responsible for Semantic Correctness
+## Category D — Fitness/Runtime Responsibility and Its Limits
 
 PR #70 safe-subset static checks **cannot** prove that all runtime values are valid.
-Static rejection of obvious invalid literals reduces the risk of `TypeError` at runtime,
-but does not eliminate it.
+However, fitness/evaluate is **not** a complete type-safety net either. This section states
+precisely what the current runtime path does and does **not** catch, so that neither PR #70
+nor future agents over-rely on it.
 
-The following responsibilities remain with `fitness.py` / `evaluate_candidate.py`:
+### What the runtime path actually verifies (verified against current code)
 
-- Detecting `TypeError` raised when `DetectionResult(...)` is constructed with a wrong-type
-  value that passed static checks (e.g., `confidence=min(1.0, score)` where `score` is `None`
-  at runtime).
-- Detecting `ValueError` or other contract violations arising from dynamic expressions.
-- Behavioral quality evaluation (FP rate, TP rate, regression pass rate).
-- Exception count tracking — runtime exceptions caused by malformed values count against the
-  adoption gate.
+`core/fitness.py::_contract_ok` checks only:
 
-Do not claim that PR #70 eliminates all runtime type errors. Fitness/evaluate is the
-final safety net.
+- `inspect_request` exists and is callable,
+- it does not **raise** on a smoke-test `Request`,
+- the returned object is an instance of `DetectionResult`,
+- `result.confidence` is within `[0.0, 1.0]`.
+
+`core/test_attacker.py::summarize_results` scores `actual_blocked = result.blocked` by
+**truthiness** (`if expected and actual: ...`), and counts any exception **raised during
+evaluation** toward `exception_count`.
+
+### What the runtime path does NOT catch (the residual gap)
+
+`DetectionResult` is a plain dataclass and **does not enforce field types**. Therefore the
+following pass construction without raising `TypeError`, pass `_contract_ok`, and get scored:
+
+- `blocked="yes"` — a non-`bool` that is truthy; scored as "blocked" by truthiness.
+- `reason=42` — a non-`str` that breaks nothing downstream.
+- `matched_signals=(1, 2)` — non-string elements; `list(result.matched_signals)` just wraps them.
+
+In short: a wrong-type value that neither raises during evaluation nor pushes `confidence`
+outside `[0.0, 1.0]` is **not** rejected by fitness/evaluate today.
+
+### What this means for PR #70
+
+- Do **not** claim that fitness/evaluate detects all wrong-type `DetectionResult` values.
+  It does not.
+- This residual gap is precisely **why Category A static literal rejection matters**: for
+  obvious invalid literals, the static check (Category A) is the only line of defense, since
+  the runtime path will silently score them.
+- Fitness/evaluate **does** reliably catch: expressions that raise during evaluation (e.g.,
+  `confidence=min(1.0, score)` where `score` is `None` raises `TypeError` at call time →
+  counted as an exception), `confidence` outside `[0.0, 1.0]`, and behavioral quality
+  (TP/FP/FN, regression pass rate, FP-rate gate, exception count).
+- For Category B dynamic expressions that are deferred, "deferred" means "not statically
+  rejected" — it does **not** mean "guaranteed valid at runtime." The residual type risk is a
+  known, accepted limitation of the AST-only safe subset, not something fitness fully covers.
+  Tightening this further (runtime contract checks for `blocked`/`reason`/`matched_signals`
+  element types) is a separate, Project Owner-overridable item (see Scope-Out).
 
 ---
 
@@ -190,7 +220,7 @@ This matrix is non-normative for PR #69 (docs-only) but is the contract for PR #
 | 27 | `confidence=float("nan")` | `confidence` | `confidence=float("nan")` | Defer (function call, not literal) |
 | 28 | `reason=f"..."` f-string | `reason` | `reason=f"Detected {x}"` | Accept (defer) |
 | 29 | `blocked=score > threshold` comparison | `blocked` | `blocked=score > 0.5` | Accept (defer) |
-| 30 | Parse-succeeds but runtime value may be wrong | all | `confidence=compute_score()` | Accept (defer) — fitness responsible |
+| 30 | Parse-succeeds but runtime value may be wrong | all | `confidence=compute_score()` | Accept (defer) — residual runtime risk; not fully covered by fitness (see Category D) |
 | 31 | Stricter `matched_signals` element-type check | `matched_signals` | `matched_signals=tuple(matched)` | Scope-out — defer unless Project Owner approves |
 
 ### False-Rejection Regression Cases (PR #70 must not break these)
@@ -216,6 +246,11 @@ The following items are explicitly out of scope for PR #70 unless the Project Ow
 - Full range proof for dynamic `confidence` expressions (requires symbolic execution or SMT solver).
 - Element-type verification for `tuple(matched)` — whether `matched` contains only strings.
 - Semantic validation that `reason` is a non-empty string at runtime.
+- Runtime contract checks for `blocked` (must be `bool`), `reason` (must be `str`), and
+  `matched_signals` element types in `core/fitness.py::_contract_ok`. The current contract
+  check verifies only `DetectionResult` instance and `confidence` range; extending it to
+  enforce the other field types at runtime would close the Category D residual gap but is a
+  runtime change outside the X-007 AST-only static scope.
 - X-002 / X-003 / X-006 policy alignment — these remain separate policy items.
 - Full CFG/reachability analysis beyond the existing check 9 fallthrough guard.
 
