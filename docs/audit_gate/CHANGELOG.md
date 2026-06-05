@@ -7,7 +7,7 @@ This is not a project status document. Keep entries focused on protocol lessons.
 
 ---
 
-## PR #XX — Task Prompt Gate v2 / Codex pre-emption requirement
+## PR #68 — Task Prompt Gate v2 / Codex pre-emption requirement
 
 Lessons that drove protocol additions:
 
