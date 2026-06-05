@@ -40,6 +40,9 @@ GPT Audit Gate / Task Prompt Engineer. Defines the required task prompt
 template, ALLOWED / REFERENCE_ONLY / FROZEN / IMPACT file boundaries, Change
 Request fields, ambiguity handling, and the PR completion documentation gate.
 Use this before writing any Claude Code, Codex, or other implementation-agent
+prompt. It also defines Task Prompt Gate v2: mandatory pre-prompt
+investigation, adversarial validation matrix, Codex issue pre-emption, and a
+98/100 self-score threshold before GPT may output an implementation task
 prompt.
 
 ### TOOL_EXECUTION_ANOMALY_PROTOCOL.md
