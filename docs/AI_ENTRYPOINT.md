@@ -54,6 +54,7 @@ See `docs/audit_gate/PR_AUDIT_PROTOCOL.md` (Terminology rule section) for the fu
 | PR audit / merge decision | docs/audit_gate/PR_AUDIT_PROTOCOL.md | docs/AUDIT_CHARTER.md, docs/audit_gate/CHANGELOG.md |
 | Implementation task prompt / Claude Code prompt / Codex task prompt | docs/audit_gate/TASK_PROMPT_PROTOCOL.md | docs/audit_gate/PR_AUDIT_PROTOCOL.md, docs/audit_gate/CHANGELOG.md, relevant canonical implementation/tests/docs for the target scope |
 | GPT drift / pullback prompt | docs/audit_gate/PULLBACK_PROMPT.md | docs/audit_gate/CHANGELOG.md |
+| Thread handoff / 新スレッド引き継ぎ / session continuation | docs/audit_gate/THREAD_HANDOFF_PROTOCOL.md | CLAUDE.md, docs/audit_gate/CHANGELOG.md |
 | Tool blocked / fallback / low-level GitHub operation | docs/audit_gate/TOOL_EXECUTION_ANOMALY_PROTOCOL.md | docs/audit_gate/PR_AUDIT_PROTOCOL.md |
 | Phase status check | docs/PHASE_2_5_CLOSEOUT_AUDIT.md | docs/PHASE_2_COMPLETION_CHECKPOINT.md, docs/PHASE_2_PLAN.md |
 | Phase 2.5 closeout / post-hardening audit | docs/PHASE_2_5_CLOSEOUT_AUDIT.md | docs/PHASE_3_GO_NO_GO_CHECKLIST.md |
