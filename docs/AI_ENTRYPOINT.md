@@ -84,3 +84,9 @@ See `docs/audit_gate/PR_AUDIT_PROTOCOL.md` (Terminology rule section) for the fu
    audit trail.
 7. Claude Code reports and PR bodies are self-reports. Verify against GitHub
    state, current head SHA, diff, CI, and real files.
+8. **Source Evidence intake check**: If the task prompt contains a `Source Evidence` block,
+   verify each `file_path:start_line-end_line` citation against the actual file before
+   starting any implementation. If a citation does not match — wrong lines, wrong content,
+   or file does not exist — stop immediately, report the specific mismatch, and ask GPT to
+   correct the task prompt. Do not proceed with implementation on an unchecked or
+   mismatched citation.
