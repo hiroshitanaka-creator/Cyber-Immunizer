@@ -73,6 +73,22 @@ diff.
 
 ---
 
+## Rule 3.5 — Task prompt construction gate
+
+When the user asks for an implementation task prompt, do not produce it from the diff alone.
+Before writing the prompt, apply `docs/audit_gate/TASK_PROMPT_PROTOCOL.md` Task Prompt Gate v2:
+
+- verify canonical source files,
+- inspect the current implementation and downstream effects,
+- build an adversarial validation matrix,
+- pre-empt likely Codex findings,
+- check README/docs/changelog/history impact,
+- self-score the prompt.
+
+If the self-score is below 98/100, do not output the task prompt. Report the missing evidence and required investigation instead.
+
+---
+
 ## Rule 4 — Current-head CI
 
 CI must be the run for the **current head SHA**, not an older commit.

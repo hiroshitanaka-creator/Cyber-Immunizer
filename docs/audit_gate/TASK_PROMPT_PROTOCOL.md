@@ -44,6 +44,90 @@ Every implementation task prompt must:
 
 ---
 
+## Task Prompt Gate v2 — mandatory pre-prompt investigation
+
+GPT must not output an implementation task prompt until it has completed the following gate.
+A task prompt is invalid if this gate is omitted, incomplete, or self-scored below 98/100.
+
+### Pre-Prompt Investigation Gate
+
+Before writing any implementation prompt, GPT must verify and summarize:
+
+1. `main` / PR / branch / head SHA / merge-base SHA.
+2. The canonical source of truth for the target behavior.
+3. The current implementation, not only the diff.
+4. Downstream consumers and runtime/evaluation effects.
+5. Existing tests and missing tests.
+6. README / docs / changelog / generator / data-history implications.
+7. Likely Codex Review findings and how the prompt prevents them.
+8. Scope-in, scope-out, and Project Owner-overridable items.
+
+### Adversarial validation matrix
+
+For validator, schema, policy, parser, prompt, generated-code, API, workflow, or security-boundary tasks, GPT must include a task-specific adversarial matrix.
+
+At minimum, include applicable cases from:
+
+- valid direct case
+- missing required field
+- extra field
+- wrong field name
+- duplicate field name
+- positional args
+- mixed positional + keyword
+- `*args` / `**kwargs`
+- return context
+- non-return expression context
+- assignment context
+- nested branch context
+- parse succeeds but compile/runtime fails
+- stale metadata / generated docs mismatch
+- scope-out but Project Owner-overridable item
+
+### Self-score threshold
+
+GPT must self-score the task prompt before output.
+
+Passing threshold: **98/100**.
+
+Rubric:
+
+| Area | Points |
+|---|---:|
+| Primary-source verification | 15 |
+| Scope boundary clarity | 15 |
+| Adversarial matrix coverage | 20 |
+| Existing implementation and downstream understanding | 15 |
+| README / docs / changelog / history gate | 10 |
+| ALLOWED / REFERENCE_ONLY / FROZEN / IMPACT precision | 10 |
+| Codex Review issue pre-emption | 10 |
+| Executability and minimality | 5 |
+| Total | 100 |
+
+If score is below 98, GPT must not output the task prompt. It must instead report:
+
+```markdown
+Self-score: <score>/100 — output prohibited
+Missing evidence:
+- ...
+Unresolved risk:
+- ...
+Required next investigation:
+- ...
+```
+
+### Codex Review is not the auditor
+
+Codex Review is a supplemental signal, not the audit authority.
+
+If Codex finds a valid PR-scope issue that GPT should have caught through this gate, treat it as a GPT pre-prompt design failure unless:
+
+- the issue depends on information unavailable before implementation,
+- the issue is explicitly out of scope,
+- or the Project Owner intentionally accepted the risk beforehand.
+
+---
+
 ## Required task prompt template
 
 Use the following template for every task prompt.
@@ -98,6 +182,22 @@ Use the following template for every task prompt.
 - INVARIANT: <変えてはいけない振る舞い。これは維持しろ>
 - DO_NOT: <この修正のついでに触りがちだが触るな、という範囲>
 - VERIFY: <この変更が正しいと確認できるコマンド/観測>
+
+## Pre-Prompt Investigation Gate
+- main / PR / head SHA:
+- Canonical source of truth:
+- Current implementation reviewed:
+- Downstream effects:
+- Existing tests:
+- Missing/adversarial tests:
+- README / docs / changelog / history impact:
+- Likely Codex findings pre-empted:
+- Scope-out / PO-overridable items:
+
+## Self Score
+- Score: ___ / 100
+- Pass threshold: 98
+- If below 98: do not output this prompt.
 ```
 
 ---

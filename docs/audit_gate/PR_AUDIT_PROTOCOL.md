@@ -148,6 +148,26 @@ If the PR body contradicts the current diff, trust the diff.
 
 ---
 
+## GPT pre-prompt failure rule
+
+Codex Review is a supplemental signal, not the auditor.
+
+When Codex finds a valid issue inside the declared PR scope, classify it during audit as one of:
+
+| Classification | Meaning |
+|---|---|
+| GPT_PRE_PROMPT_FAILURE | GPT's task prompt should have included this edge case or invariant. |
+| IMPLEMENTATION_AGENT_FAILURE | The prompt contained the requirement but the implementation agent failed to follow it. |
+| INTENTIONAL_DEFERRED_SCOPE | The issue was explicitly deferred by the Project Owner before implementation. |
+| OUT_OF_SCOPE_NEW_FINDING | The issue is valid but outside the declared PR scope. |
+| UNAVAILABLE_INFORMATION | The issue depended on information not available before implementation. |
+
+If the classification is `GPT_PRE_PROMPT_FAILURE`, the next task prompt must include a stronger adversarial matrix and must not be released unless it self-scores 98/100 or higher under `TASK_PROMPT_PROTOCOL.md`.
+
+Do not treat repeated valid Codex P2 findings as normal workflow. They indicate a prompt-design or audit-design failure unless clearly classified otherwise.
+
+---
+
 ## Scope control
 
 For every PR, identify scope-in and scope-out changes. The following are always
@@ -191,6 +211,7 @@ Do not give APPROVE unless all are true:
 - Documentation / history gate checked
 - Real file content checked where needed
 - Stale PR body discarded where contradicted by diff
+- Valid Codex findings, if any, are classified under the GPT pre-prompt failure rule.
 
 ---
 

@@ -52,7 +52,7 @@ See `docs/audit_gate/PR_AUDIT_PROTOCOL.md` (Terminology rule section) for the fu
 | User request / task | Read first | Then read |
 |---|---|---|
 | PR audit / merge decision | docs/audit_gate/PR_AUDIT_PROTOCOL.md | docs/AUDIT_CHARTER.md, docs/audit_gate/CHANGELOG.md |
-| Implementation task prompt / Claude Code prompt / Codex task prompt | docs/audit_gate/TASK_PROMPT_PROTOCOL.md | docs/audit_gate/PR_AUDIT_PROTOCOL.md, docs/audit_gate/CHANGELOG.md |
+| Implementation task prompt / Claude Code prompt / Codex task prompt | docs/audit_gate/TASK_PROMPT_PROTOCOL.md | docs/audit_gate/PR_AUDIT_PROTOCOL.md, docs/audit_gate/CHANGELOG.md, relevant canonical implementation/tests/docs for the target scope |
 | GPT drift / pullback prompt | docs/audit_gate/PULLBACK_PROMPT.md | docs/audit_gate/CHANGELOG.md |
 | Tool blocked / fallback / low-level GitHub operation | docs/audit_gate/TOOL_EXECUTION_ANOMALY_PROTOCOL.md | docs/audit_gate/PR_AUDIT_PROTOCOL.md |
 | Phase status check | docs/PHASE_2_5_CLOSEOUT_AUDIT.md | docs/PHASE_2_COMPLETION_CHECKPOINT.md, docs/PHASE_2_PLAN.md |
@@ -74,9 +74,13 @@ See `docs/audit_gate/PR_AUDIT_PROTOCOL.md` (Terminology rule section) for the fu
 1. Identify the user's current request in one sentence.
 2. Select the matching row in the table above and read those documents.
 3. For implementation task prompts, apply `docs/audit_gate/TASK_PROMPT_PROTOCOL.md` before writing the prompt.
-4. Do not propose work outside the stated scope.
-5. If a tool operation is blocked or falls back, follow
+4. Before writing any implementation task prompt, complete the Task Prompt Gate v2 in `docs/audit_gate/TASK_PROMPT_PROTOCOL.md`.
+   - Do not write a task prompt from diff-only inspection.
+   - Do not rely on Codex Review to discover predictable edge cases.
+   - If the self-score is below 98/100, stop and report the missing investigation instead of writing the prompt.
+5. Do not propose work outside the stated scope.
+6. If a tool operation is blocked or falls back, follow
    `docs/audit_gate/TOOL_EXECUTION_ANOMALY_PROTOCOL.md` and log it in the
    audit trail.
-6. Claude Code reports and PR bodies are self-reports. Verify against GitHub
+7. Claude Code reports and PR bodies are self-reports. Verify against GitHub
    state, current head SHA, diff, CI, and real files.

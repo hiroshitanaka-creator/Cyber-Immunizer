@@ -7,6 +7,31 @@ This is not a project status document. Keep entries focused on protocol lessons.
 
 ---
 
+## PR #XX — Task Prompt Gate v2 / Codex pre-emption requirement
+
+Lessons that drove protocol additions:
+
+- **Codex Review is supplemental, not the auditor**: Valid PR-scope Codex P2
+  findings during PR #67 showed that GPT task prompts were not sufficiently
+  adversarial. Codex must not be relied on to discover predictable edge cases.
+- **Diff-only prompt creation is insufficient**: Task prompts must be grounded
+  in canonical source files, current implementation, downstream behavior,
+  tests, docs, and history gates.
+- **Adversarial validation matrix is mandatory**: Validator/schema/policy tasks
+  must include missing, extra, wrong, duplicate, positional, kwargs,
+  return/non-return, assignment, nested, and parse-vs-runtime cases where
+  applicable.
+- **Self-score gate added**: GPT must self-score every implementation task
+  prompt and may only output it at 98/100 or higher. Below threshold, GPT must
+  stop and report missing evidence.
+- **Valid Codex P2 means prompt-design failure unless classified otherwise**:
+  Future PR audits must classify valid Codex findings as
+  GPT_PRE_PROMPT_FAILURE, IMPLEMENTATION_AGENT_FAILURE,
+  INTENTIONAL_DEFERRED_SCOPE, OUT_OF_SCOPE_NEW_FINDING, or
+  UNAVAILABLE_INFORMATION.
+
+---
+
 ## PR #67 — Direct constructor call ≠ valid constructor argument shape
 
 Lessons that drove protocol additions:
