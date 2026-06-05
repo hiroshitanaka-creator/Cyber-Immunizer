@@ -216,7 +216,7 @@ PR #69 でポリシーを凍結（docs-only）し、PR #70 で安全なサブセ
 - **Category A**: PR #70 が静的に拒否してよい obvious invalid literal のケース
 - **Category B**: PR #70 が必ず許可またはデファーしなければならない動的式
 - **Category C**: 静的検証は AST のみ（eval/compile/実行禁止）
-- **Category D**: fitness/evaluate がランタイム型・値の正確性に責任を持つ
+- **Category D**: fitness/evaluate はランタイム責任を**部分的にのみ**担う — `_contract_ok` は DetectionResult インスタンスと `confidence` 範囲のみ検証する。`blocked`/`reason`/`matched_signals` の型誤りは runtime で検出されない（詳細は spec の Category D を参照）
 
 **オペレーターへの注意**: X-007 静的チェック（Category A）が拒否できるのは obvious invalid literal のみです。`confidence=min(1.0, score)` や `matched_signals=tuple(matched)` のような動的式は PR #70 でも拒否されません（Category B）。
 
