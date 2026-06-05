@@ -120,6 +120,7 @@ Cyber-Immunizer/
 │   ├── PHASE_2_COMPLETION_CHECKPOINT.md        # Phase 2完了チェックポイント・pre-Phase-3現在状態
 │   ├── PHASE_3_GO_NO_GO_CHECKLIST.md           # Phase 3 activation前のGo/No-Go readiness audit
 │   ├── PHASE_2_5_CLOSEOUT_AUDIT.md             # Phase 2.5 hardening closeout audit（PR #46–#53 ledger）
+│   ├── REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md  # X-007 static value-check policy spec（PR #69 frozen / PR #70 実装予定）
 │   ├── human用roadmap/
 │   │   └── phase3_to_phase7_roadmap.md         # Project Owner roadmap for Phase 3–7（thread handoff）
 │   └── API_ACTIVATION_RUNBOOK.md               # API有効化手順書（Phase 3 runbook）
@@ -807,11 +808,14 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | **PR #64** | Project Owner 用語統一（terminology standardization） | ✅ merged |
 | **PR #65** | indentation contract 検証追加（check 5a/5b/5c）、return shape validation（check 8）追加。すべての return が `return DetectionResult(...)` 形式でなければ拒否。runbook wrapper description を実装と一致させた（`_candidate_body(request)` / `_mutation_anchor = None`） | ✅ merged |
 | **PR #66** | **H-2 fallthrough guard**: check 9 を追加。最後のトップレベル文が `return DetectionResult(...)` でなければ拒否。nested-only return は fallthrough して `None` を返す可能性があるため fail-closed に。 | ✅ merged |
-| **PR #67** | **H-3 DetectionResult 引数形式チェック**: check 10 を追加。`DetectionResult(...)` のすべての呼び出しは keyword-only 引数で、正確に `blocked`, `reason`, `confidence`, `matched_signals` の 4 フィールドを指定しなければならない。positional 引数・**kwargs 展開・duplicate keyword・keyword 名不足/過剰を拒否。`_LLM_SYSTEM_PROMPT` rule 10 および FORBIDDEN section を更新。 | ✅ implemented in PR #67 |
+| **PR #67** | **H-3 DetectionResult 引数形式チェック**: check 10 を追加。`DetectionResult(...)` のすべての呼び出しは keyword-only 引数で、正確に `blocked`, `reason`, `confidence`, `matched_signals` の 4 フィールドを指定しなければならない。positional 引数・**kwargs 展開・duplicate keyword・keyword 名不足/過剰を拒否。`_LLM_SYSTEM_PROMPT` rule 10 および FORBIDDEN section を更新。 | ✅ merged |
+| **PR #68** | **Task Prompt Gate v2 / Codex pre-emption requirement**: GPT task prompt の Adversarial Validation Matrix を必須化。Self-score gate（98/100 以上）追加。valid Codex P2 findings の分類ルール整備。docs/audit_gate/TASK_PROMPT_PROTOCOL.md を Audit Gate エントリポイント全体で必須化。 | ✅ merged |
+| **PR #69** | **X-007 static value-check policy specification freeze**: `DetectionResult` フィールドの型・値レンジ静的チェックポリシーを凍結（docs-only）。check 11 は未実装。PR #70 向けの安全サブセット契約と 31-case adversarial test matrix を定義。詳細: [`docs/REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md`](docs/REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md) | ✅ spec frozen (docs-only) |
+| **PR #70** | **X-007 safe-subset static implementation**: Category A obvious invalid literal rejection（check 11）の実装予定。Category B 動的式は引き続き許可。詳細は PR #69 frozen spec に従う。 | 🔜 reserved (not yet started) |
 
-> ℹ️ **PR #65・#66 は main に merge 済み。**  
-> PR #67 は H-3: argument count/keyword-name validation の実装です（レビュー中）。  
-> PR #68+ の残課題: X-007 type/value-range static checks（`confidence` 0.0–1.0 範囲、`blocked` が bool 等）、X-002/X-003/X-006 policy alignment は PR #67 のスコープ外です。
+> ℹ️ **PR #63–#68 は main に merge 済み。**  
+> PR #69 は X-007 type/value-range static checks のポリシー凍結（docs-only）です。validator の変更はありません（現在は check 1–10 のみ）。  
+> PR #70 で Category A obvious invalid literal rejection（check 11）を実装予定。X-002/X-003/X-006 policy alignment は Project Owner-overridable 推奨事項として保留。
 
 ### Gemini 3 技術詳細（PR #62）
 
@@ -854,7 +858,7 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | **v0.1** | ローカルファーストの MVP スキャフォールド |
 | **v0.2** | Gemini API 統合基盤（安全なフリーティア戦略・スキーマ拘束・プリフライトスキャン・API予算管理） |
 | **v0.2.x（Phase 2）** | API未接続運用強化（rollback設計・evolution_history監査・offline-sample dry-run分離・運用チェックリスト整備）— **完了** |
-| **v0.3（Phase 3 / 現在）** | 実 Gemini API 接続 — activation PR #58–#62 merge 済み、hardening PR #63–#66 完了、初回 paid-credit run 待機中 |
+| **v0.3（Phase 3 / 現在）** | 実 Gemini API 接続 — activation PR #58–#62 merge 済み、hardening PR #63–#68 完了、X-007 spec frozen (PR #69)、X-007 implementation reserved (PR #70)、初回 paid-credit run 待機中 |
 | **v0.4** | 複数検出器の並列評価、アンサンブル昇格 |
 | **将来** | 実WAFへの統合（別途セキュリティレビュー必須） |
 

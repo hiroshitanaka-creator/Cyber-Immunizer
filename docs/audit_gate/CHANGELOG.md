@@ -7,6 +7,44 @@ This is not a project status document. Keep entries focused on protocol lessons.
 
 ---
 
+## PR #69 — Static value checks require a docs-first freeze before implementation
+
+Lessons that drove the docs-first freeze decision:
+
+- **Obvious invalid literals and valid dynamic expressions must be separated before
+  implementation**: X-007 (type/value-range static checks for `DetectionResult` fields)
+  can easily over-reject valid detector logic if implemented without a frozen policy.
+  For example, `confidence=min(1.0, score)` and `matched_signals=tuple(matched)` are
+  dynamic expressions that produce valid values at runtime but cannot be proved correct
+  by AST-only static analysis. A validator that rejects these would break well-formed
+  detectors on the first paid-credit run. Protocol now requires a docs-first freeze
+  before any implementation of static value-range checks.
+
+- **H-3 and X-007 are orthogonal; conflating them causes scope creep**: Check 10 (H-3,
+  PR #67) validates argument count and keyword names. It explicitly does not validate
+  types or value ranges. X-007 is the separate, deferred item for type/value-range checks.
+  Any agent that re-opens check 10 to add type checks is conflating H-3 with X-007 scope.
+  Protocol now records the boundary explicitly: check 10 is complete; X-007 starts at
+  check 11 in PR #70.
+
+- **The safe-subset rule is the governing principle for AST-only static checks**: Static
+  checks must only reject what is obviously wrong as an AST literal. If a value could be
+  correct at runtime via a dynamic expression, the check must defer to fitness/evaluate.
+  "When in doubt, defer" is the safety invariant. This prevents false-positive rejections
+  that would cause the validator to fail-close on legitimate Gemini outputs.
+
+- **Four-category taxonomy freezes the PR #70 contract**: PR #69 defines four categories
+  (A: safe to reject, B: must allow/defer, C: AST-only constraint, D: fitness/runtime
+  responsibility) and a 31-case adversarial test matrix. PR #70 must satisfy all Category B
+  allow/defer cases and all Category A reject cases before implementation is complete.
+  Protocol now requires this matrix to be verified before PR #70 merges.
+
+- **`data/history/ledger` must not be touched in docs-only PRs**: PR #69 is docs-only.
+  `data/evolution_history.json` and `data/api_usage_ledger.json` must remain unchanged.
+  Protocol now records that docs-freeze PRs have no data impact.
+
+---
+
 ## PR #68 — Task Prompt Gate v2 / Codex pre-emption requirement
 
 Lessons that drove protocol additions:
