@@ -60,6 +60,40 @@ Lesson driven by repeated `GPT_PRE_PROMPT_FAILURE` classifications across PR #69
 
 ---
 
+## PR #72相当 — X-007 check 11 safe-subset implementation
+
+Lessons from implementing Category A static literal rejection:
+
+- **LLM prompt additions are cost-sensitive**: Adding text to `_LLM_SYSTEM_PROMPT` increases
+  the estimated input token count, which affects the paid-credit budget gate and cost ledger
+  tests. Any `_LLM_SYSTEM_PROMPT` edit must verify that `estimate_cost_usd` stays within the
+  existing test threshold (`< $0.005` for the `test_paid_credit_ledger_uses_output_token_cap`
+  test). Protocol: measure `len(_LLM_SYSTEM_PROMPT)` before and after; target a net addition
+  of no more than ~350 characters to avoid breaking the cost-threshold test.
+
+- **bool is a subclass of int — check order matters**: `isinstance(True, int)` returns `True`
+  in Python. Any numeric literal check that runs `isinstance(val, (int, float))` before
+  `isinstance(val, bool)` will incorrectly classify `True`/`False` as numeric. The
+  `_numeric_literal_value` helper must check `isinstance(val, bool)` first and return `None`
+  before checking `isinstance(val, (int, float))`.
+
+- **UnaryOp is the canonical AST for negative literals**: `-0.1` in Python source is parsed
+  as `ast.UnaryOp(op=ast.USub(), operand=ast.Constant(0.1))`, not as `ast.Constant(-0.1)`.
+  `_numeric_literal_value` must handle `ast.UnaryOp(USub|UAdd, Constant)` to correctly
+  classify signed numeric literals without calling eval/compile.
+
+- **Deferred = not statically rejected (not guaranteed valid at runtime)**: Category B
+  dynamic expressions are deferred by check 11 because they *may* produce valid values at
+  runtime. Deferral does not mean the value is valid; fitness/evaluate remains the runtime
+  residual gate for Category B expressions. This distinction prevents future agents from
+  claiming check 11 provides stronger guarantees than it does.
+
+- **PR numbering may differ from reserved slots**: PR #70 was consumed by the Source Evidence
+  gate redesign; PR #71 by CLAUDE.md. This implementation is PR #72相当, not PR #70.
+  Task prompts must use "PR #N相当" rather than hard-coding expected PR numbers.
+
+---
+
 ## PR #69 — Static value checks require a docs-first freeze before implementation
 
 Lessons that drove the docs-first freeze decision:

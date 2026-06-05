@@ -195,30 +195,30 @@ Preflight run #26733824493 が成功しました:
 | **受理されるパターン** | `DetectionResult(blocked=..., reason=..., confidence=..., matched_signals=...)` のみ（呼び出し場所問わず） |
 | **エラーメッセージ prefix** | `replacement_code DetectionResult argument shape violation:` |
 | **適用範囲** | nested return（if/for/while 内）とトップレベル fallback return の両方に適用される |
-| **型・値レンジの検証** | check 10 は引数の存在と名前のみ検証する。型（`blocked` が bool か）や値レンジ（`confidence` が 0.0-1.0 か）は PR #70 スコープ（X-007） |
+| **型・値レンジの検証** | check 11（X-007）が Category A obvious invalid literal を静的に拒否する。動的式は defer（Category B）。 |
 
-#### X-007 型・値レンジ静的チェック（PR #69 frozen / PR #70 実装予定）
+#### X-007 型・値レンジ静的チェック（PR #69 frozen / PR #72相当 実装済み）
 
-> **⚠️ check 11 は現在の validator に存在しない。現在の validator は check 1–10 のみを実装する。**
+> **✅ check 11 は実装済み（PR #72相当）。現在の validator は check 1–11 を実装する。**
 
 X-007 は `DetectionResult(...)` の各フィールドの型・値レンジを静的に検証するポリシー拡張項目です。
-PR #69 でポリシーを凍結（docs-only）し、PR #70 で安全なサブセットを実装する予定です。
+PR #69 でポリシーを凍結（docs-only）し、PR #72相当で Category A safe-subset を実装しました。
 
 | 状態 | 内容 |
 |---|---|
-| **現在の実装** | check 1–10 のみ（check 11 は未実装） |
+| **現在の実装** | check 1–11（check 11 = X-007 Category A 実装済み） |
 | **PR #69** | X-007 ポリシー凍結（docs-only）— validator 変更なし |
-| **PR #70** | X-007 安全サブセット実装（check 11 予定） |
+| **PR #72相当** | X-007 安全サブセット実装（check 11 実装済み） |
 
 凍結されたポリシーの詳細は **[`docs/REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md`](REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md)** を参照してください。
 
 このドキュメントが定義する4つのカテゴリ:
-- **Category A**: PR #70 が静的に拒否してよい obvious invalid literal のケース
-- **Category B**: PR #70 が必ず許可またはデファーしなければならない動的式
-- **Category C**: 静的検証は AST のみ（eval/compile/実行禁止）
+- **Category A**: check 11 が静的に拒否する obvious invalid literal のケース（実装済み）
+- **Category B**: check 11 が必ず許可またはデファーする動的式（実装済み）
+- **Category C**: 静的検証は AST のみ（eval/compile/実行禁止）— 実装済み
 - **Category D**: fitness/evaluate はランタイム責任を**部分的にのみ**担う — `_contract_ok` は DetectionResult インスタンスと `confidence` 範囲のみ検証する。`blocked`/`reason`/`matched_signals` の型誤りは runtime で検出されない（詳細は spec の Category D を参照）
 
-**オペレーターへの注意**: X-007 静的チェック（Category A）が拒否できるのは obvious invalid literal のみです。`confidence=min(1.0, score)` や `matched_signals=tuple(matched)` のような動的式は PR #70 でも拒否されません（Category B）。
+**オペレーターへの注意**: X-007 静的チェック（Category A）が拒否できるのは obvious invalid literal のみです。`confidence=min(1.0, score)` や `matched_signals=tuple(matched)` のような動的式は check 11 でも拒否されません（Category B）。
 
 #### paid-credit run で replacement_code 検証が失敗した場合
 

@@ -1398,6 +1398,397 @@ class TestDetectionResultDuplicateKeywords:
 
 
 # ---------------------------------------------------------------------------
+# 9g. X-007 — DetectionResult static value checks (check 11)
+# ---------------------------------------------------------------------------
+
+
+class TestX007StaticValueChecks:
+    """Regression tests for check 11: Category A obvious invalid DetectionResult
+    field literal rejection.
+
+    Each field is validated in isolation using a helper that substitutes one
+    field at a time into an otherwise-valid four-keyword constructor call.
+    Context tests verify that all bare DetectionResult(...) call sites are
+    checked, not only top-level returns.
+    Check-10-precedence tests verify that shape errors still win over value errors.
+    """
+
+    _STABLE_PREFIX = "replacement_code DetectionResult static value violation:"
+
+    @staticmethod
+    def _ok(**kwargs: str) -> str:
+        """Build minimal valid replacement_code, optionally overriding field source."""
+        vals = {
+            "blocked": "True",
+            "reason": "'no match'",
+            "confidence": "0.0",
+            "matched_signals": "()",
+        }
+        vals.update(kwargs)
+        return (
+            "    return DetectionResult(\n"
+            f"        blocked={vals['blocked']},\n"
+            f"        reason={vals['reason']},\n"
+            f"        confidence={vals['confidence']},\n"
+            f"        matched_signals={vals['matched_signals']},\n"
+            "    )\n"
+        )
+
+    # ------------------------------------------------------------------
+    # Accept / defer cases (Category B dynamic expressions and valid literals)
+    # ------------------------------------------------------------------
+
+    def test_01_accepts_blocked_true(self) -> None:
+        """blocked=True is a valid bool literal and is accepted."""
+        assert pm._validate_replacement_code(self._ok(blocked="True")) == ""
+
+    def test_02_accepts_blocked_false(self) -> None:
+        """blocked=False is a valid bool literal and is accepted."""
+        assert pm._validate_replacement_code(self._ok(blocked="False")) == ""
+
+    def test_03_defers_blocked_comparison_expression(self) -> None:
+        """blocked=score > threshold is a dynamic expression and is deferred."""
+        assert pm._validate_replacement_code(self._ok(blocked="score > threshold")) == ""
+
+    def test_04_defers_blocked_bool_call(self) -> None:
+        """blocked=bool(matched) is a dynamic expression and is deferred."""
+        assert pm._validate_replacement_code(self._ok(blocked="bool(matched)")) == ""
+
+    def test_05_accepts_reason_string_literal(self) -> None:
+        """reason='detected sql' is a valid string literal and is accepted."""
+        assert pm._validate_replacement_code(self._ok(reason="'detected sql'")) == ""
+
+    def test_06_defers_reason_fstring(self) -> None:
+        """reason=f'Detected {pattern}' is a dynamic f-string and is deferred."""
+        assert pm._validate_replacement_code(self._ok(reason="f'Detected {pattern}'")) == ""
+
+    def test_07_accepts_confidence_zero(self) -> None:
+        """confidence=0.0 is in [0.0, 1.0] and is accepted."""
+        assert pm._validate_replacement_code(self._ok(confidence="0.0")) == ""
+
+    def test_08_accepts_confidence_one(self) -> None:
+        """confidence=1.0 is in [0.0, 1.0] and is accepted."""
+        assert pm._validate_replacement_code(self._ok(confidence="1.0")) == ""
+
+    def test_09_accepts_confidence_mid_range(self) -> None:
+        """confidence=0.9 is in [0.0, 1.0] and is accepted."""
+        assert pm._validate_replacement_code(self._ok(confidence="0.9")) == ""
+
+    def test_10_defers_confidence_min_call(self) -> None:
+        """confidence=min(1.0, score) is a dynamic expression and is deferred."""
+        assert pm._validate_replacement_code(self._ok(confidence="min(1.0, score)")) == ""
+
+    def test_11_defers_confidence_max_call(self) -> None:
+        """confidence=max(0.0, raw) is a dynamic expression and is deferred."""
+        assert pm._validate_replacement_code(self._ok(confidence="max(0.0, raw)")) == ""
+
+    def test_12_defers_confidence_round_call(self) -> None:
+        """confidence=round(raw, 4) is a dynamic expression and is deferred."""
+        assert pm._validate_replacement_code(self._ok(confidence="round(raw, 4)")) == ""
+
+    def test_13_defers_confidence_float_nan_call(self) -> None:
+        """confidence=float('nan') is a function call (not a literal) and is deferred.
+
+        Check 11 must not evaluate float('nan') — it defers all non-literal calls.
+        """
+        assert pm._validate_replacement_code(self._ok(confidence="float('nan')")) == ""
+
+    def test_14_accepts_matched_signals_empty_tuple(self) -> None:
+        """matched_signals=() is an empty tuple and is accepted."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="()")) == ""
+
+    def test_15_accepts_matched_signals_single_string_tuple(self) -> None:
+        """matched_signals=('sql',) is a tuple of strings and is accepted."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="('sql',)")) == ""
+
+    def test_16_defers_matched_signals_tuple_call(self) -> None:
+        """matched_signals=tuple(matched) is a dynamic call and is deferred."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="tuple(matched)")) == ""
+
+    # ------------------------------------------------------------------
+    # Reject cases (Category A obvious invalid literals)
+    # ------------------------------------------------------------------
+
+    def _assert_static_violation(self, code: str, context: str = "") -> None:
+        err = pm._validate_replacement_code(code)
+        assert err != "", f"Expected rejection but got empty error. {context}"
+        assert self._STABLE_PREFIX in err, (
+            f"Error must contain stable prefix {self._STABLE_PREFIX!r}, got: {err!r}"
+        )
+
+    def test_17_rejects_blocked_string_true(self) -> None:
+        """blocked='true' is a string literal and is rejected."""
+        self._assert_static_violation(self._ok(blocked="'true'"))
+
+    def test_18_rejects_blocked_integer_one(self) -> None:
+        """blocked=1 is a numeric literal and is rejected."""
+        self._assert_static_violation(self._ok(blocked="1"))
+
+    def test_19_rejects_blocked_none(self) -> None:
+        """blocked=None is not a bool and is rejected."""
+        self._assert_static_violation(self._ok(blocked="None"))
+
+    def test_20_rejects_blocked_empty_list(self) -> None:
+        """blocked=[] is a list literal and is rejected."""
+        self._assert_static_violation(self._ok(blocked="[]"))
+
+    def test_21_rejects_reason_integer(self) -> None:
+        """reason=42 is a numeric literal and is rejected."""
+        self._assert_static_violation(self._ok(reason="42"))
+
+    def test_22_rejects_reason_bool_true(self) -> None:
+        """reason=True is a bool literal and is rejected."""
+        self._assert_static_violation(self._ok(reason="True"))
+
+    def test_23_rejects_reason_none(self) -> None:
+        """reason=None is not a string and is rejected."""
+        self._assert_static_violation(self._ok(reason="None"))
+
+    def test_24_rejects_confidence_string(self) -> None:
+        """confidence='high' is a string literal and is rejected."""
+        self._assert_static_violation(self._ok(confidence="'high'"))
+
+    def test_25_rejects_confidence_none(self) -> None:
+        """confidence=None is not a float and is rejected."""
+        self._assert_static_violation(self._ok(confidence="None"))
+
+    def test_26_rejects_confidence_bool_true(self) -> None:
+        """confidence=True is a bool literal and is rejected.
+
+        Python treats bool as a subclass of int so True == 1, but it is still
+        an obviously wrong type for confidence and must be rejected.
+        """
+        self._assert_static_violation(self._ok(confidence="True"))
+
+    def test_27_rejects_confidence_bool_false(self) -> None:
+        """confidence=False is a bool literal and is rejected."""
+        self._assert_static_violation(self._ok(confidence="False"))
+
+    def test_28_rejects_confidence_out_of_range_high(self) -> None:
+        """confidence=1.5 is a float literal outside [0.0, 1.0] and is rejected."""
+        self._assert_static_violation(self._ok(confidence="1.5"))
+
+    def test_29_rejects_confidence_negative_float(self) -> None:
+        """confidence=-0.1 is a signed literal outside [0.0, 1.0] and is rejected.
+
+        -0.1 is ast.UnaryOp(USub, Constant(0.1)), not a bare negative constant.
+        The implementation must classify it correctly without evaluating it.
+        """
+        self._assert_static_violation(self._ok(confidence="-0.1"))
+
+    def test_30_rejects_matched_signals_string(self) -> None:
+        """matched_signals='sql' is a string literal (not a tuple) and is rejected."""
+        self._assert_static_violation(self._ok(matched_signals="'sql'"))
+
+    def test_31_rejects_matched_signals_list(self) -> None:
+        """matched_signals=['a', 'b'] is a list literal and is rejected."""
+        self._assert_static_violation(self._ok(matched_signals="['a', 'b']"))
+
+    def test_32_rejects_matched_signals_dict(self) -> None:
+        """matched_signals={} is a dict literal and is rejected."""
+        self._assert_static_violation(self._ok(matched_signals="{}"))
+
+    def test_33_rejects_matched_signals_int_tuple(self) -> None:
+        """matched_signals=(1, 2) is a tuple with non-string constants and is rejected."""
+        self._assert_static_violation(self._ok(matched_signals="(1, 2)"))
+
+    def test_34_rejects_matched_signals_none_tuple(self) -> None:
+        """matched_signals=(None,) contains a non-string constant and is rejected."""
+        self._assert_static_violation(self._ok(matched_signals="(None,)"))
+
+    def test_35_rejects_matched_signals_bool_tuple(self) -> None:
+        """matched_signals=(True,) contains a bool constant (not a string) and is rejected."""
+        self._assert_static_violation(self._ok(matched_signals="(True,)"))
+
+    # ------------------------------------------------------------------
+    # Context coverage: check 11 validates all bare DetectionResult(...) sites
+    # ------------------------------------------------------------------
+
+    _VALID_FALLBACK = (
+        "    return DetectionResult(\n"
+        "        blocked=True,\n"
+        "        reason='no match',\n"
+        "        confidence=0.0,\n"
+        "        matched_signals=(),\n"
+        "    )\n"
+    )
+
+    def test_36_rejects_invalid_returned_call(self) -> None:
+        """Check 11 rejects an invalid value in a returned DetectionResult."""
+        code = self._ok(blocked="'true'")
+        self._assert_static_violation(code, "returned call")
+
+    def test_37_rejects_invalid_expression_statement(self) -> None:
+        """Check 11 rejects an invalid value in a non-return expression-statement call."""
+        code = (
+            "    DetectionResult(\n"
+            "        blocked='true',\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+            + self._VALID_FALLBACK
+        )
+        self._assert_static_violation(code, "expression-statement call")
+
+    def test_38_rejects_invalid_assignment_call(self) -> None:
+        """Check 11 rejects an invalid value in an assignment DetectionResult call."""
+        code = (
+            "    tmp = DetectionResult(\n"
+            "        blocked='true',\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+            + self._VALID_FALLBACK
+        )
+        self._assert_static_violation(code, "assignment call")
+
+    def test_39_rejects_invalid_nested_branch_return(self) -> None:
+        """Check 11 rejects an invalid value in a nested-branch returned call."""
+        code = (
+            "    if 'sqli_indicator' in request.path:\n"
+            "        return DetectionResult(\n"
+            "            blocked='true',\n"
+            "            reason='sqli',\n"
+            "            confidence=0.8,\n"
+            "            matched_signals=('sqli_indicator',),\n"
+            "        )\n"
+            + self._VALID_FALLBACK
+        )
+        self._assert_static_violation(code, "nested-branch return")
+
+    def test_40_rejects_invalid_fallback_return(self) -> None:
+        """Check 11 rejects an invalid value in the top-level fallback return."""
+        code = (
+            "    if 'sqli_indicator' in request.path:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='sqli',\n"
+            "            confidence=0.8,\n"
+            "            matched_signals=('sqli_indicator',),\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked='true',\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        self._assert_static_violation(code, "fallback return")
+
+    def test_41_rejects_when_any_call_has_invalid_value(self) -> None:
+        """Check 11 rejects when at least one of multiple calls has an invalid value."""
+        code = (
+            "    if 'sqli_indicator' in request.path:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='sqli',\n"
+            "            confidence=0.8,\n"
+            "            matched_signals=('sqli_indicator',),\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked=0,\n"  # invalid: numeric literal, not bool
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        self._assert_static_violation(code, "multiple calls — second invalid")
+
+    # ------------------------------------------------------------------
+    # Check 10 precedence: shape violations win before value checks run
+    # ------------------------------------------------------------------
+
+    def test_42a_check10_wins_for_positional_args(self) -> None:
+        """Shape error (positional args) takes precedence over any value error."""
+        code = "    return DetectionResult('true', 'reason', 0.5, ())\n"
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Positional args must be rejected"
+        assert "argument shape" in err.lower() or "positional" in err.lower(), (
+            f"Check 10 error expected, got: {err!r}"
+        )
+        assert self._STABLE_PREFIX not in err, (
+            "Check 11 must not fire before check 10 shape is validated"
+        )
+
+    def test_42b_check10_wins_for_missing_keyword(self) -> None:
+        """Shape error (missing keyword) takes precedence over any value error."""
+        code = (
+            "    return DetectionResult(\n"
+            "        blocked='true',\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            # matched_signals missing
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Missing keyword must be rejected"
+        assert "argument shape" in err.lower() or "missing" in err.lower(), (
+            f"Check 10 error expected, got: {err!r}"
+        )
+        assert self._STABLE_PREFIX not in err, (
+            "Check 11 must not fire when check 10 finds a shape violation"
+        )
+
+    def test_42c_check10_wins_for_extra_keyword(self) -> None:
+        """Shape error (extra keyword) takes precedence over any value error."""
+        code = (
+            "    return DetectionResult(\n"
+            "        blocked='true',\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "        extra=1,\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Extra keyword must be rejected"
+        assert "argument shape" in err.lower() or "extra" in err.lower(), (
+            f"Check 10 error expected, got: {err!r}"
+        )
+        assert self._STABLE_PREFIX not in err, (
+            "Check 11 must not fire when check 10 finds a shape violation"
+        )
+
+    def test_42d_check10_wins_for_duplicate_keyword(self) -> None:
+        """Shape error (duplicate keyword) takes precedence over any value error."""
+        code = (
+            "    return DetectionResult(\n"
+            "        blocked='true',\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "        blocked=True,\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Duplicate keyword must be rejected"
+        assert "argument shape" in err.lower() or "duplicate" in err.lower(), (
+            f"Check 10 error expected, got: {err!r}"
+        )
+        assert self._STABLE_PREFIX not in err, (
+            "Check 11 must not fire when check 10 finds a shape violation"
+        )
+
+    def test_42e_check10_wins_for_kwargs_expansion(self) -> None:
+        """Shape error (**kwargs) takes precedence over any value error."""
+        code = (
+            "    result_kwargs = {'blocked': 'true', 'reason': 'x',"
+            " 'confidence': 0.0, 'matched_signals': ()}\n"
+            "    return DetectionResult(**result_kwargs)\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "**kwargs must be rejected"
+        assert "argument shape" in err.lower() or "kwargs" in err.lower(), (
+            f"Check 10 error expected, got: {err!r}"
+        )
+        assert self._STABLE_PREFIX not in err, (
+            "Check 11 must not fire when check 10 finds a shape violation"
+        )
+
+
+# ---------------------------------------------------------------------------
 # 10. offline-sample still works
 # ---------------------------------------------------------------------------
 

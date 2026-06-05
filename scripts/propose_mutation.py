@@ -255,7 +255,12 @@ STRICT RULES — YOU MUST FOLLOW ALL OF THEM:
     )
     Keyword-only, all four names required, no extra names, no positional args,
     no **kwargs expansion.
-11. Modify only logic inside inspect_request. Do not change the function
+11. DetectionResult field literals (dynamic expressions are always deferred):
+    blocked: True/False — NOT "true", 0, 1, None, [], ()
+    reason: str — NOT 42, True, False, None, [], ()
+    confidence: float[0.0,1.0] — NOT "high", True, False, None, 1.5, -0.1
+    matched_signals: tuple[str,...] — NOT "sql", [], {}, (1,2), (None,)
+12. Modify only logic inside inspect_request. Do not change the function
     signature, do not add new top-level definitions.
     replacement_code is inserted as-is between # === MUTATION_START === and
     # === MUTATION_END === inside inspect_request() — it is a function body
@@ -263,9 +268,9 @@ STRICT RULES — YOU MUST FOLLOW ALL OF THEM:
     Do NOT include def inspect_request(...) or any def statement.
     Do NOT include # === MUTATION_START === or # === MUTATION_END === markers.
     Do NOT wrap code in markdown fences (```python ... ```).
-12. Prefer low false positives. Maximize true positive rate while keeping
+13. Prefer low false positives. Maximize true positive rate while keeping
     false positive rate at or below 5%.
-13. Use only neutralized symbolic indicators from the local test corpus.
+14. Use only neutralized symbolic indicators from the local test corpus.
     Tokens like path_traversal_indicator, script_injection_indicator,
     sqli_indicator, command_delimiter_indicator,
     encoded_traversal_indicator are the only detection signals.
@@ -273,9 +278,9 @@ STRICT RULES — YOU MUST FOLLOW ALL OF THEM:
     (PATH_TRAVERSAL_INDICATOR etc.) but the detector lowercases all input
     before matching, so use the lowercase forms in replacement_code.
     Do NOT add double-underscore prefix/suffix to these tokens.
-14. Do not include real CVE exploit details. No actual vulnerability
+15. Do not include real CVE exploit details. No actual vulnerability
     payloads, shellcode, or real attack strings.
-15. Do not include raw offensive payloads. Use only the neutralized
+16. Do not include raw offensive payloads. Use only the neutralized
     symbolic indicator tokens defined in the test corpus.
 
 REPLACEMENT_CODE FORMAT CONTRACT:
@@ -422,6 +427,199 @@ def _preflight_secret_scan(prompt: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Helpers: DetectionResult static value checks (check 11)
+# ---------------------------------------------------------------------------
+
+
+def _numeric_literal_value(node: ast.expr) -> int | float | None:
+    """Return the numeric value of a bare or unary-signed numeric literal, or None.
+
+    Accepts bare ast.Constant(int|float) nodes and ast.UnaryOp(USub|UAdd) nodes
+    whose operand is an int or float constant.  bool is treated separately
+    (bool is a subclass of int but is never a valid numeric literal here).
+    Must not call eval, compile, exec, import, or ast.literal_eval.
+    """
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+        operand = node.operand
+        if isinstance(operand, ast.Constant):
+            val = operand.value
+            if isinstance(val, bool):
+                return None  # bool is subclass of int; exclude
+            if isinstance(val, (int, float)):
+                return -val if isinstance(node.op, ast.USub) else val
+        return None
+    if isinstance(node, ast.Constant):
+        val = node.value
+        if isinstance(val, bool):
+            return None  # must check bool before int (bool is subclass of int)
+        if isinstance(val, (int, float)):
+            return val
+    return None
+
+
+def _detection_result_static_value_violation(
+    field_name: str, value: ast.expr
+) -> str:
+    """Return an error if value is a Category A obvious invalid literal for field_name.
+
+    Returns empty string for Category B dynamic expressions (defer) and valid
+    literals.  Must not call eval, compile, exec, import, or ast.literal_eval.
+    """
+    _P = "replacement_code DetectionResult static value violation:"
+
+    if field_name == "blocked":
+        if isinstance(value, ast.Constant):
+            val = value.value
+            if isinstance(val, bool):
+                return ""  # True / False — valid
+            if isinstance(val, str):
+                return (
+                    f"{_P} blocked={val!r} is a string literal; "
+                    "blocked must be bool (True or False)"
+                )
+            if val is None:
+                return (
+                    f"{_P} blocked=None is not valid; "
+                    "blocked must be bool (True or False)"
+                )
+            if isinstance(val, (int, float)):
+                return (
+                    f"{_P} blocked={val!r} is a numeric literal; "
+                    "blocked must be bool (True or False)"
+                )
+        if isinstance(value, (ast.List, ast.Tuple)):
+            kind = "list" if isinstance(value, ast.List) else "tuple"
+            return (
+                f"{_P} blocked={kind} literal is not valid; "
+                "blocked must be bool (True or False)"
+            )
+        return ""  # dynamic expression — defer
+
+    if field_name == "reason":
+        if isinstance(value, ast.Constant):
+            val = value.value
+            if isinstance(val, bool):
+                return (
+                    f"{_P} reason={val!r} is a bool literal; "
+                    "reason must be str"
+                )
+            if val is None:
+                return (
+                    f"{_P} reason=None is not valid; "
+                    "reason must be str"
+                )
+            if isinstance(val, (int, float)):
+                return (
+                    f"{_P} reason={val!r} is a numeric literal; "
+                    "reason must be str"
+                )
+            return ""  # string constant — valid
+        if isinstance(value, (ast.List, ast.Tuple)):
+            kind = "list" if isinstance(value, ast.List) else "tuple"
+            return (
+                f"{_P} reason={kind} literal is not valid; "
+                "reason must be str"
+            )
+        return ""  # f-string, concatenation, variable, conditional — defer
+
+    if field_name == "confidence":
+        if isinstance(value, ast.Constant):
+            val = value.value
+            if isinstance(val, bool):
+                return (
+                    f"{_P} confidence={val!r} is a bool literal; "
+                    "confidence must be float in [0.0, 1.0]"
+                )
+            if isinstance(val, str):
+                return (
+                    f"{_P} confidence={val!r} is a string literal; "
+                    "confidence must be float in [0.0, 1.0]"
+                )
+            if val is None:
+                return (
+                    f"{_P} confidence=None is not valid; "
+                    "confidence must be float in [0.0, 1.0]"
+                )
+            if isinstance(val, (int, float)):
+                if val < 0.0 or val > 1.0:
+                    return (
+                        f"{_P} confidence={val!r} is out of range [0.0, 1.0]; "
+                        "confidence must be float in [0.0, 1.0]"
+                    )
+                return ""
+        if isinstance(value, (ast.List, ast.Tuple)):
+            kind = "list" if isinstance(value, ast.List) else "tuple"
+            return (
+                f"{_P} confidence={kind} literal is not valid; "
+                "confidence must be float in [0.0, 1.0]"
+            )
+        # Check for signed numeric literal: -0.1 is UnaryOp(USub, Constant(0.1))
+        num_val = _numeric_literal_value(value)
+        if num_val is not None:
+            if num_val < 0.0 or num_val > 1.0:
+                return (
+                    f"{_P} confidence={num_val!r} is out of range [0.0, 1.0]; "
+                    "confidence must be float in [0.0, 1.0]"
+                )
+            return ""
+        return ""  # dynamic expression — defer
+
+    if field_name == "matched_signals":
+        if isinstance(value, ast.Constant):
+            val = value.value
+            if isinstance(val, str):
+                return (
+                    f"{_P} matched_signals={val!r} is a string literal; "
+                    "matched_signals must be tuple[str, ...]"
+                )
+            return (
+                f"{_P} matched_signals constant {val!r} is not valid; "
+                "matched_signals must be tuple[str, ...]"
+            )
+        if isinstance(value, ast.List):
+            return (
+                f"{_P} matched_signals=list literal is not valid; "
+                "matched_signals must be tuple[str, ...]"
+            )
+        if isinstance(value, ast.Dict):
+            return (
+                f"{_P} matched_signals=dict literal is not valid; "
+                "matched_signals must be tuple[str, ...]"
+            )
+        if isinstance(value, ast.Tuple):
+            # Reject tuples containing obvious non-string constant elements.
+            # Non-constant elements (Name, Call, IfExp, etc.) cause deferral.
+            for elt in value.elts:
+                if isinstance(elt, ast.Constant) and not isinstance(elt.value, str):
+                    return (
+                        f"{_P} matched_signals=(...) contains a "
+                        f"non-string constant element {elt.value!r}; "
+                        "matched_signals must be tuple[str, ...]"
+                    )
+            return ""
+        return ""  # variable, Call, conditional — defer
+
+    return ""  # unknown field — should not occur after check 10 passed
+
+
+def _validate_detection_result_static_values(call: ast.Call) -> str:
+    """Check Category A static value constraints for a DetectionResult(...) call.
+
+    Called only after check 10 has validated keyword-only shape with exactly the
+    four canonical keywords.  Returns the first violation message, or empty string.
+    """
+    kw_map = {kw.arg: kw.value for kw in call.keywords}
+    for field_name in ("blocked", "reason", "confidence", "matched_signals"):
+        value = kw_map.get(field_name)
+        if value is None:
+            continue  # defensive; check 10 guarantees all four are present
+        err = _detection_result_static_value_violation(field_name, value)
+        if err:
+            return err
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Helper: validate replacement_code for forbidden patterns
 # ---------------------------------------------------------------------------
 
@@ -462,6 +660,17 @@ def _validate_replacement_code(code: str) -> str:
         blocked, reason, confidence, matched_signals.
         Rejected: positional arguments, **kwargs expansion, duplicate keyword
         names, missing keyword names, extra keyword names, wrong keyword names.
+    11. DetectionResult static value checks: every bare DetectionResult(...) call
+        in the replacement body must use AST-literal values that are valid for
+        each field (Category A rejection only; dynamic expressions defer).
+        Rejected: blocked="true"/blocked=0/blocked=None (must be bool literal),
+        reason=42/reason=True/reason=None (must be str), confidence="high"/
+        confidence=True/confidence=1.5/confidence=-0.1 (must be float in
+        [0.0, 1.0]), matched_signals="sql"/matched_signals=["a"]/
+        matched_signals=(1, 2) (must be tuple[str, ...]).
+        Allowed/deferred: True/False for blocked; string literals/f-strings for
+        reason; float in [0.0, 1.0] for confidence; empty or string-element
+        tuples for matched_signals; all dynamic expressions for all fields.
 
     Returns empty string if the code passes all checks.
     """
@@ -686,6 +895,21 @@ def _validate_replacement_code(code: str) -> str:
                                 "extra keyword argument(s): "
                                 f"{sorted(extra_kw)}"
                             )
+                # 11. DetectionResult static value checks (Category A).
+                # Runs after check 10 has confirmed every DetectionResult call
+                # has correct keyword-only shape.  Only obvious invalid AST
+                # literals are rejected; dynamic expressions defer.
+                for stmt in replacement_nodes:
+                    for n in ast.walk(stmt):
+                        if not (
+                            isinstance(n, ast.Call)
+                            and isinstance(n.func, ast.Name)
+                            and n.func.id == "DetectionResult"
+                        ):
+                            continue
+                        val_err = _validate_detection_result_static_values(n)
+                        if val_err:
+                            return val_err
                 break
     return ""
 
