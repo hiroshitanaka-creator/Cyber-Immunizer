@@ -17,6 +17,7 @@ related:
   - core/types.py
   - scripts/propose_mutation.py
 last_reviewed: 2026-06-05
+codex_p2_generator_expr_fixed: removed tuple(genexpr) from Category B — already rejected by policy.py check 4
 pr_69_x007_spec_freeze: X-007 policy frozen in PR #69 — check 11 NOT implemented here
 AI_DOC_META_END
 -->
@@ -111,10 +112,16 @@ unless the Project Owner explicitly approves stricter policy.
 | `blocked` | `bool(matched)`, `len(signals) > 0`, variable reference, conditional expression | **Allow / defer** — comparison and `bool()` calls produce valid `bool` at runtime |
 | `reason` | f-string (`f"Detected {pattern}"`), string concatenation, variable reference, conditional expression | **Allow / defer** — these produce valid `str` at runtime |
 | `confidence` | `min(1.0, score)`, `max(0.0, raw)`, arithmetic expressions, variable reference, conditional expression, `round(x, 4)` | **Allow / defer** — these may produce valid `float` in `[0.0, 1.0]` at runtime; static analysis cannot prove range |
-| `matched_signals` | `tuple(matched)`, `tuple(s for s in signals if isinstance(s, str))`, variable reference, conditional expression | **Allow / defer** — these produce valid `tuple` at runtime; element type cannot be proved statically without execution |
+| `matched_signals` | `tuple(matched)`, variable reference, conditional expression | **Allow / defer** — these produce valid `tuple` at runtime; element type cannot be proved statically without execution |
 
 **Default disposition rule**: If an expression is not an obvious invalid literal from Category A,
 PR #70 must defer rather than reject. When in doubt, defer.
+
+> **Note on generator/comprehension patterns** (e.g., `tuple(s for s in signals if ...)`):
+> Generator expressions are already rejected by `core/policy.py::check_runtime_allocation_risks`
+> (existing check 4, except the `str.join(...)` exemption). They do not reach X-007 check 11.
+> Comprehension patterns are therefore not listed as Category B "allow/defer" examples — their
+> disposition is governed by the existing AST policy, independent of X-007.
 
 ---
 
