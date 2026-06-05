@@ -108,6 +108,8 @@ Cyber-Immunizer/
 │   │   ├── README.md                           # docs/audit_gate/README.md — Audit Gate protocol群の索引
 │   │   ├── PULLBACK_PROMPT.md                  # docs/audit_gate/PULLBACK_PROMPT.md — GPT引き戻し用の短縮プロンプト
 │   │   ├── PR_AUDIT_PROTOCOL.md                # docs/audit_gate/PR_AUDIT_PROTOCOL.md — PR監査・merge判断の詳細手順
+│   │   ├── TASK_PROMPT_PROTOCOL.md             # docs/audit_gate/TASK_PROMPT_PROTOCOL.md — タスクプロンプト構築ルール（Task Prompt Gate v2 / Source Evidence）
+│   │   ├── THREAD_HANDOFF_PROTOCOL.md          # docs/audit_gate/THREAD_HANDOFF_PROTOCOL.md — 新スレッド引き継ぎプロンプト構築・受領ルール
 │   │   ├── TOOL_EXECUTION_ANOMALY_PROTOCOL.md  # docs/audit_gate/TOOL_EXECUTION_ANOMALY_PROTOCOL.md — tool failure / blocked / fallback / low-level GitHub操作の報告ルール
 │   │   └── CHANGELOG.md                        # docs/audit_gate/CHANGELOG.md — Audit Gate運用教訓（PR #33/#34/#36/#35/#28 由来）
 │   ├── AUDIT_CHARTER.md                        # GPT Audit Gate 憲章（役割・カテゴリ・決定基準・Phase 2/3 transition rule）

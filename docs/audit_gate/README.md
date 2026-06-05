@@ -45,6 +45,16 @@ investigation, adversarial validation matrix, Codex issue pre-emption, and a
 98/100 self-score threshold before GPT may output an implementation task
 prompt.
 
+### THREAD_HANDOFF_PROTOCOL.md
+
+Mandatory protocol for handing off Cyber-Immunizer work to a new session/thread
+when a thread is ending or context is about to be lost. Defines the handoff
+prompt template (verifiable state, current task, done/not-done, hard
+constraints, assumptions), the outgoing-session construction rules, and the
+incoming-session intake rules. The core principle: carry verifiable state
+(branch, head SHA, PR, test status), not narrative. The incoming session must
+re-verify the head SHA against the repository before acting.
+
 ### TOOL_EXECUTION_ANOMALY_PROTOCOL.md
 
 Reporting rules for when a tool operation fails, is blocked, falls back, or

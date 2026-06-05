@@ -7,6 +7,29 @@ This is not a project status document. Keep entries focused on protocol lessons.
 
 ---
 
+## Thread Handoff Gate — handoff prompts must carry verifiable state, not narrative
+
+Lesson driven by context-loss between threads:
+
+- **Unverified handoffs cause stale-SHA errors and duplicate work**: When work continues
+  in a new session, a handoff prompt that carries only narrative ("we fixed the spec, then
+  improved the runbook") lets the incoming session act on a stale head SHA, re-implement
+  completed work, or violate a constraint the previous session was under. Protocol added:
+  `docs/audit_gate/THREAD_HANDOFF_PROTOCOL.md` requires every handoff to carry verifiable
+  state (branch, head SHA, PR, CI status, test status) and forbids treating narrative as
+  the source of truth.
+
+- **Done means committed**: A described-but-uncommitted change is not "done". Handoff rule:
+  every `Done` item must cite a commit SHA or file path; assertion-only completion claims
+  are invalid.
+
+- **Incoming session must re-verify before acting**: The protocol requires the incoming
+  session to verify branch and head SHA against the repository and stop on mismatch, re-run
+  the stated test command, and treat the previous session's hard constraints as binding.
+  Trust the repository over the handoff narrative.
+
+---
+
 ## Source Evidence Gate — GPT task prompt must include verbatim code citations
 
 Lesson driven by repeated `GPT_PRE_PROMPT_FAILURE` classifications across PR #69:
