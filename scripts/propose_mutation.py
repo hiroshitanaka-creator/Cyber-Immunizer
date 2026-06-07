@@ -457,101 +457,80 @@ def _numeric_literal_value(node: ast.expr) -> int | float | None:
     return None
 
 
+def _is_unary_constant(node: ast.expr) -> bool:
+    """Return True if node is UnaryOp(USub|UAdd, Constant(...)), False otherwise."""
+    return (
+        isinstance(node, ast.UnaryOp)
+        and isinstance(node.op, (ast.USub, ast.UAdd))
+        and isinstance(node.operand, ast.Constant)
+    )
+
+
 def _detection_result_static_value_violation(
     field_name: str, value: ast.expr
 ) -> str:
     """Return an error if value is a Category A obvious invalid literal for field_name.
 
-    Returns empty string for Category B dynamic expressions (defer) and valid
-    literals.  Must not call eval, compile, exec, import, or ast.literal_eval.
+    Uses field-domain allowlists: for each field only the literal AST forms that
+    are unambiguously valid for that field's type domain are accepted; all other
+    obvious literal forms (including unary-constant expressions) are rejected;
+    non-literal dynamic expressions are deferred per Category B.
+    Must not call eval, compile, exec, import, or ast.literal_eval.
     """
     _P = "replacement_code DetectionResult static value violation:"
 
     if field_name == "blocked":
+        # Domain: bool only. Accept True/False; reject all other constants,
+        # container literals, and UnaryOp over Constant; defer dynamic expressions.
         if isinstance(value, ast.Constant):
-            val = value.value
-            if isinstance(val, bool):
+            if isinstance(value.value, bool):
                 return ""  # True / False — valid
-            if isinstance(val, str):
-                return (
-                    f"{_P} blocked={val!r} is a string literal; "
-                    "blocked must be bool (True or False)"
-                )
-            if val is None:
-                return (
-                    f"{_P} blocked=None is not valid; "
-                    "blocked must be bool (True or False)"
-                )
-            if isinstance(val, (int, float)):
-                return (
-                    f"{_P} blocked={val!r} is a numeric literal; "
-                    "blocked must be bool (True or False)"
-                )
-        if isinstance(value, (ast.List, ast.Tuple)):
-            kind = "list" if isinstance(value, ast.List) else "tuple"
             return (
-                f"{_P} blocked={kind} literal is not valid; "
+                f"{_P} blocked={value.value!r} is not a valid literal; "
                 "blocked must be bool (True or False)"
             )
-        # Check for signed numeric literal: -1 is UnaryOp(USub, Constant(1))
-        num_val = _numeric_literal_value(value)
-        if num_val is not None:
+        if isinstance(value, (ast.List, ast.Tuple, ast.Dict, ast.Set)):
             return (
-                f"{_P} blocked={num_val!r} is a numeric literal; "
+                f"{_P} blocked=container literal is not valid; "
+                "blocked must be bool (True or False)"
+            )
+        if _is_unary_constant(value):
+            return (
+                f"{_P} blocked=unary constant expression is not valid; "
                 "blocked must be bool (True or False)"
             )
         return ""  # dynamic expression — defer
 
     if field_name == "reason":
+        # Domain: str only. Accept str constants; reject all other constants,
+        # container literals, and UnaryOp over Constant; defer dynamic expressions.
         if isinstance(value, ast.Constant):
-            val = value.value
-            if isinstance(val, bool):
-                return (
-                    f"{_P} reason={val!r} is a bool literal; "
-                    "reason must be str"
-                )
-            if val is None:
-                return (
-                    f"{_P} reason=None is not valid; "
-                    "reason must be str"
-                )
-            if isinstance(val, (int, float)):
-                return (
-                    f"{_P} reason={val!r} is a numeric literal; "
-                    "reason must be str"
-                )
-            return ""  # string constant — valid
-        if isinstance(value, (ast.List, ast.Tuple)):
-            kind = "list" if isinstance(value, ast.List) else "tuple"
+            if isinstance(value.value, str):
+                return ""  # string constant — valid
             return (
-                f"{_P} reason={kind} literal is not valid; "
+                f"{_P} reason={value.value!r} is not a valid literal; "
                 "reason must be str"
             )
-        # Check for signed numeric literal: -1 is UnaryOp(USub, Constant(1))
-        num_val = _numeric_literal_value(value)
-        if num_val is not None:
+        if isinstance(value, (ast.List, ast.Tuple, ast.Dict, ast.Set)):
             return (
-                f"{_P} reason={num_val!r} is a numeric literal; "
+                f"{_P} reason=container literal is not valid; "
+                "reason must be str"
+            )
+        if _is_unary_constant(value):
+            return (
+                f"{_P} reason=unary constant expression is not valid; "
                 "reason must be str"
             )
         return ""  # f-string, concatenation, variable, conditional — defer
 
     if field_name == "confidence":
+        # Domain: float in [0.0, 1.0]. Accept non-bool int/float in range (bare or
+        # signed UnaryOp); reject all other constants and container literals; defer dynamic.
         if isinstance(value, ast.Constant):
             val = value.value
             if isinstance(val, bool):
                 return (
                     f"{_P} confidence={val!r} is a bool literal; "
-                    "confidence must be float in [0.0, 1.0]"
-                )
-            if isinstance(val, str):
-                return (
-                    f"{_P} confidence={val!r} is a string literal; "
-                    "confidence must be float in [0.0, 1.0]"
-                )
-            if val is None:
-                return (
-                    f"{_P} confidence=None is not valid; "
                     "confidence must be float in [0.0, 1.0]"
                 )
             if isinstance(val, (int, float)):
@@ -561,24 +540,34 @@ def _detection_result_static_value_violation(
                         "confidence must be float in [0.0, 1.0]"
                     )
                 return ""
-        if isinstance(value, (ast.List, ast.Tuple)):
-            kind = "list" if isinstance(value, ast.List) else "tuple"
             return (
-                f"{_P} confidence={kind} literal is not valid; "
+                f"{_P} confidence={val!r} is not a valid literal; "
                 "confidence must be float in [0.0, 1.0]"
             )
-        # Check for signed numeric literal: -0.1 is UnaryOp(USub, Constant(0.1))
-        num_val = _numeric_literal_value(value)
-        if num_val is not None:
-            if num_val < 0.0 or num_val > 1.0:
-                return (
-                    f"{_P} confidence={num_val!r} is out of range [0.0, 1.0]; "
-                    "confidence must be float in [0.0, 1.0]"
-                )
-            return ""
+        if isinstance(value, (ast.List, ast.Tuple, ast.Dict, ast.Set)):
+            return (
+                f"{_P} confidence=container literal is not valid; "
+                "confidence must be float in [0.0, 1.0]"
+            )
+        if _is_unary_constant(value):
+            num_val = _numeric_literal_value(value)
+            if num_val is not None:
+                if num_val < 0.0 or num_val > 1.0:
+                    return (
+                        f"{_P} confidence={num_val!r} is out of range [0.0, 1.0]; "
+                        "confidence must be float in [0.0, 1.0]"
+                    )
+                return ""
+            return (
+                f"{_P} confidence=unary constant expression is not valid; "
+                "confidence must be float in [0.0, 1.0]"
+            )
         return ""  # dynamic expression — defer
 
     if field_name == "matched_signals":
+        # Domain: tuple[str, ...]. Accept tuple literal whose elements are all str
+        # constants or dynamic expressions; reject all non-tuple top-level literals;
+        # reject non-string and unary-constant tuple elements; defer dynamic.
         if isinstance(value, ast.Constant):
             val = value.value
             if isinstance(val, str):
@@ -590,20 +579,12 @@ def _detection_result_static_value_violation(
                 f"{_P} matched_signals constant {val!r} is not valid; "
                 "matched_signals must be tuple[str, ...]"
             )
-        if isinstance(value, ast.List):
+        if isinstance(value, (ast.List, ast.Dict, ast.Set)):
             return (
-                f"{_P} matched_signals=list literal is not valid; "
-                "matched_signals must be tuple[str, ...]"
-            )
-        if isinstance(value, ast.Dict):
-            return (
-                f"{_P} matched_signals=dict literal is not valid; "
+                f"{_P} matched_signals=container literal is not valid; "
                 "matched_signals must be tuple[str, ...]"
             )
         if isinstance(value, ast.Tuple):
-            # Reject tuples containing obvious non-string constant or signed
-            # numeric literal elements.  Non-obvious elements (Name, Call, etc.)
-            # defer per Category B.
             for elt in value.elts:
                 if isinstance(elt, ast.Constant) and not isinstance(elt.value, str):
                     return (
@@ -611,11 +592,10 @@ def _detection_result_static_value_violation(
                         f"non-string constant element {elt.value!r}; "
                         "matched_signals must be tuple[str, ...]"
                     )
-                num_val = _numeric_literal_value(elt)
-                if num_val is not None:
+                if _is_unary_constant(elt):
                     return (
-                        f"{_P} matched_signals=(...) contains a "
-                        f"signed numeric literal element {num_val!r}; "
+                        f"{_P} matched_signals=(...) contains an "
+                        f"obvious invalid literal element; "
                         "matched_signals must be tuple[str, ...]"
                     )
             return ""
