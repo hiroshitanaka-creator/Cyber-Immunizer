@@ -27,13 +27,16 @@ Verified read-only on 2026-06-07 from local Git and the GitHub API.
 - **Open PRs:** none (`list_pull_requests state=open` returned `[]`).
 - **Active `.grok/**` files:** none. `find .grok -type f` returns no directory; `git grep "\.grok"` shows only historical/record references (POST_PR76 inventory, TASK_REPORT_PR77).
 
-> ⚠️ **State-table drift found during inventory (see Backlog P0 item).**
+> ⚠️ **State drift found during inventory, corrected against the ledger primary evidence (see Backlog P0 item).**
 > `CLAUDE.md` "現在の状態" table states `Phase 2.5 完了 / Phase 3 Go-No-Go 待ち`
-> and `Gemini API 未接続（Phase 3 activation 待ち）`. The canonical
-> `docs/PHASE_3_GO_NO_GO_CHECKLIST.md` (last_reviewed 2026-06-03) records that
-> Phase 3 activation PRs #58–#62 are **merged**, `live_model_enabled=true`, and
-> past paid-credit API call records exist. The two control-plane docs disagree
-> about current Phase state.
+> and `Gemini API 未接続（Phase 3 activation 待ち）`. This is contradicted by the
+> primary evidence in `data/api_usage_ledger.json`, which records **successful
+> `gemini-3-flash-preview` `gemini_paid_credit` API calls** on 2026-06-03 and
+> 2026-06-04. `docs/PHASE_3_GO_NO_GO_CHECKLIST.md:84-97` is partially correct
+> (Phase 3 activation PRs #58–#62 merged, `live_model_enabled=true`) but its line
+> "Gemini 3 Flash Preview controlled run … **Not yet executed**" is itself stale —
+> the ledger shows the paid-credit calls with that model already succeeded. The
+> ledger is the source of truth; the control-plane docs must be aligned to it.
 
 ## Source Evidence
 
@@ -113,28 +116,53 @@ Classification:
 
 **Conclusion:** Category D is a known, documented residual runtime gap. Closing it is a `core/fitness.py` runtime change → **RUNTIME_HARDENING**, and it is explicitly Project-Owner-overridable. Per CLAUDE.md (`core/**` FROZEN) and the prompt FORBIDDEN list, design may proceed but **implementation requires Project Owner approval**.
 
-### Phase 3 paid-credit readiness
+### Phase 3 paid-credit readiness (corrected against ledger primary evidence)
 
-`docs/PHASE_3_GO_NO_GO_CHECKLIST.md:84-97`
+**Primary evidence — `data/api_usage_ledger.json` (read-only; not modified).**
+`gemini-3-flash-preview` `gemini_paid_credit` calls with `success: true` already exist:
+
+`data/api_usage_ledger.json:74-93` (2026-06-03):
 ```
-> **Phase 3 activation PR は main に merge 済み。**
-> **paid-credit path 準備完了。過去の paid-credit API call 記録は存在する ...
->   gemini-3-flash-preview での controlled run は未実行。**
-
-| Phase 3 activation PRs | ✅ #58, #59, #60, #61, #62 — all merged into main |
-| `live_model_enabled` | `true` (PR #58) |
-| Primary model | `gemini-3-flash-preview` (PR #62) |
-| Gemini 3 Flash Preview controlled run | **Not yet executed** — ... |
-| `promote_approved` | `false` — prohibited until first run result reviewed |
+    "timestamp": "2026-06-03T23:36:37.307573+00:00",
+    "api_mode": "gemini_paid_credit",
+    "model": "gemini-3-flash-preview",
+    ...
+    "success": true,
+    "error": ""
 ```
+Two further `gemini-3-flash-preview` / `gemini_paid_credit` / `success: true` records
+follow at `data/api_usage_ledger.json:94-113` (2026-06-04T00:34) and
+`data/api_usage_ledger.json:114-133` (2026-06-04T01:33). (A `gemini-3.1-flash-lite`
+success record also exists at lines 56-73, 2026-06-02.)
 
-Next Project Owner steps are documented at `docs/PHASE_3_GO_NO_GO_CHECKLIST.md:109-116` (run `workflow_dispatch` mode `gemini-paid-credit` once, `promote_approved=false`, review ledger/candidate/apply/evaluate, then decide promote/fix/halt).
+**Corrected state decomposition (replacing the earlier "not yet executed" framing):**
+- **`gemini-3-flash-preview` paid-credit API call:** success records exist in
+  `data/api_usage_ledger.json` (2026-06-03, 2026-06-04 ×2). The API call has been executed.
+- **`promote_approved`:** `false` (`docs/PHASE_3_GO_NO_GO_CHECKLIST.md:96`; workflow gate
+  `.github/workflows/immunization_loop.yml:477-478`). No automatic promotion has occurred.
+- **Post-run review / candidate patch / apply / evaluate / promotion decision:** status is
+  **not established by this inventory** and must be verified separately (e.g., run artifacts,
+  candidate patch, apply/evaluate output). This inventory does not assert that these were done.
 
-Gates before a paid-credit run — `docs/PHASE_3_GO_NO_GO_CHECKLIST.md:154-191` (Project Owner external checks: GitHub Secrets `GEMINI_API_KEY`, billing, budget caps, alerts, max cost/request acceptance, monitoring) and No-Go conditions (CI green on head SHA, no unresolved Codex thread, GPT Audit Gate review, etc.). `docs/PHASE_3_GO_NO_GO_CHECKLIST.md:232-240` requires an explicit Project Owner "GO" via the Next-Step Gate before proceeding.
+**Stale wording to correct (not the truth):**
+`docs/PHASE_3_GO_NO_GO_CHECKLIST.md:95` says
+"Gemini 3 Flash Preview controlled run | **Not yet executed**" and lines 109-116 read as
+"run `workflow_dispatch` mode `gemini-paid-credit` once" being the *next* step. Both are
+contradicted by the ledger and are part of the docs that need correction (see Recommended
+next PR). `CLAUDE.md` "現在の状態" (`Gemini API 未接続`) and README Phase-state wording are
+contradicted the same way.
 
-Workflow facts (`.github/workflows/immunization_loop.yml`): `gemini-paid-credit` runs only on `workflow_dispatch` (line 113-118 refuse outside main), `GEMINI_API_KEY` scoped to the propose job only, `promote_approved == 'true'` gate at line 477-478. `ci.yml` has `GEMINI_API_KEY` intentionally absent (line 29).
+Workflow facts (unchanged, for context): `.github/workflows/immunization_loop.yml` runs
+`gemini-paid-credit` only on `workflow_dispatch` (lines 113-118 refuse outside main),
+`GEMINI_API_KEY` scoped to the propose job only, `promote_approved == 'true'` gate at lines
+477-478. `ci.yml` has `GEMINI_API_KEY` intentionally absent (line 29).
 
-**Conclusion:** The first **gemini-3-flash-preview controlled** paid-credit run is still pending. This is a **PAID_CREDIT_OPERATION** requiring Project Owner manual action (**YES_BEFORE_RUN**). No docs change is *required* to run, but the stale `CLAUDE.md`/`README.md` Phase-state wording (see P0) should be corrected first so control-plane docs do not contradict the readiness checklist. **This inventory does not run the workflow.**
+**Conclusion:** The paid-credit `gemini-3-flash-preview` API call is **already executed**
+(ledger evidence); it is **not** a pending operation. What remains unresolved is (a) aligning
+the control-plane docs to the ledger and (b) inventorying the **existing run's** post-run
+review state (candidate/apply/evaluate/promotion decision). A *new* `workflow_dispatch`
+paid-credit run is **not** the recommended next action. **This inventory does not run any
+workflow and does not modify the ledger.**
 
 ### X-002 / X-003 / X-006 policy alignment
 
@@ -186,9 +214,9 @@ Codex Review is a supplemental signal, not the auditor.
 
 | Priority | Item | Type | Current status | Source evidence | Owner approval required? | Recommended next action |
 |---|---|---|---|---|---|---|
-| P0 | Stale Phase-3 state in `CLAUDE.md` "現在の状態" table (and README references) contradicts `PHASE_3_GO_NO_GO_CHECKLIST.md` (says API 未接続 / Go-No-Go 待ち, but #58–#62 merged & `live_model_enabled=true`) | DOCS_CONTROL_PLANE | Unresolved — active contradiction read at every session start | `CLAUDE.md` 現在の状態 table vs `docs/PHASE_3_GO_NO_GO_CHECKLIST.md:29-31,84-97` | NO — safe docs/control-plane cleanup | DO_NEXT |
+| P0 | Phase-3 state in `CLAUDE.md` "現在の状態" table, README, and `PHASE_3_GO_NO_GO_CHECKLIST.md` is stale vs the **ledger primary evidence**: docs say "API 未接続 / controlled run 未実行", but `data/api_usage_ledger.json` records successful `gemini-3-flash-preview` paid-credit calls | DOCS_CONTROL_PLANE | Unresolved — active contradiction with primary evidence, read at every session start | `data/api_usage_ledger.json:74-133`; `CLAUDE.md` 現在の状態 table; `docs/PHASE_3_GO_NO_GO_CHECKLIST.md:95,109-116` | NO — safe docs/control-plane correction to match ledger | DO_NEXT |
 | P1 | Category D runtime contract gap: `_contract_ok` does not enforce `blocked: bool`, `reason: str`, `matched_signals: tuple[str,...]` | RUNTIME_HARDENING | Unresolved — known, documented residual gap; design only first | `core/fitness.py:143-159`; `core/types.py:38-48`; `REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md:258-262` | YES_BEFORE_IMPLEMENTATION — design may proceed; `core/**` edit needs Project Owner approval | DESIGN_ONLY |
-| P1 | Phase 3 first **gemini-3-flash-preview controlled** paid-credit run | PAID_CREDIT_OPERATION | Unresolved — path ready, run not executed; `promote_approved=false` | `docs/PHASE_3_GO_NO_GO_CHECKLIST.md:84-97,109-116,154-191,232-240` | YES_BEFORE_RUN — Project Owner manual `workflow_dispatch` + external gates | WAIT |
+| P1 | Review/inventory of the **already-executed** `gemini-3-flash-preview` paid-credit run results (candidate patch / apply / evaluate / promotion decision); `promote_approved=false` | DOCS_CONTROL_PLANE + PAID_CREDIT_OPERATION | Unresolved — API call executed (ledger), but post-run review state not yet inventoried; **not** a new run | `data/api_usage_ledger.json:74-133`; `docs/PHASE_3_GO_NO_GO_CHECKLIST.md:96` (`promote_approved=false`) | YES_BEFORE_IMPLEMENTATION for any promotion decision; **no** new paid-credit run needed | DESIGN_ONLY |
 | P2 | X-002 / X-003 / X-006 policy alignment | POLICY_ALIGNMENT | Unresolved — deferred policy items, not yet concretely defined | `REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md:263`; `docs/audit_gate/CHANGELOG.md:263-267`; `README.md:820` | YES_BEFORE_IMPLEMENTATION — policy/design inventory may proceed; implementation needs approval | DESIGN_ONLY |
 | P2 | Optional docs note that Grok is no longer part of the audit workflow | AUDIT_WORKFLOW | No functional gap; Codex + GPT Audit Gate + Project Owner is complete | `docs/AUDIT_CHARTER.md:30-37`; `PR_AUDIT_PROTOCOL.md:153`; `POST_PR76_STATE_INVENTORY.md:28-44` | NO — optional safe docs note | DO_NOT_TOUCH (no action needed; fold into P0 only if a doc is already being edited) |
 
@@ -196,14 +224,14 @@ Codex Review is a supplemental signal, not the auditor.
 
 State exactly one recommended next PR.
 
-- **Title:** `docs(state): correct stale Phase-3 status in CLAUDE.md and README to match Go/No-Go checklist`
-- **Scope:** Docs/control-plane only. Update the `CLAUDE.md` "現在の状態" table (and any README state references) so they reflect the canonical `docs/PHASE_3_GO_NO_GO_CHECKLIST.md` state: Phase 3 activation PRs #58–#62 merged, `live_model_enabled=true`, past paid-credit records exist, and the `gemini-3-flash-preview` controlled run is the pending next step. No factual claim beyond what the Go/No-Go checklist already records.
-- **Files allowed:** `CLAUDE.md`, `README.md` (state/status wording only), and optionally the new `docs/audit_gate/POST_PR77_UNRESOLVED_BACKLOG.md` as the cited source.
-- **Files forbidden:** `scripts/**`, `core/**`, `tests/**`, `.github/**`, `data/**`, ledger files, `data/genome.json`, validator logic, fitness logic, model names/budgets/prompt text.
-- **Why this first:** It is the lowest-risk, no-Owner-approval-required action, and it removes an **active contradiction** between two control-plane documents that every AI session reads at startup (`CLAUDE.md` is the mandated first read). Leaving it stale risks a future agent acting on wrong Phase-3 state (e.g., treating API as "未接続" when `live_model_enabled` is already `true`).
+- **Title:** `docs(state): correct Phase-3 paid-credit status in CLAUDE.md/README/Phase-3 docs to match ledger evidence`
+- **Scope:** Docs/control-plane only. Align the Phase-3 state wording across `CLAUDE.md` "現在の状態" table, `README.md` state references, and the relevant Phase-3 docs (`docs/PHASE_3_GO_NO_GO_CHECKLIST.md`) to the **ledger primary evidence** in `data/api_usage_ledger.json`: i.e., `gemini-3-flash-preview` paid-credit API calls have **already succeeded** (2026-06-03, 2026-06-04), `live_model_enabled=true`, `promote_approved=false`, and post-run review (candidate/apply/evaluate/promotion) is the open item — **not** "run a controlled paid-credit run". Remove "Gemini API 未接続" and "controlled run 未実行 → run workflow_dispatch once" framing. No new factual claims beyond what the ledger records.
+- **Files allowed:** `CLAUDE.md`, `README.md` (state/status wording only), `docs/PHASE_3_GO_NO_GO_CHECKLIST.md` (state-wording correction only), and optionally `docs/audit_gate/POST_PR77_UNRESOLVED_BACKLOG.md` as the cited source.
+- **Files forbidden:** `scripts/**`, `core/**`, `tests/**`, `.github/**`, `data/**` (including `data/api_usage_ledger.json` and `data/genome.json`), ledger files, validator logic, fitness logic, model names/budgets/prompt text.
+- **Why this first:** It is the lowest-risk, no-Owner-approval-required action, and it removes an **active contradiction with the primary evidence** (the ledger) across documents that every AI session reads at startup (`CLAUDE.md` is the mandated first read). Leaving it stale risks a future agent re-running a paid-credit operation that has already executed, or acting on wrong Phase-3 state.
 - **Why not the alternatives:**
   - *Category D runtime hardening (P1):* touches `core/fitness.py` (FROZEN) → requires Project Owner approval; correct first step is a DESIGN_ONLY spike, not an immediate code PR.
-  - *Phase 3 controlled paid-credit run (P1):* not a PR at all — it is a Project Owner manual `workflow_dispatch` operation gated by external billing/secret checks (YES_BEFORE_RUN); also depends on the P0 state correction landing first.
+  - *Existing paid-credit run result review (P1):* docs-only inventory of an already-executed run; valuable but depends on the P0 state correction landing first so the baseline state is accurate. It is **not** a new `workflow_dispatch` run.
   - *X-002/X-003/X-006 policy alignment (P2):* design/policy inventory only; lower urgency and no active contradiction, so it can follow.
   - *Grok audit-workflow note (P2):* no functional gap exists; not worth a standalone PR.
 
