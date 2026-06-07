@@ -605,6 +605,11 @@ def _detection_result_static_value_violation(
                         "matched_signals must be tuple[str, ...]"
                     )
             return ""
+        if _is_unary_constant(value):
+            return (
+                f"{_P} matched_signals=unary constant expression is not valid; "
+                "matched_signals must be tuple[str, ...]"
+            )
         return ""  # variable, Call, conditional — defer
 
     return ""  # unknown field — should not occur after check 10 passed

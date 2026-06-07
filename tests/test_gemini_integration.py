@@ -2078,6 +2078,65 @@ class TestX007StaticValueChecks:
         """matched_signals=(-flag,) is UnaryOp over Name — still deferred."""
         assert pm._validate_replacement_code(self._ok(matched_signals="(-flag,)")) == ""
 
+    # ------------------------------------------------------------------
+    # Top-level unary constant literals (Codex P2 fix)
+    # matched_signals=-1 parses as UnaryOp(USub, Constant), not Tuple/Constant.
+    # ------------------------------------------------------------------
+
+    def test_95_rejects_matched_signals_top_level_negative_int(self) -> None:
+        """matched_signals=-1 is a top-level unary constant — rejected (not tuple)."""
+        self._assert_static_violation(
+            self._ok(matched_signals="-1"), "matched_signals=-1"
+        )
+
+    def test_96_rejects_matched_signals_top_level_positive_int(self) -> None:
+        """matched_signals=+1 is a top-level unary constant — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="+1"), "matched_signals=+1"
+        )
+
+    def test_97_rejects_matched_signals_top_level_negative_float(self) -> None:
+        """matched_signals=-0.1 is a top-level unary constant — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="-0.1"), "matched_signals=-0.1"
+        )
+
+    def test_98_rejects_matched_signals_top_level_negative_bool(self) -> None:
+        """matched_signals=-True is a top-level unary constant — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="-True"), "matched_signals=-True"
+        )
+
+    def test_99_rejects_matched_signals_top_level_positive_bool(self) -> None:
+        """matched_signals=+False is a top-level unary constant — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="+False"), "matched_signals=+False"
+        )
+
+    def test_100_rejects_matched_signals_top_level_negative_bytes(self) -> None:
+        """matched_signals=-b'bytes' is a top-level unary constant — rejected.
+
+        -b'bytes' parses as UnaryOp(USub, Constant(b'bytes')); _is_unary_constant
+        matches any Constant operand regardless of type.
+        """
+        self._assert_static_violation(
+            self._ok(matched_signals="-b'bytes'"), "matched_signals=-b'bytes'"
+        )
+
+    def test_101_rejects_matched_signals_top_level_negative_str(self) -> None:
+        """matched_signals=-'sql' is a top-level unary constant — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="-'sql'"), "matched_signals=-'sql'"
+        )
+
+    def test_102_defers_matched_signals_top_level_unary_name(self) -> None:
+        """matched_signals=-signals is UnaryOp over Name — deferred (operand not Constant)."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="-signals")) == ""
+
+    def test_103_defers_matched_signals_top_level_name(self) -> None:
+        """matched_signals=signals is a Name reference — deferred."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="signals")) == ""
+
 
 # ---------------------------------------------------------------------------
 # 10. offline-sample still works
