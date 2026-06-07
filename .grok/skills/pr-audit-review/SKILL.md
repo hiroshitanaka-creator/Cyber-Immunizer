@@ -1,6 +1,6 @@
 # pr-audit-review
 
-**Version**: 0.3.1  
+**Version**: 0.3.2  
 **Author**: Grok + 飛べない豚  
 **Last Updated**: 2026-06-07
 
@@ -131,10 +131,24 @@ Produce a structured report containing:
 Run the **15-item** checklist. **Only post if all items PASS**.
 
 ### 9. Post Formal GitHub Review
-- Use `pull_request_review_write` (`method=create`, `event=COMMENT` or `REQUEST_CHANGES`).
-- Optionally add line-specific comments via `add_comment_to_pending_review`.
-- If `trigger_comment_id` is provided, reply to it.
-- Skip posting if `post_review=false` (dry-run mode).
+
+**Basic case (no inline comments):**
+- Use `pull_request_review_write` with `method=create` + `event=COMMENT` or `REQUEST_CHANGES`.
+
+**When adding line-specific (inline) comments:**
+The correct sequence is as follows:
+
+1. **Create a pending review** (do **not** specify `event`):
+   - `pull_request_review_write` with `method=create` (event omitted or null)
+
+2. **Add inline comments**:
+   - `add_comment_to_pending_review` (can be called multiple times)
+
+3. **Submit the pending review**:
+   - `pull_request_review_write` with `method=submit_pending` + `event=COMMENT` or `REQUEST_CHANGES`
+
+If `trigger_comment_id` is provided, reply to it after submission.
+Skip posting entirely if `post_review=false` (dry-run mode).
 
 ### 10. Final Confirmation
 Re-fetch reviews to confirm posting and report success.
@@ -226,9 +240,12 @@ All items must PASS:
 **Primary Tools**:
 - `github___pull_request_read` (all methods)
 - `github___get_file_contents` (with `ref=refs/pull/{pull_number}/head`)
-- `github___pull_request_review_write`
-- `github___add_comment_to_pending_review`
+- `github___pull_request_review_write` (create / submit_pending)
+- `github___add_comment_to_pending_review` (for inline comments)
 - `github___run_secret_scanning` (when relevant)
+
+**Correct sequence for reviews with inline comments**:
+Create pending review (no event) → add comments → submit_pending with event.
 
 **Python Helper**:
 See `analyzer.py` in the same directory. It provides structured dataclasses and helper functions (as specification/skeleton) to improve consistency of analysis and reporting.
@@ -257,14 +274,15 @@ pr-audit-review(
 
 ---
 
-**Version 0.3.1 Changes**:
+**Version 0.3.2 Changes**:
 - Trigger unified to single phrase "@grok Review"
 - Added mandatory Scope-in / Scope-out detection + Cyber-Immunizer auto-BLOCK conditions
 - Added strict 9-category CI classification with head SHA matching rule
 - Strengthened Documentation / History Gate (generator update rule)
 - Clarified `UNRESOLVED THREAD PRESENT` handling in verdict
 - Added reference to `analyzer.py` helper skeleton
-- **Fixed checklist count from 16 to 15** (Codex P3 feedback)
+- Fixed checklist count from 16 to 15 (Codex P3)
+- **Fixed pending review flow for inline comments** (Codex P2)
 - Improved overall precision and auditability
 
 ---
