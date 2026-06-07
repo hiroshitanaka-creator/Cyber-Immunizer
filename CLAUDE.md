@@ -66,7 +66,7 @@ GPTが出力したタスクプロンプトを受け取った際、以下10項目
 | 2 | 禁止事項が書かれているか | `## Constraints` または `DO_NOT` が非空 |
 | 3 | 参照ファイルが書かれているか | `ALLOWED` / `REFERENCE_ONLY` / `FROZEN` に1行以上 |
 | 4 | 影響範囲確認があるか | `IMPACT` が非空（`なし（理由）` 形式も可） |
-| 5 | diff以外の全体確認があるか | `Pre-Prompt Investigation Gate` の `Current implementation reviewed` と `Downstream effects` が非空 |
+| 5 | diff以外の全体確認があるか | `Pre-Prompt Investigation Gate` の `Current implementation:` と `Downstream effects:` が非空、かつ `Source Evidence` ブロックが存在する（assertion のみは不可） |
 | 6 | 破壊リスク確認があるか | `INVARIANT` フィールドが非空 |
 | 7 | 完了報告形式が指定されているか | `Definition of Done` に「何が green であること」が明示されている |
 | 8 | 勝手な追加実装禁止があるか | `DO_NOT` またはスコープ外停止条件の記載が非空 |
