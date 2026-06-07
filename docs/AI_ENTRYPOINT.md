@@ -79,13 +79,17 @@ See `docs/audit_gate/PR_AUDIT_PROTOCOL.md` (Terminology rule section) for the fu
    - Do not write a task prompt from diff-only inspection.
    - Do not rely on Codex Review to discover predictable edge cases.
    - If the self-score is below 98/100, stop and report the missing investigation instead of writing the prompt.
-5. Do not propose work outside the stated scope.
-6. If a tool operation is blocked or falls back, follow
+5. When receiving any task prompt, thread handoff prompt, or PR audit report from GPT
+   or another agent, apply the corresponding reception gate in `CLAUDE.md` before
+   starting work. Each gate requires a scoring receipt and, for task prompts, an intent
+   confirmation before proceeding.
+6. Do not propose work outside the stated scope.
+7. If a tool operation is blocked or falls back, follow
    `docs/audit_gate/TOOL_EXECUTION_ANOMALY_PROTOCOL.md` and log it in the
    audit trail.
-7. Claude Code reports and PR bodies are self-reports. Verify against GitHub
+8. Claude Code reports and PR bodies are self-reports. Verify against GitHub
    state, current head SHA, diff, CI, and real files.
-8. **Source Evidence intake check**: If the task prompt contains a `Source Evidence` block,
+9. **Source Evidence intake check**: If the task prompt contains a `Source Evidence` block,
    verify each `file_path:start_line-end_line` citation against the actual file before
    starting any implementation. If a citation does not match — wrong lines, wrong content,
    or file does not exist — stop immediately, report the specific mismatch, and ask GPT to
