@@ -49,6 +49,39 @@ docs のみを追加した（inventory-only タスク）。
   inventory が必要。
 - `CLAUDE.md` / README の Phase 3 状態補正（P0）は本 PR の scope 外。次 PR で対応すべき事項。
 
+## Codex P1 対応（2026-06-07 追記）
+
+**指摘（valid）**: `POST_PR77_UNRESOLVED_BACKLOG.md` が
+「first gemini-3-flash-preview controlled paid-credit run is still pending /
+ not yet executed / 次は workflow_dispatch で paid-credit run を1回実行」
+と読める状態だった。しかし一次証跡 `data/api_usage_ledger.json` には
+`gemini-3-flash-preview` / `gemini_paid_credit` / `success: true` の記録が
+2026-06-03・2026-06-04 に複数存在し、矛盾していた。
+
+**一次証跡の確認（read-only）**:
+- `data/api_usage_ledger.json:74-93` — gemini-3-flash-preview / gemini_paid_credit / success=true（2026-06-03T23:36）
+- `data/api_usage_ledger.json:94-113` — 同上（2026-06-04T00:34）
+- `data/api_usage_ledger.json:114-133` — 同上（2026-06-04T01:33）
+- `data/api_usage_ledger.json:56-73` — gemini-3.1-flash-lite / success=true（2026-06-02）
+
+**修正内容（fix commit `8809cef`）**:
+1. 「Gemini 3 Flash Preview paid-credit API call 未実行」という趣旨の表現を削除。
+2. 正しい状態に分解:
+   - gemini-3-flash-preview paid-credit API call: **success records exist** in `data/api_usage_ledger.json`。
+   - promote_approved: **false**。
+   - post-run review / candidate patch / apply / evaluate / promotion decision: **status must be verified separately**（本 inventory では断定しない）。
+3. Backlog table の Phase 3 項目を修正: Type = `DOCS_CONTROL_PLANE + PAID_CREDIT_OPERATION`、
+   Recommended action は `WAIT` ではなく `DESIGN_ONLY`（既存 run result の review inventory）。
+   「manual workflow_dispatch をもう一度実行」が次アクションに見えないよう明記。
+4. Recommended next PR を変更: CLAUDE.md / README に加え、relevant Phase 3 docs
+   （`PHASE_3_GO_NO_GO_CHECKLIST.md` の "controlled run 未実行" 表現を含む）を
+   ledger evidence に合わせて補正する docs-only PR を推奨。
+5. `PHASE_3_GO_NO_GO_CHECKLIST.md:95` の "Not yet executed" 表現も stale として
+   補正対象に追加（本 PR scope 外、次 PR で対応）。
+6. core / scripts / tests / .github / **data（ledger 含む）** は変更なし。paid-credit workflow 実行なし。
+
+**Codex P1 fix commit head SHA**: `8809cef20f2579354a79641e919ab2ed8dff324b`
+
 ## Definition of Done（プロンプト指定項目）
 - [x] 実装変更なし
 - [x] workflow 変更なし
