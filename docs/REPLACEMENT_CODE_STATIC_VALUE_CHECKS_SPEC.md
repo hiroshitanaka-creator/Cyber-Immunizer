@@ -1,14 +1,14 @@
 <!--
 AI_DOC_META
-status: SPEC-FROZEN
-scope: X-007 static type/value-range checks for DetectionResult fields. Policy frozen in PR #69; safe-subset implementation reserved for PR #70.
+status: SPEC-FROZEN / CHECK-11-IMPLEMENTED
+scope: X-007 static type/value-range checks for DetectionResult fields. Policy frozen in PR #69; safe-subset implementation completed (PR #73).
 use_for:
-  - understanding which literal value cases PR #70 may statically reject
-  - understanding which dynamic expressions PR #70 must allow or defer
-  - planning the PR #70 adversarial test matrix
-  - confirming that check 11 is NOT implemented in PR #69
+  - understanding which literal value cases check 11 statically rejects (Category A)
+  - understanding which dynamic expressions check 11 defers (Category B)
+  - understanding the PR #73 adversarial test matrix
+  - confirming that check 11 is NOT implemented in PR #69 (it was implemented later)
 do_not_use_for:
-  - claiming check 11 is implemented (it is not — PR #69 is docs-only)
+  - claiming check 11 is not implemented (it is now implemented in scripts/propose_mutation.py)
   - over-rejecting dynamic expressions such as confidence=min(1.0, score) (see Category B)
   - executing or evaluating candidate code during validation (see Category C)
   - asserting that all runtime value correctness is guaranteed by static checks (see Category D)
@@ -18,16 +18,17 @@ related:
   - scripts/propose_mutation.py
 last_reviewed: 2026-06-05
 codex_p2_generator_expr_fixed: removed tuple(genexpr) from Category B — already rejected by policy.py check 4
-pr_69_x007_spec_freeze: X-007 policy frozen in PR #69 — check 11 NOT implemented here
+pr_69_x007_spec_freeze: X-007 policy frozen in PR #69 — check 11 NOT implemented in PR #69
+pr_73_x007_implementation: check 11 implemented in scripts/propose_mutation.py (PR #73)
 AI_DOC_META_END
 -->
 
 # X-007 Static Value-Check Policy — Specification Freeze (PR #69)
 
-> **Status: FROZEN — PR #69 freezes this specification. It does NOT implement check 11.**  
-> **PR #70 is reserved for safe-subset implementation based on this frozen policy.**  
-> The current validator implements checks 1–10 only.  
-> Do not claim X-007 type/value checks are enforced in the current validator.
+> **Status: FROZEN (policy) — PR #69 froze this specification. It did NOT implement check 11.**  
+> **Check 11 was implemented (PR #73) in `scripts/propose_mutation.py`.**  
+> The current validator implements checks 1–11.  
+> Category A obvious invalid literals are now rejected statically.
 
 ---
 

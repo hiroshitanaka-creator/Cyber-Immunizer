@@ -1398,6 +1398,783 @@ class TestDetectionResultDuplicateKeywords:
 
 
 # ---------------------------------------------------------------------------
+# 9g. X-007 — DetectionResult static value checks (check 11)
+# ---------------------------------------------------------------------------
+
+
+class TestX007StaticValueChecks:
+    """Regression tests for check 11: Category A obvious invalid DetectionResult
+    field literal rejection.
+
+    Each field is validated in isolation using a helper that substitutes one
+    field at a time into an otherwise-valid four-keyword constructor call.
+    Context tests verify that all bare DetectionResult(...) call sites are
+    checked, not only top-level returns.
+    Check-10-precedence tests verify that shape errors still win over value errors.
+    """
+
+    _STABLE_PREFIX = "replacement_code DetectionResult static value violation:"
+
+    @staticmethod
+    def _ok(**kwargs: str) -> str:
+        """Build minimal valid replacement_code, optionally overriding field source."""
+        vals = {
+            "blocked": "True",
+            "reason": "'no match'",
+            "confidence": "0.0",
+            "matched_signals": "()",
+        }
+        vals.update(kwargs)
+        return (
+            "    return DetectionResult(\n"
+            f"        blocked={vals['blocked']},\n"
+            f"        reason={vals['reason']},\n"
+            f"        confidence={vals['confidence']},\n"
+            f"        matched_signals={vals['matched_signals']},\n"
+            "    )\n"
+        )
+
+    # ------------------------------------------------------------------
+    # Accept / defer cases (Category B dynamic expressions and valid literals)
+    # ------------------------------------------------------------------
+
+    def test_01_accepts_blocked_true(self) -> None:
+        """blocked=True is a valid bool literal and is accepted."""
+        assert pm._validate_replacement_code(self._ok(blocked="True")) == ""
+
+    def test_02_accepts_blocked_false(self) -> None:
+        """blocked=False is a valid bool literal and is accepted."""
+        assert pm._validate_replacement_code(self._ok(blocked="False")) == ""
+
+    def test_03_defers_blocked_comparison_expression(self) -> None:
+        """blocked=score > threshold is a dynamic expression and is deferred."""
+        assert pm._validate_replacement_code(self._ok(blocked="score > threshold")) == ""
+
+    def test_04_defers_blocked_bool_call(self) -> None:
+        """blocked=bool(matched) is a dynamic expression and is deferred."""
+        assert pm._validate_replacement_code(self._ok(blocked="bool(matched)")) == ""
+
+    def test_05_accepts_reason_string_literal(self) -> None:
+        """reason='detected sql' is a valid string literal and is accepted."""
+        assert pm._validate_replacement_code(self._ok(reason="'detected sql'")) == ""
+
+    def test_06_defers_reason_fstring(self) -> None:
+        """reason=f'Detected {pattern}' is a dynamic f-string and is deferred."""
+        assert pm._validate_replacement_code(self._ok(reason="f'Detected {pattern}'")) == ""
+
+    def test_07_accepts_confidence_zero(self) -> None:
+        """confidence=0.0 is in [0.0, 1.0] and is accepted."""
+        assert pm._validate_replacement_code(self._ok(confidence="0.0")) == ""
+
+    def test_08_accepts_confidence_one(self) -> None:
+        """confidence=1.0 is in [0.0, 1.0] and is accepted."""
+        assert pm._validate_replacement_code(self._ok(confidence="1.0")) == ""
+
+    def test_09_accepts_confidence_mid_range(self) -> None:
+        """confidence=0.9 is in [0.0, 1.0] and is accepted."""
+        assert pm._validate_replacement_code(self._ok(confidence="0.9")) == ""
+
+    def test_10_defers_confidence_min_call(self) -> None:
+        """confidence=min(1.0, score) is a dynamic expression and is deferred."""
+        assert pm._validate_replacement_code(self._ok(confidence="min(1.0, score)")) == ""
+
+    def test_11_defers_confidence_max_call(self) -> None:
+        """confidence=max(0.0, raw) is a dynamic expression and is deferred."""
+        assert pm._validate_replacement_code(self._ok(confidence="max(0.0, raw)")) == ""
+
+    def test_12_defers_confidence_round_call(self) -> None:
+        """confidence=round(raw, 4) is a dynamic expression and is deferred."""
+        assert pm._validate_replacement_code(self._ok(confidence="round(raw, 4)")) == ""
+
+    def test_13_defers_confidence_float_nan_call(self) -> None:
+        """confidence=float('nan') is a function call (not a literal) and is deferred.
+
+        Check 11 must not evaluate float('nan') — it defers all non-literal calls.
+        """
+        assert pm._validate_replacement_code(self._ok(confidence="float('nan')")) == ""
+
+    def test_14_accepts_matched_signals_empty_tuple(self) -> None:
+        """matched_signals=() is an empty tuple and is accepted."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="()")) == ""
+
+    def test_15_accepts_matched_signals_single_string_tuple(self) -> None:
+        """matched_signals=('sql',) is a tuple of strings and is accepted."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="('sql',)")) == ""
+
+    def test_16_defers_matched_signals_tuple_call(self) -> None:
+        """matched_signals=tuple(matched) is a dynamic call and is deferred."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="tuple(matched)")) == ""
+
+    # ------------------------------------------------------------------
+    # Reject cases (Category A obvious invalid literals)
+    # ------------------------------------------------------------------
+
+    def _assert_static_violation(self, code: str, context: str = "") -> None:
+        err = pm._validate_replacement_code(code)
+        assert err != "", f"Expected rejection but got empty error. {context}"
+        assert self._STABLE_PREFIX in err, (
+            f"Error must contain stable prefix {self._STABLE_PREFIX!r}, got: {err!r}"
+        )
+
+    def test_17_rejects_blocked_string_true(self) -> None:
+        """blocked='true' is a string literal and is rejected."""
+        self._assert_static_violation(self._ok(blocked="'true'"))
+
+    def test_18_rejects_blocked_integer_one(self) -> None:
+        """blocked=1 is a numeric literal and is rejected."""
+        self._assert_static_violation(self._ok(blocked="1"))
+
+    def test_19_rejects_blocked_none(self) -> None:
+        """blocked=None is not a bool and is rejected."""
+        self._assert_static_violation(self._ok(blocked="None"))
+
+    def test_20_rejects_blocked_empty_list(self) -> None:
+        """blocked=[] is a list literal and is rejected."""
+        self._assert_static_violation(self._ok(blocked="[]"))
+
+    def test_21_rejects_reason_integer(self) -> None:
+        """reason=42 is a numeric literal and is rejected."""
+        self._assert_static_violation(self._ok(reason="42"))
+
+    def test_22_rejects_reason_bool_true(self) -> None:
+        """reason=True is a bool literal and is rejected."""
+        self._assert_static_violation(self._ok(reason="True"))
+
+    def test_23_rejects_reason_none(self) -> None:
+        """reason=None is not a string and is rejected."""
+        self._assert_static_violation(self._ok(reason="None"))
+
+    def test_24_rejects_confidence_string(self) -> None:
+        """confidence='high' is a string literal and is rejected."""
+        self._assert_static_violation(self._ok(confidence="'high'"))
+
+    def test_25_rejects_confidence_none(self) -> None:
+        """confidence=None is not a float and is rejected."""
+        self._assert_static_violation(self._ok(confidence="None"))
+
+    def test_26_rejects_confidence_bool_true(self) -> None:
+        """confidence=True is a bool literal and is rejected.
+
+        Python treats bool as a subclass of int so True == 1, but it is still
+        an obviously wrong type for confidence and must be rejected.
+        """
+        self._assert_static_violation(self._ok(confidence="True"))
+
+    def test_27_rejects_confidence_bool_false(self) -> None:
+        """confidence=False is a bool literal and is rejected."""
+        self._assert_static_violation(self._ok(confidence="False"))
+
+    def test_28_rejects_confidence_out_of_range_high(self) -> None:
+        """confidence=1.5 is a float literal outside [0.0, 1.0] and is rejected."""
+        self._assert_static_violation(self._ok(confidence="1.5"))
+
+    def test_29_rejects_confidence_negative_float(self) -> None:
+        """confidence=-0.1 is a signed literal outside [0.0, 1.0] and is rejected.
+
+        -0.1 is ast.UnaryOp(USub, Constant(0.1)), not a bare negative constant.
+        The implementation must classify it correctly without evaluating it.
+        """
+        self._assert_static_violation(self._ok(confidence="-0.1"))
+
+    def test_30_rejects_matched_signals_string(self) -> None:
+        """matched_signals='sql' is a string literal (not a tuple) and is rejected."""
+        self._assert_static_violation(self._ok(matched_signals="'sql'"))
+
+    def test_31_rejects_matched_signals_list(self) -> None:
+        """matched_signals=['a', 'b'] is a list literal and is rejected."""
+        self._assert_static_violation(self._ok(matched_signals="['a', 'b']"))
+
+    def test_32_rejects_matched_signals_dict(self) -> None:
+        """matched_signals={} is a dict literal and is rejected."""
+        self._assert_static_violation(self._ok(matched_signals="{}"))
+
+    def test_33_rejects_matched_signals_int_tuple(self) -> None:
+        """matched_signals=(1, 2) is a tuple with non-string constants and is rejected."""
+        self._assert_static_violation(self._ok(matched_signals="(1, 2)"))
+
+    def test_34_rejects_matched_signals_none_tuple(self) -> None:
+        """matched_signals=(None,) contains a non-string constant and is rejected."""
+        self._assert_static_violation(self._ok(matched_signals="(None,)"))
+
+    def test_35_rejects_matched_signals_bool_tuple(self) -> None:
+        """matched_signals=(True,) contains a bool constant (not a string) and is rejected."""
+        self._assert_static_violation(self._ok(matched_signals="(True,)"))
+
+    # ------------------------------------------------------------------
+    # Context coverage: check 11 validates all bare DetectionResult(...) sites
+    # ------------------------------------------------------------------
+
+    _VALID_FALLBACK = (
+        "    return DetectionResult(\n"
+        "        blocked=True,\n"
+        "        reason='no match',\n"
+        "        confidence=0.0,\n"
+        "        matched_signals=(),\n"
+        "    )\n"
+    )
+
+    def test_36_rejects_invalid_returned_call(self) -> None:
+        """Check 11 rejects an invalid value in a returned DetectionResult."""
+        code = self._ok(blocked="'true'")
+        self._assert_static_violation(code, "returned call")
+
+    def test_37_rejects_invalid_expression_statement(self) -> None:
+        """Check 11 rejects an invalid value in a non-return expression-statement call."""
+        code = (
+            "    DetectionResult(\n"
+            "        blocked='true',\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+            + self._VALID_FALLBACK
+        )
+        self._assert_static_violation(code, "expression-statement call")
+
+    def test_38_rejects_invalid_assignment_call(self) -> None:
+        """Check 11 rejects an invalid value in an assignment DetectionResult call."""
+        code = (
+            "    tmp = DetectionResult(\n"
+            "        blocked='true',\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+            + self._VALID_FALLBACK
+        )
+        self._assert_static_violation(code, "assignment call")
+
+    def test_39_rejects_invalid_nested_branch_return(self) -> None:
+        """Check 11 rejects an invalid value in a nested-branch returned call."""
+        code = (
+            "    if 'sqli_indicator' in request.path:\n"
+            "        return DetectionResult(\n"
+            "            blocked='true',\n"
+            "            reason='sqli',\n"
+            "            confidence=0.8,\n"
+            "            matched_signals=('sqli_indicator',),\n"
+            "        )\n"
+            + self._VALID_FALLBACK
+        )
+        self._assert_static_violation(code, "nested-branch return")
+
+    def test_40_rejects_invalid_fallback_return(self) -> None:
+        """Check 11 rejects an invalid value in the top-level fallback return."""
+        code = (
+            "    if 'sqli_indicator' in request.path:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='sqli',\n"
+            "            confidence=0.8,\n"
+            "            matched_signals=('sqli_indicator',),\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked='true',\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        self._assert_static_violation(code, "fallback return")
+
+    def test_41_rejects_when_any_call_has_invalid_value(self) -> None:
+        """Check 11 rejects when at least one of multiple calls has an invalid value."""
+        code = (
+            "    if 'sqli_indicator' in request.path:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='sqli',\n"
+            "            confidence=0.8,\n"
+            "            matched_signals=('sqli_indicator',),\n"
+            "        )\n"
+            "    return DetectionResult(\n"
+            "        blocked=0,\n"  # invalid: numeric literal, not bool
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "    )\n"
+        )
+        self._assert_static_violation(code, "multiple calls — second invalid")
+
+    # ------------------------------------------------------------------
+    # Check 10 precedence: shape violations win before value checks run
+    # ------------------------------------------------------------------
+
+    def test_42a_check10_wins_for_positional_args(self) -> None:
+        """Shape error (positional args) takes precedence over any value error."""
+        code = "    return DetectionResult('true', 'reason', 0.5, ())\n"
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Positional args must be rejected"
+        assert "argument shape" in err.lower() or "positional" in err.lower(), (
+            f"Check 10 error expected, got: {err!r}"
+        )
+        assert self._STABLE_PREFIX not in err, (
+            "Check 11 must not fire before check 10 shape is validated"
+        )
+
+    def test_42b_check10_wins_for_missing_keyword(self) -> None:
+        """Shape error (missing keyword) takes precedence over any value error."""
+        code = (
+            "    return DetectionResult(\n"
+            "        blocked='true',\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            # matched_signals missing
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Missing keyword must be rejected"
+        assert "argument shape" in err.lower() or "missing" in err.lower(), (
+            f"Check 10 error expected, got: {err!r}"
+        )
+        assert self._STABLE_PREFIX not in err, (
+            "Check 11 must not fire when check 10 finds a shape violation"
+        )
+
+    def test_42c_check10_wins_for_extra_keyword(self) -> None:
+        """Shape error (extra keyword) takes precedence over any value error."""
+        code = (
+            "    return DetectionResult(\n"
+            "        blocked='true',\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "        extra=1,\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Extra keyword must be rejected"
+        assert "argument shape" in err.lower() or "extra" in err.lower(), (
+            f"Check 10 error expected, got: {err!r}"
+        )
+        assert self._STABLE_PREFIX not in err, (
+            "Check 11 must not fire when check 10 finds a shape violation"
+        )
+
+    def test_42d_check10_wins_for_duplicate_keyword(self) -> None:
+        """Shape error (duplicate keyword) takes precedence over any value error."""
+        code = (
+            "    return DetectionResult(\n"
+            "        blocked='true',\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=(),\n"
+            "        blocked=True,\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Duplicate keyword must be rejected"
+        assert "argument shape" in err.lower() or "duplicate" in err.lower(), (
+            f"Check 10 error expected, got: {err!r}"
+        )
+        assert self._STABLE_PREFIX not in err, (
+            "Check 11 must not fire when check 10 finds a shape violation"
+        )
+
+    def test_42e_check10_wins_for_kwargs_expansion(self) -> None:
+        """Shape error (**kwargs) takes precedence over any value error."""
+        code = (
+            "    result_kwargs = {'blocked': 'true', 'reason': 'x',"
+            " 'confidence': 0.0, 'matched_signals': ()}\n"
+            "    return DetectionResult(**result_kwargs)\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "**kwargs must be rejected"
+        assert "argument shape" in err.lower() or "kwargs" in err.lower(), (
+            f"Check 10 error expected, got: {err!r}"
+        )
+        assert self._STABLE_PREFIX not in err, (
+            "Check 11 must not fire when check 10 finds a shape violation"
+        )
+
+    # ------------------------------------------------------------------
+    # Signed numeric literal gap for blocked / reason (PR #73 fix)
+    # ------------------------------------------------------------------
+
+    def test_43_rejects_blocked_negative_signed_int(self) -> None:
+        """blocked=-1 is a signed numeric literal (UnaryOp) and is rejected.
+
+        -1 parses as ast.UnaryOp(USub, Constant(1)), not ast.Constant(-1).
+        The implementation must reach this via _numeric_literal_value.
+        """
+        self._assert_static_violation(self._ok(blocked="-1"), "blocked=-1")
+
+    def test_44_rejects_blocked_positive_signed_int(self) -> None:
+        """blocked=+1 is a signed numeric literal (UnaryOp UAdd) and is rejected."""
+        self._assert_static_violation(self._ok(blocked="+1"), "blocked=+1")
+
+    def test_45_rejects_reason_negative_signed_int(self) -> None:
+        """reason=-1 is a signed numeric literal (UnaryOp) and is rejected."""
+        self._assert_static_violation(self._ok(reason="-1"), "reason=-1")
+
+    def test_46_rejects_reason_positive_signed_float(self) -> None:
+        """reason=+3.14 is a signed numeric literal (UnaryOp UAdd) and is rejected."""
+        self._assert_static_violation(self._ok(reason="+3.14"), "reason=+3.14")
+
+    def test_47_defers_blocked_unary_minus_expression(self) -> None:
+        """blocked=-score is a UnaryOp over a Name, not a numeric literal — deferred.
+
+        _numeric_literal_value returns None for UnaryOp(USub, Name) because
+        the operand is not a Constant, so the expression is deferred.
+        """
+        assert pm._validate_replacement_code(self._ok(blocked="-score")) == ""
+
+    # ------------------------------------------------------------------
+    # Signed numeric tuple element gap for matched_signals (PR #73 P2 fix)
+    # ------------------------------------------------------------------
+
+    def test_48_rejects_matched_signals_negative_signed_int_tuple(self) -> None:
+        """matched_signals=(-1,) contains a signed numeric literal (UnaryOp) — rejected.
+
+        -1 parses as UnaryOp(USub, Constant(1)), not Constant(-1).
+        """
+        self._assert_static_violation(
+            self._ok(matched_signals="(-1,)"), "matched_signals=(-1,)"
+        )
+
+    def test_49_rejects_matched_signals_positive_signed_int_tuple(self) -> None:
+        """matched_signals=(+1,) contains a signed numeric literal (UnaryOp UAdd) — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="(+1,)"), "matched_signals=(+1,)"
+        )
+
+    def test_50_rejects_matched_signals_negative_signed_float_tuple(self) -> None:
+        """matched_signals=(-0.1,) contains a signed float literal — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="(-0.1,)"), "matched_signals=(-0.1,)"
+        )
+
+    def test_51_rejects_matched_signals_mixed_string_and_signed_numeric_tuple(self) -> None:
+        """matched_signals=('sql', -1) has one valid string then a signed numeric — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="('sql', -1)"), "matched_signals=('sql', -1)"
+        )
+
+    def test_52_defers_matched_signals_unary_minus_name_tuple(self) -> None:
+        """matched_signals=(-score,) is UnaryOp over Name — deferred (not an obvious literal)."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="(-score,)")) == ""
+
+    def test_53_defers_matched_signals_name_tuple(self) -> None:
+        """matched_signals=(signal,) is a Name reference — deferred."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="(signal,)")) == ""
+
+    def test_54_defers_matched_signals_call_tuple(self) -> None:
+        """matched_signals=(make_signal(),) is a Call expression — deferred."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="(make_signal(),)")) == ""
+
+    # ------------------------------------------------------------------
+    # Field-domain allowlist follow-up (PR #73 P2 class fix)
+    # reason: non-string constants and containers
+    # ------------------------------------------------------------------
+
+    def test_55_rejects_reason_bytes_literal(self) -> None:
+        """reason=b'bytes' is a non-str constant — rejected by field-domain allowlist."""
+        self._assert_static_violation(self._ok(reason="b'bytes'"), "reason=b'bytes'")
+
+    def test_56_rejects_reason_ellipsis_literal(self) -> None:
+        """reason=... is a non-str constant (Ellipsis) — rejected."""
+        self._assert_static_violation(self._ok(reason="..."), "reason=...")
+
+    def test_57_rejects_reason_complex_literal(self) -> None:
+        """reason=1j is a non-str constant (complex) — rejected."""
+        self._assert_static_violation(self._ok(reason="1j"), "reason=1j")
+
+    def test_58_rejects_reason_dict_literal(self) -> None:
+        """reason={} is a dict literal — rejected as container."""
+        self._assert_static_violation(self._ok(reason="{}"), "reason={}")
+
+    def test_59_rejects_reason_set_literal(self) -> None:
+        """reason={1} is a set literal — rejected as container."""
+        self._assert_static_violation(self._ok(reason="{1}"), "reason={1}")
+
+    def test_60_rejects_reason_unary_constant(self) -> None:
+        """reason=-'x' is UnaryOp(USub, Constant(str)) — rejected as unary constant."""
+        self._assert_static_violation(self._ok(reason="-'x'"), "reason=-'x'")
+
+    def test_61_defers_reason_name(self) -> None:
+        """reason=reason_text is a Name reference — deferred."""
+        assert pm._validate_replacement_code(self._ok(reason="reason_text")) == ""
+
+    def test_62_defers_reason_call(self) -> None:
+        """reason=make_reason() is a Call expression — deferred."""
+        assert pm._validate_replacement_code(self._ok(reason="make_reason()")) == ""
+
+    # ------------------------------------------------------------------
+    # blocked: non-bool constants and containers
+    # ------------------------------------------------------------------
+
+    def test_63_rejects_blocked_bytes_literal(self) -> None:
+        """blocked=b'true' is a non-bool constant — rejected by field-domain allowlist."""
+        self._assert_static_violation(self._ok(blocked="b'true'"), "blocked=b'true'")
+
+    def test_64_rejects_blocked_ellipsis_literal(self) -> None:
+        """blocked=... is a non-bool constant (Ellipsis) — rejected."""
+        self._assert_static_violation(self._ok(blocked="..."), "blocked=...")
+
+    def test_65_rejects_blocked_complex_literal(self) -> None:
+        """blocked=1j is a non-bool constant (complex) — rejected."""
+        self._assert_static_violation(self._ok(blocked="1j"), "blocked=1j")
+
+    def test_66_rejects_blocked_dict_literal(self) -> None:
+        """blocked={} is a dict literal — rejected as container."""
+        self._assert_static_violation(self._ok(blocked="{}"), "blocked={}")
+
+    def test_67_rejects_blocked_set_literal(self) -> None:
+        """blocked={1} is a set literal — rejected as container."""
+        self._assert_static_violation(self._ok(blocked="{1}"), "blocked={1}")
+
+    def test_68_rejects_blocked_negative_bool_literal(self) -> None:
+        """blocked=-True is UnaryOp(USub, Constant(True)) — rejected as unary constant."""
+        self._assert_static_violation(self._ok(blocked="-True"), "blocked=-True")
+
+    def test_69_defers_blocked_name(self) -> None:
+        """blocked=flag is a Name reference — deferred."""
+        assert pm._validate_replacement_code(self._ok(blocked="flag")) == ""
+
+    # ------------------------------------------------------------------
+    # confidence: non-numeric constants, containers, and signed bool
+    # ------------------------------------------------------------------
+
+    def test_70_rejects_confidence_bytes_literal(self) -> None:
+        """confidence=b'high' is a non-numeric constant — rejected by field-domain allowlist."""
+        self._assert_static_violation(self._ok(confidence="b'high'"), "confidence=b'high'")
+
+    def test_71_rejects_confidence_ellipsis_literal(self) -> None:
+        """confidence=... is a non-numeric constant (Ellipsis) — rejected."""
+        self._assert_static_violation(self._ok(confidence="..."), "confidence=...")
+
+    def test_72_rejects_confidence_complex_literal(self) -> None:
+        """confidence=1j is a non-numeric constant (complex) — rejected."""
+        self._assert_static_violation(self._ok(confidence="1j"), "confidence=1j")
+
+    def test_73_rejects_confidence_dict_literal(self) -> None:
+        """confidence={} is a dict literal — rejected as container."""
+        self._assert_static_violation(self._ok(confidence="{}"), "confidence={}")
+
+    def test_74_rejects_confidence_set_literal(self) -> None:
+        """confidence={1} is a set literal — rejected as container."""
+        self._assert_static_violation(self._ok(confidence="{1}"), "confidence={1}")
+
+    def test_75_rejects_confidence_negative_bool_literal(self) -> None:
+        """confidence=-True is UnaryOp(USub, Constant(True)) — rejected as unary constant.
+
+        _numeric_literal_value returns None for bool operands, so _is_unary_constant
+        triggers the unary-constant reject path.
+        """
+        self._assert_static_violation(self._ok(confidence="-True"), "confidence=-True")
+
+    def test_76_accepts_confidence_positive_signed_float(self) -> None:
+        """confidence=+0.5 is UnaryOp(UAdd, Constant(0.5)) in [0,1] — accepted."""
+        assert pm._validate_replacement_code(self._ok(confidence="+0.5")) == ""
+
+    # ------------------------------------------------------------------
+    # matched_signals: set container and unary-constant bool tuple elements
+    # ------------------------------------------------------------------
+
+    def test_77_rejects_matched_signals_set_literal(self) -> None:
+        """matched_signals={'sql'} is a set literal — rejected as container."""
+        self._assert_static_violation(
+            self._ok(matched_signals="{'sql'}"), "matched_signals={'sql'}"
+        )
+
+    def test_78_rejects_matched_signals_bytes_tuple_element(self) -> None:
+        """matched_signals=(b'bytes',) contains a non-str Constant — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="(b'bytes',)"), "matched_signals=(b'bytes',)"
+        )
+
+    def test_79_rejects_matched_signals_ellipsis_tuple_element(self) -> None:
+        """matched_signals=(...,) contains a non-str Constant (Ellipsis) — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="(...,)"), "matched_signals=(...,)"
+        )
+
+    def test_80_rejects_matched_signals_complex_tuple_element(self) -> None:
+        """matched_signals=(1j,) contains a non-str Constant (complex) — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="(1j,)"), "matched_signals=(1j,)"
+        )
+
+    def test_81_rejects_matched_signals_negative_bool_tuple_element(self) -> None:
+        """matched_signals=(-True,) contains UnaryOp(USub, Constant(True)) — rejected.
+
+        _is_unary_constant returns True for UnaryOp over any Constant, so -True
+        is caught regardless of whether _numeric_literal_value returns None.
+        """
+        self._assert_static_violation(
+            self._ok(matched_signals="(-True,)"), "matched_signals=(-True,)"
+        )
+
+    def test_82_rejects_matched_signals_positive_bool_tuple_element(self) -> None:
+        """matched_signals=(+False,) contains UnaryOp(UAdd, Constant(False)) — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="(+False,)"), "matched_signals=(+False,)"
+        )
+
+    def test_83_rejects_matched_signals_mixed_string_and_signed_bool(self) -> None:
+        """matched_signals=('sql', -True) has a valid string then an invalid signed bool — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="('sql', -True)"), "matched_signals=('sql', -True)"
+        )
+
+    def test_84_defers_matched_signals_unary_name_tuple_element(self) -> None:
+        """matched_signals=(-flag,) is UnaryOp(USub, Name) — _is_unary_constant False — deferred."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="(-flag,)")) == ""
+
+    def test_85_defers_matched_signals_expression_tuple_element(self) -> None:
+        """matched_signals=(1 + 2,) is a BinOp — not an obvious literal — deferred.
+
+        Expression folding is out of scope; BinOp elements are Category B.
+        """
+        assert pm._validate_replacement_code(self._ok(matched_signals="(1 + 2,)")) == ""
+
+    # ------------------------------------------------------------------
+    # Container literal tuple elements (Codex P2 fix)
+    # ------------------------------------------------------------------
+
+    def test_86_rejects_matched_signals_list_element_in_tuple(self) -> None:
+        """matched_signals=(['sql'],) contains a list literal element — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="(['sql'],)"), "matched_signals=(['sql'],)"
+        )
+
+    def test_87_rejects_matched_signals_dict_element_in_tuple(self) -> None:
+        """matched_signals=({'sql': True},) contains a dict literal element — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="({'sql': True},)"), "matched_signals=({'sql': True},)"
+        )
+
+    def test_88_rejects_matched_signals_set_element_in_tuple(self) -> None:
+        """matched_signals=({'sql'},) contains a set literal element — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="({'sql'},)"), "matched_signals=({'sql'},)"
+        )
+
+    def test_89_rejects_matched_signals_nested_tuple_element(self) -> None:
+        """matched_signals=(('nested',),) contains a tuple literal element — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="(('nested',),)"), "matched_signals=(('nested',),)"
+        )
+
+    def test_90_rejects_matched_signals_mixed_valid_and_list_element(self) -> None:
+        """matched_signals=('sql', ['xss']) has a valid string then a list element — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="('sql', ['xss'])"), "matched_signals=('sql', ['xss'])"
+        )
+
+    def test_91_defers_matched_signals_name_element_still_deferred(self) -> None:
+        """matched_signals=(signal,) is Name — still deferred after container check added."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="(signal,)")) == ""
+
+    def test_92_defers_matched_signals_call_element_still_deferred(self) -> None:
+        """matched_signals=(make_signal(),) is Call — still deferred."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="(make_signal(),)")) == ""
+
+    def test_93_defers_matched_signals_binop_element_still_deferred(self) -> None:
+        """matched_signals=(1 + 2,) is BinOp — still deferred (expression folding is scope-out)."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="(1 + 2,)")) == ""
+
+    def test_94_defers_matched_signals_unary_name_element_still_deferred(self) -> None:
+        """matched_signals=(-flag,) is UnaryOp over Name — still deferred."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="(-flag,)")) == ""
+
+    # ------------------------------------------------------------------
+    # Top-level unary constant literals (Codex P2 fix)
+    # matched_signals=-1 parses as UnaryOp(USub, Constant), not Tuple/Constant.
+    # ------------------------------------------------------------------
+
+    def test_95_rejects_matched_signals_top_level_negative_int(self) -> None:
+        """matched_signals=-1 is a top-level unary constant — rejected (not tuple)."""
+        self._assert_static_violation(
+            self._ok(matched_signals="-1"), "matched_signals=-1"
+        )
+
+    def test_96_rejects_matched_signals_top_level_positive_int(self) -> None:
+        """matched_signals=+1 is a top-level unary constant — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="+1"), "matched_signals=+1"
+        )
+
+    def test_97_rejects_matched_signals_top_level_negative_float(self) -> None:
+        """matched_signals=-0.1 is a top-level unary constant — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="-0.1"), "matched_signals=-0.1"
+        )
+
+    def test_98_rejects_matched_signals_top_level_negative_bool(self) -> None:
+        """matched_signals=-True is a top-level unary constant — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="-True"), "matched_signals=-True"
+        )
+
+    def test_99_rejects_matched_signals_top_level_positive_bool(self) -> None:
+        """matched_signals=+False is a top-level unary constant — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="+False"), "matched_signals=+False"
+        )
+
+    def test_100_rejects_matched_signals_top_level_negative_bytes(self) -> None:
+        """matched_signals=-b'bytes' is a top-level unary constant — rejected.
+
+        -b'bytes' parses as UnaryOp(USub, Constant(b'bytes')); _is_unary_constant
+        matches any Constant operand regardless of type.
+        """
+        self._assert_static_violation(
+            self._ok(matched_signals="-b'bytes'"), "matched_signals=-b'bytes'"
+        )
+
+    def test_101_rejects_matched_signals_top_level_negative_str(self) -> None:
+        """matched_signals=-'sql' is a top-level unary constant — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="-'sql'"), "matched_signals=-'sql'"
+        )
+
+    def test_102_defers_matched_signals_top_level_unary_name(self) -> None:
+        """matched_signals=-signals is UnaryOp over Name — deferred (operand not Constant)."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="-signals")) == ""
+
+    def test_103_defers_matched_signals_top_level_name(self) -> None:
+        """matched_signals=signals is a Name reference — deferred."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="signals")) == ""
+
+    # ------------------------------------------------------------------
+    # confidence: int literals rejected even when in range
+    # ------------------------------------------------------------------
+
+    def test_104_rejects_confidence_int_zero(self) -> None:
+        """confidence=0 is an int literal; confidence must be float — rejected."""
+        self._assert_static_violation(self._ok(confidence="0"), "confidence=0")
+
+    def test_105_rejects_confidence_int_one(self) -> None:
+        """confidence=1 is an int literal at boundary; confidence must be float — rejected."""
+        self._assert_static_violation(self._ok(confidence="1"), "confidence=1")
+
+    def test_106_rejects_confidence_unary_int_one(self) -> None:
+        """confidence=+1 is UnaryOp(UAdd, Constant(1)) — rejected; operand is int not float."""
+        self._assert_static_violation(self._ok(confidence="+1"), "confidence=+1")
+
+    # ------------------------------------------------------------------
+    # confidence: signed-int boundary cases (+0 / -0 / -1)
+    # ------------------------------------------------------------------
+
+    def test_107_rejects_confidence_unary_int_plus_zero(self) -> None:
+        """confidence=+0 is UnaryOp(UAdd, Constant(0)) — rejected; operand is int not float."""
+        self._assert_static_violation(self._ok(confidence="+0"), "confidence=+0")
+
+    def test_108_rejects_confidence_unary_int_minus_zero(self) -> None:
+        """confidence=-0 is UnaryOp(USub, Constant(0)) — rejected; operand is int not float."""
+        self._assert_static_violation(self._ok(confidence="-0"), "confidence=-0")
+
+    def test_109_rejects_confidence_unary_int_minus_one(self) -> None:
+        """confidence=-1 is UnaryOp(USub, Constant(1)) — rejected; operand is int not float."""
+        self._assert_static_violation(self._ok(confidence="-1"), "confidence=-1")
+
+    def test_110_accepts_confidence_negative_float_zero(self) -> None:
+        """confidence=-0.0 is UnaryOp(USub, Constant(0.0)) — float operand, value 0.0 in range."""
+        assert pm._validate_replacement_code(self._ok(confidence="-0.0")) == ""
+
+
+# ---------------------------------------------------------------------------
 # 10. offline-sample still works
 # ---------------------------------------------------------------------------
 
