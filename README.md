@@ -122,7 +122,7 @@ Cyber-Immunizer/
 │   ├── PHASE_2_COMPLETION_CHECKPOINT.md        # Phase 2完了チェックポイント・pre-Phase-3現在状態
 │   ├── PHASE_3_GO_NO_GO_CHECKLIST.md           # Phase 3 activation前のGo/No-Go readiness audit
 │   ├── PHASE_2_5_CLOSEOUT_AUDIT.md             # Phase 2.5 hardening closeout audit（PR #46–#53 ledger）
-│   ├── REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md  # X-007 static value-check policy spec（PR #69 frozen / PR #70 実装予定）
+│   ├── REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md  # X-007 static value-check policy spec（PR #69 frozen / PR #73 で実装済み）
 │   ├── human用roadmap/
 │   │   └── phase3_to_phase7_roadmap.md         # Project Owner roadmap for Phase 3–7（thread handoff）
 │   └── API_ACTIVATION_RUNBOOK.md               # API有効化手順書（Phase 3 runbook）
@@ -813,11 +813,11 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | **PR #67** | **H-3 DetectionResult 引数形式チェック**: check 10 を追加。`DetectionResult(...)` のすべての呼び出しは keyword-only 引数で、正確に `blocked`, `reason`, `confidence`, `matched_signals` の 4 フィールドを指定しなければならない。positional 引数・**kwargs 展開・duplicate keyword・keyword 名不足/過剰を拒否。`_LLM_SYSTEM_PROMPT` rule 10 および FORBIDDEN section を更新。 | ✅ merged |
 | **PR #68** | **Task Prompt Gate v2 / Codex pre-emption requirement**: GPT task prompt の Adversarial Validation Matrix を必須化。Self-score gate（98/100 以上）追加。valid Codex P2 findings の分類ルール整備。docs/audit_gate/TASK_PROMPT_PROTOCOL.md を Audit Gate エントリポイント全体で必須化。 | ✅ merged |
 | **PR #69** | **X-007 static value-check policy specification freeze**: `DetectionResult` フィールドの型・値レンジ静的チェックポリシーを凍結（docs-only）。check 11 は未実装。PR #70 向けの安全サブセット契約と 31-case adversarial test matrix を定義。詳細: [`docs/REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md`](docs/REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md) | ✅ spec frozen (docs-only) |
-| **PR #73** | **X-007 safe-subset static implementation**: Category A obvious invalid literal rejection（check 11）を実装。`blocked`/`reason`/`confidence`/`matched_signals` の obvious invalid literal を AST のみで検証・拒否。field-domain allowlist 方式で bytes/ellipsis/complex/set/container なども網羅。signed numeric literal（`-1`, `+3.14`）・unary constant 式（`-True`）・container literal tuple element（`(['sql'],)` 等）・top-level unary constant（`matched_signals=-1` 等）も対象。Category B 動的式は引き続き defer。`_LLM_SYSTEM_PROMPT` rule 11 更新。114-case regression test suite 追加。 | 🔄 current PR |
+| **PR #73** | **X-007 safe-subset static implementation**: Category A obvious invalid literal rejection（check 11）を実装。`blocked`/`reason`/`confidence`/`matched_signals` の obvious invalid literal を AST のみで検証・拒否。field-domain allowlist 方式で bytes/ellipsis/complex/set/container なども網羅。signed numeric literal（`-1`, `+3.14`）・unary constant 式（`-True`）・container literal tuple element（`(['sql'],)` 等）・top-level unary constant（`matched_signals=-1` 等）も対象。Category B 動的式は引き続き defer。`_LLM_SYSTEM_PROMPT` rule 11 更新。114-case regression test suite 追加。 | ✅ merged |
 
-> ℹ️ **PR #63–#71 は main に merge 済み。PR #72（thread handoff protocol）merge 済み。**  
+> ℹ️ **PR #63–#73 は main に merge 済み。PR #72 は thread handoff protocol、PR #73 は X-007 check 11 実装です。**  
 > PR #69 は X-007 type/value-range static checks のポリシー凍結（docs-only）です。  
-> PR #73 で Category A obvious invalid literal rejection（check 11）を実装中。X-002/X-003/X-006 policy alignment は Project Owner-overridable 推奨事項として保留。
+> PR #73 で Category A obvious invalid literal rejection（check 11）を実装済み。X-002/X-003/X-006 policy alignment は Project Owner-overridable 推奨事項として保留。
 
 ### Gemini 3 技術詳細（PR #62）
 
@@ -843,26 +843,12 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | workflow / scripts / data / ledger の変更 | docs PR の対象外 |
 | GEMINI_API_KEY の表示・確認・推測 | Secret 境界 |
 
-### 次の Project Owner 手順
+### check 11 実装状況（PR #73 merge 済み）
 
-1. **PR #69 current-head gate を確認**
-   - PR #69 は X-007 static value-check policy の **docs-only specification freeze** である。
-   - check 11 は PR #69 では**未実装**。validator は現在 check 1–10 のみ。
-   - PR #70 は **reserved / not yet started**。
-2. **merge 前の必須確認**
-   - current PR head SHA を確認する。
-   - current head CI が **success** であることを確認する。
-   - current head に対する **Codex Review** を確認する。Codex Review が旧 commit 対象のみの場合は merge しない。
-   - inline review threads が **unresolved でない**ことを確認する。
-3. **PR #69 merge 後に実行してはいけないこと**
-   - PR #69 merge 直後に **paid-credit run を実行しない**。
-   - Gemini API / workflow_dispatch を PR #69 の後続手順として実行しない。
-   - check 11 が実装済みであると扱わない。
-4. **PR #69 merge 後の正しい次アクション**
-   - PR #70 用の実装タスクプロンプトを別途作成する。
-   - PR #70 は Category A obvious invalid literal rejection の safe-subset implementation のみを対象にする。
-   - Category B dynamic expressions は allow/defer する。
-   - **Project Owner 承認後にのみ PR #70 を開始する**。
+- PR #73 で Category A obvious invalid literal rejection（check 11）を実装・merge 済み。
+- validator は check 1–11 をすべて網羅。
+- Category B dynamic expressions は引き続き defer。
+- 次のフォーカスは Phase 3 Gemini API 初回 paid-credit run。
 
 ---
 
@@ -873,7 +859,7 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | **v0.1** | ローカルファーストの MVP スキャフォールド |
 | **v0.2** | Gemini API 統合基盤（安全なフリーティア戦略・スキーマ拘束・プリフライトスキャン・API予算管理） |
 | **v0.2.x（Phase 2）** | API未接続運用強化（rollback設計・evolution_history監査・offline-sample dry-run分離・運用チェックリスト整備）— **完了** |
-| **v0.3（Phase 3 / 現在）** | 実 Gemini API 接続 — activation PR #58–#62 merge 済み、hardening PR #63–#68 完了、X-007 spec frozen (PR #69)、X-007 implementation reserved (PR #70)、初回 paid-credit run 待機中 |
+| **v0.3（Phase 3 / 現在）** | 実 Gemini API 接続 — activation PR #58–#62 merge 済み、hardening PR #63–#68 完了、X-007 spec frozen (PR #69)、X-007 check 11 implemented (PR #73)、初回 paid-credit run 待機中 |
 | **v0.4** | 複数検出器の並列評価、アンサンブル昇格 |
 | **将来** | 実WAFへの統合（別途セキュリティレビュー必須） |
 
