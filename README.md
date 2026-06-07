@@ -122,7 +122,7 @@ Cyber-Immunizer/
 │   ├── PHASE_2_COMPLETION_CHECKPOINT.md        # Phase 2完了チェックポイント・pre-Phase-3現在状態
 │   ├── PHASE_3_GO_NO_GO_CHECKLIST.md           # Phase 3 activation前のGo/No-Go readiness audit
 │   ├── PHASE_2_5_CLOSEOUT_AUDIT.md             # Phase 2.5 hardening closeout audit（PR #46–#53 ledger）
-│   ├── REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md  # X-007 static value-check policy spec（PR #69 frozen / PR #70 実装予定）
+│   ├── REPLACEMENT_CODE_STATIC_VALUE_CHECKS_SPEC.md  # X-007 static value-check policy spec（PR #69 frozen / PR #73 で実装済み）
 │   ├── human用roadmap/
 │   │   └── phase3_to_phase7_roadmap.md         # Project Owner roadmap for Phase 3–7（thread handoff）
 │   └── API_ACTIVATION_RUNBOOK.md               # API有効化手順書（Phase 3 runbook）
@@ -843,26 +843,12 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | workflow / scripts / data / ledger の変更 | docs PR の対象外 |
 | GEMINI_API_KEY の表示・確認・推測 | Secret 境界 |
 
-### 次の Project Owner 手順
+### check 11 実装状況（PR #73 merge 済み）
 
-1. **PR #69 current-head gate を確認**
-   - PR #69 は X-007 static value-check policy の **docs-only specification freeze** である。
-   - check 11 は PR #69 では**未実装**。validator は現在 check 1–10 のみ。
-   - PR #70 は **reserved / not yet started**。
-2. **merge 前の必須確認**
-   - current PR head SHA を確認する。
-   - current head CI が **success** であることを確認する。
-   - current head に対する **Codex Review** を確認する。Codex Review が旧 commit 対象のみの場合は merge しない。
-   - inline review threads が **unresolved でない**ことを確認する。
-3. **PR #69 merge 後に実行してはいけないこと**
-   - PR #69 merge 直後に **paid-credit run を実行しない**。
-   - Gemini API / workflow_dispatch を PR #69 の後続手順として実行しない。
-   - check 11 が実装済みであると扱わない。
-4. **PR #69 merge 後の正しい次アクション**
-   - PR #70 用の実装タスクプロンプトを別途作成する。
-   - PR #70 は Category A obvious invalid literal rejection の safe-subset implementation のみを対象にする。
-   - Category B dynamic expressions は allow/defer する。
-   - **Project Owner 承認後にのみ PR #70 を開始する**。
+- PR #73 で Category A obvious invalid literal rejection（check 11）を実装・merge 済み。
+- validator は check 1–11 をすべて網羅。
+- Category B dynamic expressions は引き続き defer。
+- 次のフォーカスは Phase 3 Gemini API 初回 paid-credit run。
 
 ---
 
@@ -873,7 +859,7 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | **v0.1** | ローカルファーストの MVP スキャフォールド |
 | **v0.2** | Gemini API 統合基盤（安全なフリーティア戦略・スキーマ拘束・プリフライトスキャン・API予算管理） |
 | **v0.2.x（Phase 2）** | API未接続運用強化（rollback設計・evolution_history監査・offline-sample dry-run分離・運用チェックリスト整備）— **完了** |
-| **v0.3（Phase 3 / 現在）** | 実 Gemini API 接続 — activation PR #58–#62 merge 済み、hardening PR #63–#68 完了、X-007 spec frozen (PR #69)、X-007 implementation reserved (PR #70)、初回 paid-credit run 待機中 |
+| **v0.3（Phase 3 / 現在）** | 実 Gemini API 接続 — activation PR #58–#62 merge 済み、hardening PR #63–#68 完了、X-007 spec frozen (PR #69)、X-007 check 11 implemented (PR #73)、初回 paid-credit run 待機中 |
 | **v0.4** | 複数検出器の並列評価、アンサンブル昇格 |
 | **将来** | 実WAFへの統合（別途セキュリティレビュー必須） |
 
