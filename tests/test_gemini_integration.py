@@ -1819,6 +1819,49 @@ class TestX007StaticValueChecks:
         """
         assert pm._validate_replacement_code(self._ok(blocked="-score")) == ""
 
+    # ------------------------------------------------------------------
+    # Signed numeric tuple element gap for matched_signals (PR #73 P2 fix)
+    # ------------------------------------------------------------------
+
+    def test_48_rejects_matched_signals_negative_signed_int_tuple(self) -> None:
+        """matched_signals=(-1,) contains a signed numeric literal (UnaryOp) — rejected.
+
+        -1 parses as UnaryOp(USub, Constant(1)), not Constant(-1).
+        """
+        self._assert_static_violation(
+            self._ok(matched_signals="(-1,)"), "matched_signals=(-1,)"
+        )
+
+    def test_49_rejects_matched_signals_positive_signed_int_tuple(self) -> None:
+        """matched_signals=(+1,) contains a signed numeric literal (UnaryOp UAdd) — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="(+1,)"), "matched_signals=(+1,)"
+        )
+
+    def test_50_rejects_matched_signals_negative_signed_float_tuple(self) -> None:
+        """matched_signals=(-0.1,) contains a signed float literal — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="(-0.1,)"), "matched_signals=(-0.1,)"
+        )
+
+    def test_51_rejects_matched_signals_mixed_string_and_signed_numeric_tuple(self) -> None:
+        """matched_signals=('sql', -1) has one valid string then a signed numeric — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="('sql', -1)"), "matched_signals=('sql', -1)"
+        )
+
+    def test_52_defers_matched_signals_unary_minus_name_tuple(self) -> None:
+        """matched_signals=(-score,) is UnaryOp over Name — deferred (not an obvious literal)."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="(-score,)")) == ""
+
+    def test_53_defers_matched_signals_name_tuple(self) -> None:
+        """matched_signals=(signal,) is a Name reference — deferred."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="(signal,)")) == ""
+
+    def test_54_defers_matched_signals_call_tuple(self) -> None:
+        """matched_signals=(make_signal(),) is a Call expression — deferred."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="(make_signal(),)")) == ""
+
 
 # ---------------------------------------------------------------------------
 # 10. offline-sample still works

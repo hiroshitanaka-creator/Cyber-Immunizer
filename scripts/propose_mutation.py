@@ -601,13 +601,21 @@ def _detection_result_static_value_violation(
                 "matched_signals must be tuple[str, ...]"
             )
         if isinstance(value, ast.Tuple):
-            # Reject tuples containing obvious non-string constant elements.
-            # Non-constant elements (Name, Call, IfExp, etc.) cause deferral.
+            # Reject tuples containing obvious non-string constant or signed
+            # numeric literal elements.  Non-obvious elements (Name, Call, etc.)
+            # defer per Category B.
             for elt in value.elts:
                 if isinstance(elt, ast.Constant) and not isinstance(elt.value, str):
                     return (
                         f"{_P} matched_signals=(...) contains a "
                         f"non-string constant element {elt.value!r}; "
+                        "matched_signals must be tuple[str, ...]"
+                    )
+                num_val = _numeric_literal_value(elt)
+                if num_val is not None:
+                    return (
+                        f"{_P} matched_signals=(...) contains a "
+                        f"signed numeric literal element {num_val!r}; "
                         "matched_signals must be tuple[str, ...]"
                     )
             return ""
