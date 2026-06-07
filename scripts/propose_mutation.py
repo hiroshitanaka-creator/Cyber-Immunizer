@@ -524,8 +524,8 @@ def _detection_result_static_value_violation(
         return ""  # f-string, concatenation, variable, conditional — defer
 
     if field_name == "confidence":
-        # Domain: float in [0.0, 1.0]. Accept non-bool int/float in range (bare or
-        # signed UnaryOp); reject all other constants and container literals; defer dynamic.
+        # Domain: float in [0.0, 1.0]. Accept float literals in range (bare or
+        # signed UnaryOp over float Constant); reject int literals even when in range.
         if isinstance(value, ast.Constant):
             val = value.value
             if isinstance(val, bool):

@@ -2153,6 +2153,26 @@ class TestX007StaticValueChecks:
         """confidence=+1 is UnaryOp(UAdd, Constant(1)) — rejected; operand is int not float."""
         self._assert_static_violation(self._ok(confidence="+1"), "confidence=+1")
 
+    # ------------------------------------------------------------------
+    # confidence: signed-int boundary cases (+0 / -0 / -1)
+    # ------------------------------------------------------------------
+
+    def test_107_rejects_confidence_unary_int_plus_zero(self) -> None:
+        """confidence=+0 is UnaryOp(UAdd, Constant(0)) — rejected; operand is int not float."""
+        self._assert_static_violation(self._ok(confidence="+0"), "confidence=+0")
+
+    def test_108_rejects_confidence_unary_int_minus_zero(self) -> None:
+        """confidence=-0 is UnaryOp(USub, Constant(0)) — rejected; operand is int not float."""
+        self._assert_static_violation(self._ok(confidence="-0"), "confidence=-0")
+
+    def test_109_rejects_confidence_unary_int_minus_one(self) -> None:
+        """confidence=-1 is UnaryOp(USub, Constant(1)) — rejected; operand is int not float."""
+        self._assert_static_violation(self._ok(confidence="-1"), "confidence=-1")
+
+    def test_110_accepts_confidence_negative_float_zero(self) -> None:
+        """confidence=-0.0 is UnaryOp(USub, Constant(0.0)) — float operand, value 0.0 in range."""
+        assert pm._validate_replacement_code(self._ok(confidence="-0.0")) == ""
+
 
 # ---------------------------------------------------------------------------
 # 10. offline-sample still works
