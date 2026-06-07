@@ -2137,6 +2137,22 @@ class TestX007StaticValueChecks:
         """matched_signals=signals is a Name reference — deferred."""
         assert pm._validate_replacement_code(self._ok(matched_signals="signals")) == ""
 
+    # ------------------------------------------------------------------
+    # confidence: int literals rejected even when in range
+    # ------------------------------------------------------------------
+
+    def test_104_rejects_confidence_int_zero(self) -> None:
+        """confidence=0 is an int literal; confidence must be float — rejected."""
+        self._assert_static_violation(self._ok(confidence="0"), "confidence=0")
+
+    def test_105_rejects_confidence_int_one(self) -> None:
+        """confidence=1 is an int literal at boundary; confidence must be float — rejected."""
+        self._assert_static_violation(self._ok(confidence="1"), "confidence=1")
+
+    def test_106_rejects_confidence_unary_int_one(self) -> None:
+        """confidence=+1 is UnaryOp(UAdd, Constant(1)) — rejected; operand is int not float."""
+        self._assert_static_violation(self._ok(confidence="+1"), "confidence=+1")
+
 
 # ---------------------------------------------------------------------------
 # 10. offline-sample still works

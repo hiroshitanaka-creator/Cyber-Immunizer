@@ -533,7 +533,7 @@ def _detection_result_static_value_violation(
                     f"{_P} confidence={val!r} is a bool literal; "
                     "confidence must be float in [0.0, 1.0]"
                 )
-            if isinstance(val, (int, float)):
+            if isinstance(val, float):
                 if val < 0.0 or val > 1.0:
                     return (
                         f"{_P} confidence={val!r} is out of range [0.0, 1.0]; "
@@ -552,6 +552,11 @@ def _detection_result_static_value_violation(
         if _is_unary_constant(value):
             num_val = _numeric_literal_value(value)
             if num_val is not None:
+                if not isinstance(value.operand.value, float):
+                    return (
+                        f"{_P} confidence=unary constant expression is not valid; "
+                        "confidence must be float in [0.0, 1.0]"
+                    )
                 if num_val < 0.0 or num_val > 1.0:
                     return (
                         f"{_P} confidence={num_val!r} is out of range [0.0, 1.0]; "
