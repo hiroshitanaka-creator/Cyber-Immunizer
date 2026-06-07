@@ -64,7 +64,7 @@ GPTが出力したタスクプロンプトを受け取った際、以下10項目
 |---|---|---|
 | 1 | 目的が1文で書かれているか | `# Task:` または `## Context` に完結した文がある |
 | 2 | 禁止事項が書かれているか | `## Constraints` または `DO_NOT` が非空 |
-| 3 | 参照ファイルが書かれているか | `ALLOWED` / `REFERENCE_ONLY` / `FROZEN` に1行以上 |
+| 3 | 編集対象ファイルが書かれているか | `ALLOWED` セクションに1行以上、かつ各ファイルに理由が付いている（`REFERENCE_ONLY` / `FROZEN` の有無は問わない） |
 | 4 | 影響範囲確認があるか | `IMPACT` が非空（`なし（理由）` 形式も可） |
 | 5 | diff以外の全体確認があるか | `Pre-Prompt Investigation Gate` の `Current implementation:` と `Downstream effects:` が非空、かつ `Source Evidence` ブロックが存在する（assertion のみは不可） |
 | 6 | 破壊リスク確認があるか | `INVARIANT` フィールドが非空 |
