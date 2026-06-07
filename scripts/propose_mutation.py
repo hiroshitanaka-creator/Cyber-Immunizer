@@ -598,6 +598,12 @@ def _detection_result_static_value_violation(
                         f"obvious invalid literal element; "
                         "matched_signals must be tuple[str, ...]"
                     )
+                if isinstance(elt, (ast.List, ast.Tuple, ast.Dict, ast.Set)):
+                    return (
+                        f"{_P} matched_signals=(...) contains a "
+                        f"container literal element; "
+                        "matched_signals must be tuple[str, ...]"
+                    )
             return ""
         return ""  # variable, Call, conditional — defer
 

@@ -2028,6 +2028,56 @@ class TestX007StaticValueChecks:
         """
         assert pm._validate_replacement_code(self._ok(matched_signals="(1 + 2,)")) == ""
 
+    # ------------------------------------------------------------------
+    # Container literal tuple elements (Codex P2 fix)
+    # ------------------------------------------------------------------
+
+    def test_86_rejects_matched_signals_list_element_in_tuple(self) -> None:
+        """matched_signals=(['sql'],) contains a list literal element — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="(['sql'],)"), "matched_signals=(['sql'],)"
+        )
+
+    def test_87_rejects_matched_signals_dict_element_in_tuple(self) -> None:
+        """matched_signals=({'sql': True},) contains a dict literal element — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="({'sql': True},)"), "matched_signals=({'sql': True},)"
+        )
+
+    def test_88_rejects_matched_signals_set_element_in_tuple(self) -> None:
+        """matched_signals=({'sql'},) contains a set literal element — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="({'sql'},)"), "matched_signals=({'sql'},)"
+        )
+
+    def test_89_rejects_matched_signals_nested_tuple_element(self) -> None:
+        """matched_signals=(('nested',),) contains a tuple literal element — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="(('nested',),)"), "matched_signals=(('nested',),)"
+        )
+
+    def test_90_rejects_matched_signals_mixed_valid_and_list_element(self) -> None:
+        """matched_signals=('sql', ['xss']) has a valid string then a list element — rejected."""
+        self._assert_static_violation(
+            self._ok(matched_signals="('sql', ['xss'])"), "matched_signals=('sql', ['xss'])"
+        )
+
+    def test_91_defers_matched_signals_name_element_still_deferred(self) -> None:
+        """matched_signals=(signal,) is Name — still deferred after container check added."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="(signal,)")) == ""
+
+    def test_92_defers_matched_signals_call_element_still_deferred(self) -> None:
+        """matched_signals=(make_signal(),) is Call — still deferred."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="(make_signal(),)")) == ""
+
+    def test_93_defers_matched_signals_binop_element_still_deferred(self) -> None:
+        """matched_signals=(1 + 2,) is BinOp — still deferred (expression folding is scope-out)."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="(1 + 2,)")) == ""
+
+    def test_94_defers_matched_signals_unary_name_element_still_deferred(self) -> None:
+        """matched_signals=(-flag,) is UnaryOp over Name — still deferred."""
+        assert pm._validate_replacement_code(self._ok(matched_signals="(-flag,)")) == ""
+
 
 # ---------------------------------------------------------------------------
 # 10. offline-sample still works
