@@ -67,3 +67,23 @@ only in internal thinking.
 Records why each protocol rule was added, keyed to the PR lesson that motivated
 it. Not a project status document. Use it to understand the reasoning behind
 specific rules in the other files.
+
+---
+
+## Reception gates (CLAUDE.md)
+
+Every artifact produced by or for the Audit Gate is subject to a structural
+reception gate when received by an AI agent. The gates are defined in `CLAUDE.md`
+at the repository root (not in this directory):
+
+| Artifact | Gate | Key requirement |
+|---|---|---|
+| Task prompt | 10-item structural check | `ALLOWED` section present; `Source Evidence` block present; all 10 items non-empty |
+| Thread handoff | 10-item verifiable-state check | Head SHA stated; done items cite commits; re-verify against repo before acting |
+| PR audit report | 10-item completeness check | CI/Codex classified with correct taxonomy; all valid findings classified by root cause |
+
+All gates require a scoring receipt after passing. Task prompt gate also requires
+a plain-Japanese intent confirmation before work starts.
+
+A pointer to these gates is in `docs/AI_ENTRYPOINT.md` (item 5 of "Mandatory
+before starting any task") so that all AI agents — not only Claude — apply them.

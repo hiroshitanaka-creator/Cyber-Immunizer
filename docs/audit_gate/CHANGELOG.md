@@ -7,6 +7,35 @@ This is not a project status document. Keep entries focused on protocol lessons.
 
 ---
 
+## Prompt Reception Gate — receiving AI scores incoming prompts; GPT self-score is ignored
+
+Lesson driven by the gap between GPT's self-scoring and actual prompt quality:
+
+- **GPT's 98/100 self-score is unverifiable and gameable**: The self-score threshold in
+  `TASK_PROMPT_PROTOCOL.md` was designed to gate GPT's own output. It does not prevent a
+  well-formatted but shallow prompt from passing. The receiving AI (Claude, Codex, or any
+  other agent) has no obligation to trust or reference the self-score. Protocol now
+  explicitly states that the receiving AI ignores the self-score entirely.
+
+- **Receiving AI must apply its own 10-item objective check**: As the repository grows,
+  the Project Owner cannot be expected to manually verify every structural requirement in
+  a task prompt. `CLAUDE.md` now contains a 10-item reception gate that Claude applies on
+  every incoming task prompt before starting work. Each item has a machine-readable
+  acceptance criterion (section present / field non-empty / placeholder-free). One missing
+  item triggers a structured reject-and-resubmit message to GPT.
+
+- **Separation of roles**: GPT self-scores before output (output gate). Claude checks
+  structure on receipt (input gate). These are independent layers — passing one does not
+  imply passing the other. The Project Owner's role is to confirm intent, not to audit
+  protocol compliance.
+
+- **Rejection message must be structured, not narrative**: A rejection that says
+  "this prompt needs more detail" gives GPT no actionable fix. The reception gate
+  requires the reject message to name the specific item number and what is missing,
+  so GPT can correct exactly the gap without re-submitting a full rewrite.
+
+---
+
 ## Thread Handoff Gate — handoff prompts must carry verifiable state, not narrative
 
 Lesson driven by context-loss between threads:

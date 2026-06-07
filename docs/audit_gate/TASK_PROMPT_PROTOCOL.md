@@ -251,3 +251,32 @@ If GPT cannot fill this protocol without guessing, it must not produce an implem
 - the conflicting assumption,
 - the smallest set of options for Project Owner decision,
 - and the files or evidence required to continue.
+
+---
+
+## Receiving-AI reception gate
+
+After GPT outputs a task prompt, the receiving AI (Claude or any agent following
+`CLAUDE.md`) applies an independent 10-item structural gate before starting work.
+This gate is separate from the 98/100 self-score threshold above.
+
+A prompt that passes self-scoring but fails any reception gate item will be
+rejected with a structured diff-back message. The receiving AI scores
+independently and does not trust the self-score field.
+
+Items the receiving AI checks:
+
+| # | Item | Acceptance criterion |
+|---|---|---|
+| 1 | Purpose in one sentence | `# Task:` or `## Context` contains a complete sentence |
+| 2 | Prohibitions stated | `## Constraints` or `DO_NOT` non-empty |
+| 3 | ALLOWED files with reasons | `ALLOWED` section has ≥ 1 file, each with a reason |
+| 4 | Impact scope | `IMPACT` non-empty (including `なし（理由）` form) |
+| 5 | Full investigation beyond diff | `Pre-Prompt Investigation Gate` fields non-empty **and** `Source Evidence` block present (not assertion-only) |
+| 6 | Destruction risk | `INVARIANT` non-empty |
+| 7 | Completion format | `Definition of Done` has explicit green criteria |
+| 8 | No unauthorized additions | `DO_NOT` or scope-stop condition non-empty |
+| 9 | Test execution conditions | `Definition of Done` has ≥ 1 `pytest` (or equivalent) command |
+| 10 | Stop-on-ambiguity condition | `## On Ambiguity` or equivalent non-empty |
+
+For the full gate definition and the reject/receipt message formats, see `CLAUDE.md`.

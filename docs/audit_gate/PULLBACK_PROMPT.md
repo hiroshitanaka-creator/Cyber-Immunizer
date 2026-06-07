@@ -89,6 +89,31 @@ If the self-score is below 98/100, do not output the task prompt. Report the mis
 
 ---
 
+## Rule 3.6 — Receiving-AI reception gate
+
+The receiving AI (Claude or any agent following `CLAUDE.md`) applies an independent
+10-item structural gate to every task prompt, thread handoff, and PR audit report it
+receives. This gate runs regardless of the 98/100 self-score in `TASK_PROMPT_PROTOCOL.md`.
+
+For task prompts, the 10 items are:
+1. Purpose in one sentence (`# Task:` or `## Context`)
+2. Prohibitions (`## Constraints` or `DO_NOT` non-empty)
+3. `ALLOWED` section with at least one file and a reason per file
+4. Impact scope (`IMPACT` non-empty)
+5. Full investigation beyond diff (`Pre-Prompt Investigation Gate` fields non-empty **and** `Source Evidence` block present, not assertion-only)
+6. Destruction risk (`INVARIANT` non-empty)
+7. Completion format (`Definition of Done` with explicit green criteria)
+8. No unauthorized additions (`DO_NOT` or scope-stop condition)
+9. Test execution conditions (`pytest` command in `Definition of Done`)
+10. Stop-on-ambiguity condition (`## On Ambiguity` or equivalent)
+
+If your prompt fails any item, the receiving AI rejects it with a structured
+diff-back message naming the specific item. The receiving AI does not trust your
+98/100 self-score — it scores independently. A prompt that passes self-scoring
+but fails any reception gate item will still be rejected.
+
+---
+
 ## Rule 4 — Current-head CI
 
 CI must be the run for the **current head SHA**, not an older commit.
