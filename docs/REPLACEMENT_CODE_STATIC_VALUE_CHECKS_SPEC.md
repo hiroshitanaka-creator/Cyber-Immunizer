@@ -16,7 +16,7 @@ related:
   - docs/API_ACTIVATION_RUNBOOK.md
   - core/types.py
   - scripts/propose_mutation.py
-last_reviewed: 2026-06-05
+last_reviewed: 2026-06-07
 codex_p2_generator_expr_fixed: removed tuple(genexpr) from Category B — already rejected by policy.py check 4
 pr_69_x007_spec_freeze: X-007 policy frozen in PR #69 — check 11 NOT implemented in PR #69
 pr_73_x007_implementation: check 11 implemented in scripts/propose_mutation.py (PR #73)
@@ -49,7 +49,8 @@ keyword-only arguments with exactly the four canonical keyword names (`blocked`,
 - that `confidence` is in the range `[0.0, 1.0]` and is a `float` (not a string or `bool`)
 - that `matched_signals` is a `tuple` (not a `list`, `dict`, or `str`)
 
-Those type/value-range checks are the X-007 scope, deferred to PR #70.
+Those type/value-range checks are the X-007 scope, defined by policy frozen in PR #69 and
+implemented (check 11) in PR #73.
 
 ---
 
@@ -70,10 +71,10 @@ must remain deferred or explicitly allowed.
 
 ---
 
-## Category A — Cases PR #70 May Statically Reject (Obvious Invalid Literals)
+## Category A — Cases Check 11 Statically Rejects (Obvious Invalid Literals)
 
 These are AST-detectable obvious invalid literals that a well-formed detector would never use.
-PR #70 may reject these without Project Owner override.
+Check 11 rejects these without Project Owner override.
 
 | Field | Obvious invalid literal examples | Why safe to reject |
 |---|---|---|
@@ -89,12 +90,12 @@ a loose type check (`isinstance(True, (int, float))` is `True`). However:
 
 - `True` evaluates to `1` and `False` to `0` as a float, both technically in `[0.0, 1.0]`.
 - This is almost certainly a mistake (confusion of `blocked` with `confidence`).
-- PR #70 **should** reject `confidence=True` / `confidence=False` as obvious invalid literals
+- Check 11 **should** reject `confidence=True` / `confidence=False` as obvious invalid literals
   (`bool` literal is never a valid `confidence` value regardless of numeric coercion).
 
 ### Notes on `confidence=float("nan")`
 
-`float("nan")` is a function call expression, not a literal. PR #70 **must not** evaluate it.
+`float("nan")` is a function call expression, not a literal. Check 11 **must not** evaluate it.
 Options:
 - Treat `float(...)` calls as dynamic expressions and defer (recommended).
 - Reject any `float(...)` call with a string argument as a forbidden pattern if existing
@@ -103,9 +104,9 @@ Options:
 
 ---
 
-## Category B — Expressions PR #70 Must Allow or Defer (Dynamic Patterns)
+## Category B — Expressions Check 11 Must Allow or Defer (Dynamic Patterns)
 
-These dynamic expressions produce valid values at runtime and must not be rejected by PR #70
+These dynamic expressions produce valid values at runtime and must not be rejected by check 11
 unless the Project Owner explicitly approves stricter policy.
 
 | Field | Dynamic expression examples | Disposition |
@@ -116,7 +117,7 @@ unless the Project Owner explicitly approves stricter policy.
 | `matched_signals` | `tuple(matched)`, variable reference, conditional expression | **Allow / defer** — these produce valid `tuple` at runtime; element type cannot be proved statically without execution |
 
 **Default disposition rule**: If an expression is not an obvious invalid literal from Category A,
-PR #70 must defer rather than reject. When in doubt, defer.
+check 11 must defer rather than reject. When in doubt, defer.
 
 > **Note on generator/comprehension patterns** (e.g., `tuple(s for s in signals if ...)`):
 > Generator expressions are already rejected by `core/policy.py::check_runtime_allocation_risks`
@@ -128,7 +129,7 @@ PR #70 must defer rather than reject. When in doubt, defer.
 
 ## Category C — AST-Only Constraint (No Execution)
 
-PR #70 static validation must remain AST-only. The validator:
+Check 11 static validation must remain AST-only. The validator:
 
 - **Must not** call `eval()`, `compile()`, `exec()`, or `import` on candidate code.
 - **Must not** invoke Python's runtime type system on candidate expressions.
@@ -137,15 +138,15 @@ PR #70 static validation must remain AST-only. The validator:
 - **Must** treat any expression that is not an obvious AST-literal from Category A as a dynamic
   expression subject to Category B disposition (allow/defer).
 
-This constraint is the same as checks 1–10 and must not be weakened in PR #70.
+This constraint is the same as checks 1–10 and must not be weakened.
 
 ---
 
 ## Category D — Fitness/Runtime Responsibility and Its Limits
 
-PR #70 safe-subset static checks **cannot** prove that all runtime values are valid.
+Check 11 safe-subset static checks **cannot** prove that all runtime values are valid.
 However, fitness/evaluate is **not** a complete type-safety net either. This section states
-precisely what the current runtime path does and does **not** catch, so that neither PR #70
+precisely what the current runtime path does and does **not** catch, so that neither check 11
 nor future agents over-rely on it.
 
 ### What the runtime path actually verifies (verified against current code)
@@ -173,7 +174,7 @@ following pass construction without raising `TypeError`, pass `_contract_ok`, an
 In short: a wrong-type value that neither raises during evaluation nor pushes `confidence`
 outside `[0.0, 1.0]` is **not** rejected by fitness/evaluate today.
 
-### What this means for PR #70
+### What this means for check 11
 
 - Do **not** claim that fitness/evaluate detects all wrong-type `DetectionResult` values.
   It does not.
@@ -192,10 +193,10 @@ outside `[0.0, 1.0]` is **not** rejected by fitness/evaluate today.
 
 ---
 
-## PR #70 Adversarial Test Matrix Proposal
+## Check 11 Adversarial Test Matrix
 
-The following test cases must be covered by PR #70 before implementation is considered complete.
-This matrix is non-normative for PR #69 (docs-only) but is the contract for PR #70.
+The following test cases are covered by PR #73 (check 11). Implementation is complete.
+This matrix was non-normative for PR #69 (docs-only). The implementation was completed in PR #73.
 
 | # | Case | Field | Input | Expected result |
 |---|---|---|---|---|
@@ -231,7 +232,7 @@ This matrix is non-normative for PR #69 (docs-only) but is the contract for PR #
 | 30 | Parse-succeeds but runtime value may be wrong | all | `confidence=compute_score()` | Accept (defer) — residual runtime risk; not fully covered by fitness (see Category D) |
 | 31 | Stricter `matched_signals` element-type check | `matched_signals` | `matched_signals=tuple(matched)` | Scope-out — defer unless Project Owner approves |
 
-### False-Rejection Regression Cases (PR #70 must not break these)
+### False-Rejection Regression Cases (Check 11 must not break these)
 
 | # | Case | Input | Must not reject |
 |---|---|---|---|
@@ -247,9 +248,9 @@ This matrix is non-normative for PR #69 (docs-only) but is the contract for PR #
 
 ---
 
-## Scope-Out Items (Project Owner-Overridable)
+## Scope-Out Items After PR #73 (Project Owner-Overridable)
 
-The following items are explicitly out of scope for PR #70 unless the Project Owner approves:
+The following items are explicitly out of scope unless the Project Owner approves:
 
 - Full range proof for dynamic `confidence` expressions (requires symbolic execution or SMT solver).
 - Element-type verification for `tuple(matched)` — whether `matched` contains only strings.
@@ -271,17 +272,17 @@ The following items are explicitly out of scope for PR #70 unless the Project Ow
 | Check 8 (PR #65) | Every `return` is `return DetectionResult(...)` | Argument types or values |
 | Check 9 (PR #66) | Last top-level node is `ast.Return` (fallthrough guard) | Argument types or values |
 | Check 10 (PR #67, H-3) | Keyword-only args, exactly the 4 canonical names | Argument types or values |
-| **Check 11 (PR #70, X-007)** | **Safe-subset literal type/value rejection** | **Dynamic expression correctness (deferred)** |
+| **Check 11 (PR #73, X-007)** | **Safe-subset literal type/value rejection** | **Dynamic expression correctness (deferred)** |
 
-> **Check 11 is NOT implemented in PR #69.**  
-> `scripts/propose_mutation.py` `_validate_replacement_code` currently has 10 checks.  
-> PR #70 will add check 11 based on Category A of this specification.
+> **Check 11 is not implemented in PR #69 because PR #69 was docs-only.**  
+> Check 11 was implemented later in PR #73.  
+> The current validator implements checks 1–11.
 
 ---
 
 ## Reference
 
 - `core/types.py` — canonical `DetectionResult` dataclass definition
-- `scripts/propose_mutation.py` — `_validate_replacement_code` (checks 1–10, current implementation)
+- `scripts/propose_mutation.py` — `_validate_replacement_code` (checks 1–11, current implementation)
 - `docs/API_ACTIVATION_RUNBOOK.md` — check order table and X-007 frozen note
 - `docs/audit_gate/CHANGELOG.md` — PR #69 design lesson
