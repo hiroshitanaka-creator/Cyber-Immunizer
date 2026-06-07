@@ -1,6 +1,6 @@
 # pr-audit-review
 
-**Version**: 0.3.0  
+**Version**: 0.3.1  
 **Author**: Grok + 飛べない豚  
 **Last Updated**: 2026-06-07
 
@@ -128,7 +128,7 @@ Produce a structured report containing:
 - Verdict in the strict 4-line merge decision format
 
 ### 8. Pre-Posting Self-Audit (Mandatory)
-Run the 16-item checklist. **Only post if all items PASS**.
+Run the **15-item** checklist. **Only post if all items PASS**.
 
 ### 9. Post Formal GitHub Review
 - Use `pull_request_review_write` (`method=create`, `event=COMMENT` or `REQUEST_CHANGES`).
@@ -257,13 +257,14 @@ pr-audit-review(
 
 ---
 
-**Version 0.3.0 Changes**:
+**Version 0.3.1 Changes**:
 - Trigger unified to single phrase "@grok Review"
 - Added mandatory Scope-in / Scope-out detection + Cyber-Immunizer auto-BLOCK conditions
 - Added strict 9-category CI classification with head SHA matching rule
 - Strengthened Documentation / History Gate (generator update rule)
 - Clarified `UNRESOLVED THREAD PRESENT` handling in verdict
 - Added reference to `analyzer.py` helper skeleton
+- **Fixed checklist count from 16 to 15** (Codex P3 feedback)
 - Improved overall precision and auditability
 
 ---
