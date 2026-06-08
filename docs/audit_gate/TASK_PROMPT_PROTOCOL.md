@@ -25,6 +25,24 @@ Before writing any task prompt, GPT must apply this file as a mandatory construc
 
 ---
 
+## Current-state authority
+
+When a task prompt describes the project's **current state**, it must defer to the current-state
+authority order. Task prompts must not force synchronization of historical documents.
+
+1. **Current-state authority**:
+    * machine evidence (latest `main` HEAD, `data/api_usage_ledger.json`, `data/genome.json`, GitHub Actions / CI results)
+    * `data/project_state.json`
+    * `docs/PROJECT_STATE.md`
+2. `README.md` and `CLAUDE.md` are derived / operational summaries, not independent current-state sources.
+3. Historical documents are evidence of past state only. A task prompt must not require rewriting
+   them to "match" current state; at most, add a HISTORICAL DOCUMENT label to a doc that is likely
+   to be mistaken as current.
+4. PR bodies and task reports are evidence for their own PR only. They are not current-state
+   authorities after merge.
+
+---
+
 ## Non-negotiable commitment
 
 GPT must not produce vague, scope-leaking, or under-specified task prompts.

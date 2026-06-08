@@ -21,7 +21,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from scripts.update_readme import update_readme, _build_status_block, _GENOME_PATH, _LEDGER_PATH, _parse_bool
+from scripts.update_readme import update_readme, _build_status_block, _GENOME_PATH, _LEDGER_PATH, _parse_bool, _PROJECT_STATE_PATH
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"
 _STATUS_END = "<!-- CYBER_IMMUNIZER_STATUS_END -->"
@@ -110,6 +110,7 @@ def _run_update(tmp_path: Path, genome_overrides: dict | None = None) -> tuple[s
     original_threats = mod._THREATS_PATH
     original_report = mod._REPORT_PATH
     original_ledger = mod._LEDGER_PATH
+    original_project_state = mod._PROJECT_STATE_PATH
 
     mod._GENOME_PATH = genome_path
     mod._HISTORY_PATH = tmp_path / "evolution_history.json"
@@ -119,6 +120,8 @@ def _run_update(tmp_path: Path, genome_overrides: dict | None = None) -> tuple[s
     mod._REPORT_PATH = tmp_path / "nonexistent_report.json"  # doesn't exist → fitness=None
     mod._LEDGER_PATH = tmp_path / "api_usage_ledger.json"
     (tmp_path / "api_usage_ledger.json").write_text("[]")  # empty ledger → no past runs
+    # doesn't exist → project_state absent → ledger-derived fallback wording
+    mod._PROJECT_STATE_PATH = tmp_path / "nonexistent_project_state.json"
 
     try:
         success = update_readme(readme_path)
@@ -132,6 +135,7 @@ def _run_update(tmp_path: Path, genome_overrides: dict | None = None) -> tuple[s
         mod._THREATS_PATH = original_threats
         mod._REPORT_PATH = original_report
         mod._LEDGER_PATH = original_ledger
+        mod._PROJECT_STATE_PATH = original_project_state
 
 
 # ---------------------------------------------------------------------------
@@ -561,9 +565,10 @@ class TestRealReadmeStatusBlock:
     """Verify that the real README.md has a Phase 3 status block.
 
     These tests are read-only — they check the committed README state.
-    Updated for Phase 3 (PR #58-#62 merged; gemini-3-flash-preview paid-credit
-    API call success records exist in data/api_usage_ledger.json; post-run
-    result review pending; promote_approved=false).
+    Updated for Phase 3 current-state SSOT (PR #58-#62 merged; gemini-3-flash-preview
+    paid-credit API call success records exist in data/api_usage_ledger.json; per
+    data/project_state.json no valid mutation patch was produced; next action is to
+    fix the propose/output-contract root cause; promote_approved=false).
     """
 
     @pytest.fixture(autouse=True)
@@ -912,6 +917,7 @@ def _run_update_with_report(
     original_threats = mod._THREATS_PATH
     original_report = mod._REPORT_PATH
     original_ledger = mod._LEDGER_PATH
+    original_project_state = mod._PROJECT_STATE_PATH
 
     mod._GENOME_PATH = genome_path
     mod._HISTORY_PATH = tmp_path / "evolution_history.json"
@@ -920,6 +926,7 @@ def _run_update_with_report(
     (tmp_path / "active_threats.json").write_text("[]")
     mod._LEDGER_PATH = tmp_path / "api_usage_ledger.json"
     (tmp_path / "api_usage_ledger.json").write_text("[]")
+    mod._PROJECT_STATE_PATH = tmp_path / "nonexistent_project_state.json"
 
     if report_data is None:
         mod._REPORT_PATH = tmp_path / "nonexistent_report.json"  # doesn't exist
@@ -940,16 +947,21 @@ def _run_update_with_report(
         mod._THREATS_PATH = original_threats
         mod._REPORT_PATH = original_report
         mod._LEDGER_PATH = original_ledger
+        mod._PROJECT_STATE_PATH = original_project_state
 
 
 def _run_update_with_ledger(
     tmp_path: Path,
     ledger_data: list,
     genome_overrides: dict | None = None,
+    project_state_data: dict | None = None,
 ) -> tuple[str, str]:
     """Run update_readme with a specific ledger content.
 
     ledger_data is a list of dicts (each a ledger entry).
+    project_state_data: if provided, written to a temp project_state.json and
+        used as the current-state authority. If None, project_state is absent
+        (ledger-derived fallback wording is used).
     Returns (full_readme_content, status_block_content).
     """
     readme_path = _make_readme(tmp_path)
@@ -963,6 +975,7 @@ def _run_update_with_ledger(
     original_threats = mod._THREATS_PATH
     original_report = mod._REPORT_PATH
     original_ledger = mod._LEDGER_PATH
+    original_project_state = mod._PROJECT_STATE_PATH
 
     mod._GENOME_PATH = genome_path
     mod._HISTORY_PATH = tmp_path / "evolution_history.json"
@@ -971,6 +984,12 @@ def _run_update_with_ledger(
     (tmp_path / "active_threats.json").write_text("[]")
     mod._REPORT_PATH = tmp_path / "nonexistent_report.json"
     mod._LEDGER_PATH = ledger_path
+    if project_state_data is not None:
+        project_state_path = tmp_path / "project_state.json"
+        project_state_path.write_text(json.dumps(project_state_data))
+        mod._PROJECT_STATE_PATH = project_state_path
+    else:
+        mod._PROJECT_STATE_PATH = tmp_path / "nonexistent_project_state.json"
 
     try:
         success = update_readme(readme_path)
@@ -984,6 +1003,7 @@ def _run_update_with_ledger(
         mod._THREATS_PATH = original_threats
         mod._REPORT_PATH = original_report
         mod._LEDGER_PATH = original_ledger
+        mod._PROJECT_STATE_PATH = original_project_state
 
 
 _SAMPLE_FITNESS_REPORT = {
@@ -1233,6 +1253,51 @@ class TestPhase3MandatoryFields:
         )
         assert "Not yet executed" not in block, (
             "Not yet executed must not appear when there are primary model paid-credit successes"
+        )
+
+    def test_phase3_project_state_drives_current_state_wording(
+        self, tmp_path: Path
+    ) -> None:
+        """When data/project_state.json exists, it (not the ledger) drives the
+        current_phase / next_focus / promote wording.
+
+        The ledger-derived run count (Executed N successful / M attempts) is
+        retained, but the stale 'Review existing paid-credit run results' /
+        'post-run result review pending' wording must be replaced by the
+        project_state next_action and patch-not-produced phase.
+        """
+        _, block = _run_update_with_ledger(
+            tmp_path,
+            ledger_data=[{
+                "model": "gemini-3-flash-preview",
+                "success": True,
+                "api_mode": "gemini_paid_credit",
+            }],
+            genome_overrides={
+                "live_model_enabled": True,
+                "model_name": "gemini-3-flash-preview",
+            },
+            project_state_data={
+                "paid_credit_api_calls": {"valid_mutation_patch_produced": False},
+                "promotion": {"promote_approved": False},
+                "next_action": "fix_propose_output_contract_before_new_paid_credit_run",
+            },
+        )
+        # Ledger-derived run count retained.
+        assert "Executed" in block, "run-count status must remain ledger-derived"
+        # project_state-driven wording present.
+        assert "no valid mutation patch produced" in block, (
+            "current_phase must reflect project_state patch-not-produced state"
+        )
+        assert "Fix propose/output-contract root cause before any new paid-credit run" in block, (
+            "next_focus must come from project_state next_action"
+        )
+        # Stale wording must be gone.
+        assert "Review existing paid-credit run results" not in block, (
+            "stale ledger-only next focus must not appear when project_state exists"
+        )
+        assert "post-run result review pending" not in block, (
+            "stale ledger-only current_phase must not appear when project_state exists"
         )
 
     def test_phase3_attempted_but_failed_when_primary_only_fails(

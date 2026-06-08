@@ -26,6 +26,11 @@ AI_DOC_META_END
 
 # Phase 3 Go/No-Go Readiness Audit
 
+> **HISTORICAL DOCUMENT**  
+> This file preserves the state at the time it was written.  
+> Do not use this file as current project state.  
+> Current state source: `docs/PROJECT_STATE.md` and `data/project_state.json`.
+
 > **⚠️ 2026-06-08 更新: Phase 3 activation PR #58–#62 が main に merge 済み。`live_model_enabled=true`。**  
 > **paid-credit path で接続済み。`gemini-3-flash-preview` / `gemini_paid_credit` の paid-credit API call **success** 記録が `data/api_usage_ledger.json` に存在する（2026-06-03 / 2026-06-04）。`promote_approved=false`。**  
 > **未着手の項目は post-run result review（candidate / apply / evaluate / promotion decision）であり、新規 paid-credit run の実行ではない。**  
