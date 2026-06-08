@@ -21,17 +21,22 @@ docs のみを追加した（inventory-only タスク）。
     DetectionResult インスタンスと confidence 範囲のみ検証し、
     `blocked: bool` / `reason: str` / `matched_signals: tuple[str,...]` の型は
     runtime で強制していない。既知の residual gap・Project Owner-overridable。
-  - Phase 3 paid-credit: activation PR #58–#62 merge 済み・`live_model_enabled=true`
-    だが `gemini-3-flash-preview` の controlled run は未実行（`promote_approved=false`）。
+  - Phase 3 paid-credit: activation PR #58–#62 merge 済み・`live_model_enabled=true`。
+    `gemini-3-flash-preview` / `gemini_paid_credit` / `success=true` の API call 記録が
+    `data/api_usage_ledger.json` に存在する（API call は実行済み）。`promote_approved=false`
+    は昇格未承認を意味し、API call 未実行を意味しない。post-run review / candidate patch /
+    apply / evaluate / promotion decision は別途要検証。
   - X-002 / X-003 / X-006: policy 項目として deferred（spec Scope-Out + CHANGELOG + README）。
   - Grok 削除後の audit workflow: active workflow に Grok 参照なし。
     Codex（補助）+ GPT Audit Gate（統合）+ Project Owner（最終）で完結し機能的 gap なし。
 - **検出した不整合（推測ではなく報告）**: `CLAUDE.md` 現在の状態テーブルと README は
-  「Gemini API 未接続 / Phase 3 Go-No-Go 待ち」と記載するが、canonical な
-  `docs/PHASE_3_GO_NO_GO_CHECKLIST.md` は #58–#62 merge 済み・`live_model_enabled=true`
-  と記録しており矛盾。これを P0・次推奨 PR（docs-only の Phase 3 状態補正）とした。
+  「Gemini API 未接続 / Phase 3 Go-No-Go 待ち」、`docs/PHASE_3_GO_NO_GO_CHECKLIST.md:95` は
+  「controlled run 未実行」と記載するが、一次証跡 `data/api_usage_ledger.json` には
+  `gemini-3-flash-preview` paid-credit success 記録が存在し矛盾。これを P0・次推奨 PR
+  （ledger evidence に合わせた docs-only の Phase 3 状態補正）とした。
 - **バックログ表**を P0/P1/P2 で分類（Type・Owner approval・推奨アクション付き）。
-- **推奨次 PR を1件**に限定: `CLAUDE.md` と README の Phase 3 状態補正（docs-only）。
+- **推奨次 PR を1件**に限定: `CLAUDE.md` / README / `PHASE_3_GO_NO_GO_CHECKLIST.md` の
+  Phase 3 状態語を ledger evidence に合わせる docs-only 補正 PR。
 
 ## 後検証結果
 - `git status --short` → `docs/audit_gate/POST_PR77_UNRESOLVED_BACKLOG.md` 追加のみ
@@ -43,11 +48,14 @@ docs のみを追加した（inventory-only タスク）。
 ## 残存事項・注意点
 - 本タスクは inventory のみ。Category D runtime hardening は **design-only** が次段階で、
   `core/**` の編集実装は Project Owner 承認が必要（YES_BEFORE_IMPLEMENTATION）。
-- Phase 3 初回 controlled paid-credit run は Project Owner の手動 `workflow_dispatch`
-  と外部ゲート（Secrets / billing / budget）確認が前提（YES_BEFORE_RUN）。本タスクでは実行していない。
+- Phase 3 paid-credit: 新規 paid-credit run は次アクションではない（既に実行済み記録あり）。
+  次は既存 `gemini-3-flash-preview` paid-credit 成功記録の result review inventory であり、
+  candidate / apply / evaluate / promotion decision の状態確認が必要。本タスクでは
+  paid-credit workflow を実行していない。
 - X-002 / X-003 / X-006 は具体的 validator 定義が未確定のため、実装前に policy-alignment
   inventory が必要。
-- `CLAUDE.md` / README の Phase 3 状態補正（P0）は本 PR の scope 外。次 PR で対応すべき事項。
+- `CLAUDE.md` / README / `PHASE_3_GO_NO_GO_CHECKLIST.md` の Phase 3 状態補正（P0、ledger
+  evidence ベース）は本 PR の scope 外。次 PR で対応すべき事項。
 
 ## Codex P1 対応（2026-06-07 追記）
 
