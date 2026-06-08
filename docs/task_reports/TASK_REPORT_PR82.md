@@ -112,7 +112,7 @@ No `mutation_patch.json` was produced. `patch_exists=false` in all three runs.
 
 ## Forbidden Actions Confirmation
 
-- No `workflow_dispatch` was triggered. ✅
+- No new `workflow_dispatch` run was triggered by this task. ✅
 - No Gemini API call was made. ✅
 - No GitHub Actions run was started or re-run. ✅
 - `data/api_usage_ledger.json` unchanged. ✅
