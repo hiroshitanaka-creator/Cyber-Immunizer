@@ -118,7 +118,6 @@ def _build_status_block() -> str:
     # --- Phase determination ---
     # Phase 3 when live_model_enabled=true; Phase 2 otherwise.
     if live_model_enabled:
-        current_phase = "Phase 3 — paid-credit path ready, Gemini 3 Flash Preview run pending"
         # Check ledger for paid-credit attempts with the current primary model.
         # Both success=True and success=False records count as "attempted" — a
         # failed run still reached the API and must not be shown as "Not yet executed".
@@ -134,22 +133,47 @@ def _build_status_block() -> str:
             ]
         if not primary_attempts:
             p3_run_status = "Not yet executed"
+            current_phase = "Phase 3 — paid-credit path ready; first paid-credit run not yet executed"
+            next_focus = (
+                "Execute first paid-credit run: workflow_dispatch → gemini-paid-credit,"
+                " promote_approved=false"
+            )
+            promote_note = "false (workflow gate — Project Owner approval required)"
         else:
             n_total = len(primary_attempts)
             n_success = sum(1 for e in primary_attempts if e.get("success") is True)
             if n_success > 0:
                 p3_run_status = f"Executed ({n_success} successful / {n_total} attempt(s))"
+                current_phase = (
+                    "Phase 3 — paid-credit API call success records exist;"
+                    " post-run result review pending"
+                )
+                next_focus = (
+                    "Review existing paid-credit run results:"
+                    " ledger / candidate / apply / evaluate / promotion decision"
+                )
+                promote_note = (
+                    "false (promotion not approved —"
+                    " API call already executed; post-run review pending)"
+                )
             else:
                 p3_run_status = (
                     f"Attempted but failed ({n_total} attempt(s))"
                     " — inspect ledger before rerun"
                 )
+                current_phase = (
+                    "Phase 3 — paid-credit run attempted (no successful calls);"
+                    " inspect ledger"
+                )
+                next_focus = "Review ledger for failed run; diagnose cause before rerun"
+                promote_note = "false (workflow gate — Project Owner approval required)"
         phase_rows: list[str] = [
             f"| Phase 3 Activation | Complete (PR #58-#62) |",
-            f"| Phase 3 First Paid-Credit Run | {p3_run_status} |",
+            f"| Phase 3 Paid-Credit API Calls | {p3_run_status} |",
             f"| Gemini Primary Model | {model_name} |",
             f"| Gemini Fallback Model | {fallback_model_name} |",
-            f"| promote_approved | false (workflow gate — Project Owner approval required) |",
+            f"| promote_approved | {promote_note} |",
+            f"| Next Focus | {next_focus} |",
         ]
     else:
         current_phase = "Phase 2 — API-disconnected operations"
