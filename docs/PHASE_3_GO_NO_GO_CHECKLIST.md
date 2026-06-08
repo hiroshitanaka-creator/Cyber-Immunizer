@@ -1,7 +1,7 @@
 <!--
 AI_DOC_META
 status: CANONICAL
-scope: Phase 3 Go/No-Go readiness audit and Phase 3 activation record (PR #58-#62 merged, first paid-credit run pending).
+scope: Phase 3 Go/No-Go readiness audit and Phase 3 activation record (PR #58-#62 merged; gemini-3-flash-preview / gemini_paid_credit API call success records exist in data/api_usage_ledger.json; promote_approved=false; post-run result review pending).
 use_for:
   - reviewing Phase 3 activation PR history and current paid-credit state
   - deciding whether a Phase 3 promote or next-run PR may be opened
@@ -26,8 +26,9 @@ AI_DOC_META_END
 
 # Phase 3 Go/No-Go Readiness Audit
 
-> **⚠️ 2026-06-03 更新: Phase 3 activation PR #58–#62 が main に merge 済み。**  
-> **paid-credit path 準備完了。過去の paid-credit API call 記録は存在する（`data/api_usage_ledger.json` 参照）。gemini-3-flash-preview での controlled run は未実行。**  
+> **⚠️ 2026-06-08 更新: Phase 3 activation PR #58–#62 が main に merge 済み。`live_model_enabled=true`。**  
+> **paid-credit path で接続済み。`gemini-3-flash-preview` / `gemini_paid_credit` の paid-credit API call **success** 記録が `data/api_usage_ledger.json` に存在する（2026-06-03 / 2026-06-04）。`promote_approved=false`。**  
+> **未着手の項目は post-run result review（candidate / apply / evaluate / promotion decision）であり、新規 paid-credit run の実行ではない。**  
 > **詳細は下記「Phase 3 Activation Record」セクションを参照。**
 
 ---
@@ -38,7 +39,7 @@ AI_DOC_META_END
 > live_model_enabled must remain false until a dedicated Phase 3 activation PR is approved.
 > Project Owner explicit approval is required before any Phase 3 activation PR.
 
-> *(Note: The above declaration reflects the original Go/No-Go gate language. Phase 3 activation PRs #58–#62 have been merged. The first paid-credit run has not yet been executed. See Section 2a below.)*
+> *(Note: The above declaration reflects the original pre-activation Go/No-Go gate language. Phase 3 activation PRs #58–#62 have since been merged, `live_model_enabled=true`, and `gemini-3-flash-preview` / `gemini_paid_credit` paid-credit API call success records now exist in `data/api_usage_ledger.json` (2026-06-03 / 2026-06-04). The "must remain false" wording above is retained only as the historical pre-activation gate text and is not the current state. `promote_approved` remains `false`. See Section 2a below for current state.)*
 
 ---
 
@@ -81,8 +82,8 @@ This document is a Go/No-Go readiness checklist that must be reviewed before any
 
 ## 2a. Phase 3 Activation Record（PR #58–#62）
 
-> **Phase 3 activation PR は main に merge 済み。**  
-> **paid-credit path 準備完了。過去の paid-credit API call 記録は存在する（`data/api_usage_ledger.json` 参照）。gemini-3-flash-preview での controlled run は未実行。**
+> **Phase 3 activation PR は main に merge 済み。`live_model_enabled=true`。**  
+> **paid-credit path で接続済み。`gemini-3-flash-preview` / `gemini_paid_credit` の paid-credit API call **success** 記録が `data/api_usage_ledger.json` に存在する（2026-06-03 / 2026-06-04）。`promote_approved=false`。未着手は post-run result review（candidate / apply / evaluate / promotion decision）。**
 
 | Field | Value |
 |---|---|
@@ -91,10 +92,10 @@ This document is a Go/No-Go readiness checklist that must be reviewed before any
 | `live_model_enabled` | `true` (PR #58) |
 | Primary model | `gemini-3-flash-preview` (PR #62) |
 | Fallback model | `gemini-3.1-flash-lite` (PR #62) |
-| Past paid-credit API call records | Exist (see `data/api_usage_ledger.json` — gemini-3.1-flash-lite success × 1 etc.) |
-| Gemini 3 Flash Preview controlled run | **Not yet executed** — gemini-3-flash-preview 構成での確認 run が次ステップ |
-| `promote_approved` | `false` — prohibited until first run result reviewed |
-| Apply / Evaluate / Promote 自動昇格 | **Prohibited** — pending first run result |
+| paid-credit API call records | Exist — `data/api_usage_ledger.json` に `gemini-3-flash-preview` / `gemini_paid_credit` success × 3（2026-06-03 / 2026-06-04）、`gemini-3.1-flash-lite` success × 1 等を含む |
+| Gemini 3 Flash Preview paid-credit run | **Success records exist** — `gemini-3-flash-preview` / `gemini_paid_credit` の success 記録が `data/api_usage_ledger.json` に存在。次ステップは新規 run ではなく既存 run 結果のレビュー / inventory |
+| `promote_approved` | `false` — promotion not approved（API call が未実行という意味ではない）。post-run result review まで昇格禁止 |
+| Apply / Evaluate / Promote 自動昇格 | **Prohibited** — 既存 run 結果のレビュー完了まで自動昇格しない |
 
 ### Activation PR サマリー
 
@@ -108,11 +109,13 @@ This document is a Go/No-Go readiness checklist that must be reviewed before any
 
 ### 次の Project Owner 手順
 
-1. **PR #62 merge 確認** — `data/genome.json` が `gemini-3-flash-preview` であること
-2. **docs PR merge**（このドキュメントを含む PR）
-3. **paid-credit run を 1 回だけ実行** — `workflow_dispatch` → mode: `gemini-paid-credit`、`promote_approved=false`
-4. **結果確認** — ledger artifact / candidate patch / apply / evaluate 結果を確認
-5. **次 PR 判断** — promote / fix / halt を結果に基づいて判断
+> **注: 次のアクションは新規 paid-credit run の実行ではない。`gemini-3-flash-preview` / `gemini_paid_credit` の success 記録は既に `data/api_usage_ledger.json` に存在するため、次ステップは既存 run 結果のレビュー / inventory。**
+
+1. **ledger success 記録の確認** — `data/api_usage_ledger.json` の `gemini-3-flash-preview` / `gemini_paid_credit` success 記録を確認する
+2. **candidate patch / artifacts の特定・検証** — 利用可能であれば candidate patch / run artifacts を確認する
+3. **apply / evaluate 結果状態のレビュー** — apply 結果・evaluate 結果の状態を確認する
+4. **promote / fix / halt 判断** — 結果に基づいて昇格・修正・停止を判断する
+5. **`promote_approved=false` を維持** — Project Owner が後で明示承認しない限り `false` のまま維持する
 
 ---
 
@@ -256,4 +259,4 @@ Without an explicit Project Owner "GO", Phase 3 activation must not proceed.
 
 *This document is the Phase 3 Go/No-Go readiness audit for Project Cyber-Immunizer.*
 *Created: 2026-05-31*
-*Phase 3 not started / API not connected / live_model_enabled false*
+*Current state (2026-06-08): Phase 3 activation merged (PR #58–#62) / live_model_enabled=true / gemini-3-flash-preview paid-credit API call success records exist in data/api_usage_ledger.json / promote_approved=false / post-run result review pending.*
