@@ -21,7 +21,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from scripts.update_readme import update_readme, _build_status_block, _GENOME_PATH, _LEDGER_PATH, _parse_bool
+from scripts.update_readme import update_readme, _build_status_block, _GENOME_PATH, _LEDGER_PATH, _parse_bool, _INVENTORY_PATH
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"
 _STATUS_END = "<!-- CYBER_IMMUNIZER_STATUS_END -->"
@@ -110,6 +110,7 @@ def _run_update(tmp_path: Path, genome_overrides: dict | None = None) -> tuple[s
     original_threats = mod._THREATS_PATH
     original_report = mod._REPORT_PATH
     original_ledger = mod._LEDGER_PATH
+    original_inventory = mod._INVENTORY_PATH
 
     mod._GENOME_PATH = genome_path
     mod._HISTORY_PATH = tmp_path / "evolution_history.json"
@@ -119,6 +120,7 @@ def _run_update(tmp_path: Path, genome_overrides: dict | None = None) -> tuple[s
     mod._REPORT_PATH = tmp_path / "nonexistent_report.json"  # doesn't exist → fitness=None
     mod._LEDGER_PATH = tmp_path / "api_usage_ledger.json"
     (tmp_path / "api_usage_ledger.json").write_text("[]")  # empty ledger → no past runs
+    mod._INVENTORY_PATH = tmp_path / "nonexistent_inventory.md"  # doesn't exist → inventory_complete=False
 
     try:
         success = update_readme(readme_path)
@@ -132,6 +134,7 @@ def _run_update(tmp_path: Path, genome_overrides: dict | None = None) -> tuple[s
         mod._THREATS_PATH = original_threats
         mod._REPORT_PATH = original_report
         mod._LEDGER_PATH = original_ledger
+        mod._INVENTORY_PATH = original_inventory
 
 
 # ---------------------------------------------------------------------------
@@ -561,9 +564,9 @@ class TestRealReadmeStatusBlock:
     """Verify that the real README.md has a Phase 3 status block.
 
     These tests are read-only — they check the committed README state.
-    Updated for Phase 3 (PR #58-#62 merged; gemini-3-flash-preview paid-credit
-    API call success records exist in data/api_usage_ledger.json; post-run
-    result review pending; promote_approved=false).
+    Updated for Phase 3 post-PR #82 (PR #58-#62 merged; gemini-3-flash-preview
+    paid-credit API call success records exist; result review inventory complete;
+    propose/output validation failure diagnosed; promote_approved=false).
     """
 
     @pytest.fixture(autouse=True)
@@ -946,10 +949,13 @@ def _run_update_with_ledger(
     tmp_path: Path,
     ledger_data: list,
     genome_overrides: dict | None = None,
+    inventory_path: Path | None = None,
 ) -> tuple[str, str]:
     """Run update_readme with a specific ledger content.
 
     ledger_data is a list of dicts (each a ledger entry).
+    inventory_path: if provided, used as _INVENTORY_PATH (exists check for inventory_complete).
+                    If None, defaults to a nonexistent path (inventory_complete=False).
     Returns (full_readme_content, status_block_content).
     """
     readme_path = _make_readme(tmp_path)
@@ -963,6 +969,7 @@ def _run_update_with_ledger(
     original_threats = mod._THREATS_PATH
     original_report = mod._REPORT_PATH
     original_ledger = mod._LEDGER_PATH
+    original_inventory = mod._INVENTORY_PATH
 
     mod._GENOME_PATH = genome_path
     mod._HISTORY_PATH = tmp_path / "evolution_history.json"
@@ -971,6 +978,9 @@ def _run_update_with_ledger(
     (tmp_path / "active_threats.json").write_text("[]")
     mod._REPORT_PATH = tmp_path / "nonexistent_report.json"
     mod._LEDGER_PATH = ledger_path
+    mod._INVENTORY_PATH = inventory_path if inventory_path is not None else (
+        tmp_path / "nonexistent_inventory.md"
+    )
 
     try:
         success = update_readme(readme_path)
@@ -984,6 +994,7 @@ def _run_update_with_ledger(
         mod._THREATS_PATH = original_threats
         mod._REPORT_PATH = original_report
         mod._LEDGER_PATH = original_ledger
+        mod._INVENTORY_PATH = original_inventory
 
 
 _SAMPLE_FITNESS_REPORT = {
@@ -1233,6 +1244,43 @@ class TestPhase3MandatoryFields:
         )
         assert "Not yet executed" not in block, (
             "Not yet executed must not appear when there are primary model paid-credit successes"
+        )
+
+    def test_phase3_shows_validation_failure_next_focus_when_inventory_complete(
+        self, tmp_path: Path
+    ) -> None:
+        """When inventory file exists and ledger has success records, show validation failure state."""
+        inventory_path = tmp_path / "PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md"
+        inventory_path.write_text("# inventory\n")
+
+        _, block = _run_update_with_ledger(
+            tmp_path,
+            ledger_data=[{
+                "model": "gemini-3-flash-preview",
+                "success": True,
+                "api_mode": "gemini_paid_credit",
+            }],
+            genome_overrides={
+                "live_model_enabled": True,
+                "model_name": "gemini-3-flash-preview",
+            },
+            inventory_path=inventory_path,
+        )
+
+        assert "Investigate paid-credit" in block, (
+            "When inventory is complete, next focus must point to validation failure investigation"
+        )
+        assert "validation failure" in block.lower(), (
+            "When inventory is complete, next focus must mention validation failure"
+        )
+        assert "Review existing paid-credit run results" not in block, (
+            "When inventory is complete, next focus must NOT repeat the general result review"
+        )
+        assert "Executed" in block, (
+            "p3_run_status must still show Executed when inventory_complete=True"
+        )
+        assert "post-run result review pending" not in block, (
+            "When inventory is complete, current_phase must NOT show post-run review pending"
         )
 
     def test_phase3_attempted_but_failed_when_primary_only_fails(

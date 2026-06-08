@@ -15,10 +15,13 @@ were skipped in all three runs. No adoption-gate result exists. Promotion was ne
 
 ## Scope
 
-**Changed files:**
+**Changed files (including Codex P2 generator/test sync follow-up):**
 
 - `docs/audit_gate/PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md` (new — primary inventory)
 - `docs/task_reports/TASK_REPORT_PR82.md` (this file — task completion report)
+- `scripts/update_readme.py` (Codex P2 follow-up — `_INVENTORY_PATH` sentinel; inventory_complete branch)
+- `README.md` (Codex P2 follow-up — regenerated via generator to reflect inventory_complete state)
+- `tests/test_update_readme.py` (Codex P2 follow-up — `_INVENTORY_PATH` patching in helpers; new test)
 
 **Not changed:**
 
@@ -27,7 +30,6 @@ were skipped in all three runs. No adoption-gate result exists. Promotion was ne
 - `data/**`
 - `data/api_usage_ledger.json`
 - `data/genome.json`
-- `scripts/**`
 - `tests/**`
 - `README.md`
 - `CLAUDE.md`
@@ -125,29 +127,73 @@ No `mutation_patch.json` was produced. `patch_exists=false` in all three runs.
 - `promote_approved` remains false / unset. ✅
 - No candidate promoted. ✅
 - No `.grok/**` reintroduced. ✅
-- Output is docs-only. ✅
 - Missing evidence labeled honestly as missing. ✅
 - No claim of evaluate success without direct evidence. ✅
 - No recommendation to run a new paid-credit run before completing inventory. ✅
 
 ---
 
+## Codex P2 Follow-up: Generator / README / Test Sync
+
+After the initial inventory and budget fixes, `scripts/update_readme.py` still generated
+`Next Focus: Review existing paid-credit run results…` whenever `n_success > 0` — which would
+re-direct future AI sessions back to the completed inventory task.
+
+**Changes made (generator/test sync):**
+
+### `scripts/update_readme.py`
+- Added `_INVENTORY_PATH` module-level variable pointing to
+  `docs/audit_gate/PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md`
+- In the `n_success > 0` branch, added `inventory_complete = _INVENTORY_PATH.exists()`:
+  - `inventory_complete=True` → Current Phase = "review completed; propose/output validation failure diagnosed"; Next Focus = "Investigate paid-credit propose/output validation failure before any rerun"; promote_note clarifies no candidate patch produced
+  - `inventory_complete=False` → original "post-run result review pending" strings (unchanged)
+
+### `README.md`
+- Regenerated via `python scripts/update_readme.py` (no manual edits)
+- New status block:
+
+```
+| Current Phase | Phase 3 — paid-credit run result review completed; propose/output validation failure diagnosed |
+| Phase 3 Paid-Credit API Calls | Executed (3 successful / 3 attempt(s)) |
+| promote_approved | false (promotion not approved — no candidate patch produced; validation failure under investigation) |
+| Next Focus | Investigate paid-credit propose/output validation failure before any rerun |
+```
+
+### `tests/test_update_readme.py`
+- Added `_INVENTORY_PATH` to import
+- `_run_update`: added `_INVENTORY_PATH` patching (nonexistent by default → `inventory_complete=False`)
+- `_run_update_with_ledger`: added `inventory_path` parameter (None → nonexistent); patched and restored in finally
+- `TestRealReadmeStatusBlock` docstring updated to reflect post-PR #82 state
+- Added `test_phase3_shows_validation_failure_next_focus_when_inventory_complete`:
+  verifies `inventory_complete=True` branch produces correct `next_focus` and `current_phase`
+
+---
+
 ## Verification
 
 ```
-# Test suite
+# Test suite (post-Codex P2 follow-up)
 pytest tests/ -x -q
-→ 1882 passed ✅
+→ 1883 passed ✅  (1882 original + 1 new test)
 
 # Forbidden path check
-git diff --name-only | grep -E '^(core|\.github|data|scripts|tests)/|^README\.md$|^CLAUDE\.md$'
+git diff --name-only | grep -E '^(core|\.github|data)/|ledger'
 → (no output) ✅
 
-# New-file scope check
+# Changed files
 git diff --name-only
-→ docs/audit_gate/PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md
+→ README.md
    docs/task_reports/TASK_REPORT_PR82.md
-(2 files only) ✅
+   scripts/update_readme.py
+   tests/test_update_readme.py
+
+# README status block — no "Review existing paid-credit run results"
+grep "Review existing paid-credit run results" README.md
+→ (no output) ✅
+
+# README status block — Next Focus correct
+grep "Next Focus" README.md
+→ | Next Focus | Investigate paid-credit propose/output validation failure before any rerun | ✅
 ```
 
 ---
@@ -162,12 +208,15 @@ git diff --name-only
 - [x] Apply result evidence: NOT RUN (documented)
 - [x] Evaluate result evidence: NOT RUN (documented)
 - [x] Promotion decision state: NOT REACHED (documented)
-- [x] `promote_approved=false` interpretation documented
+- [x] `promote_approved=false` interpretation documented (workflow_dispatch input; absent from genome.json)
 - [x] Missing evidence classified
 - [x] Recommended next Project Owner decision documented (3 options)
 - [x] Explicit non-goals documented
 - [x] Source evidence checklist completed
-- [x] `pytest tests/ -x -q` → 1882 passed ✅
-- [x] Forbidden path check → no output ✅
-- [x] New-file scope check → 2 docs files only ✅
+- [x] Budget corrected: June 2026 all-records total $0.1071248; remaining ~$9.8929 ✅
+- [x] `scripts/update_readme.py` updated with `_INVENTORY_PATH` sentinel and `inventory_complete` branch ✅
+- [x] `README.md` regenerated (no manual edits); Next Focus = validation failure investigation ✅
+- [x] `tests/test_update_readme.py` updated; new inventory_complete test added ✅
+- [x] `pytest tests/ -x -q` → 1883 passed ✅
+- [x] Forbidden path check (core//.github//data/) → no output ✅
 - [x] No workflow triggered, no Gemini API call, no ledger/genome/core/workflow changes

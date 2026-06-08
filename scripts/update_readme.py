@@ -19,6 +19,9 @@ _HISTORY_PATH = _PROJECT_ROOT / "data" / "evolution_history.json"
 _THREATS_PATH = _PROJECT_ROOT / "data" / "active_threats.json"
 _REPORT_PATH = _PROJECT_ROOT / ".cyber_immunizer" / "fitness_report.json"
 _LEDGER_PATH = _PROJECT_ROOT / "data" / "api_usage_ledger.json"
+_INVENTORY_PATH = (
+    _PROJECT_ROOT / "docs" / "audit_gate" / "PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md"
+)
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"
 _STATUS_END = "<!-- CYBER_IMMUNIZER_STATUS_END -->"
@@ -144,18 +147,33 @@ def _build_status_block() -> str:
             n_success = sum(1 for e in primary_attempts if e.get("success") is True)
             if n_success > 0:
                 p3_run_status = f"Executed ({n_success} successful / {n_total} attempt(s))"
-                current_phase = (
-                    "Phase 3 — paid-credit API call success records exist;"
-                    " post-run result review pending"
-                )
-                next_focus = (
-                    "Review existing paid-credit run results:"
-                    " ledger / candidate / apply / evaluate / promotion decision"
-                )
-                promote_note = (
-                    "false (promotion not approved —"
-                    " API call already executed; post-run review pending)"
-                )
+                inventory_complete = _INVENTORY_PATH.exists()
+                if inventory_complete:
+                    current_phase = (
+                        "Phase 3 — paid-credit run result review completed;"
+                        " propose/output validation failure diagnosed"
+                    )
+                    next_focus = (
+                        "Investigate paid-credit propose/output validation failure"
+                        " before any rerun"
+                    )
+                    promote_note = (
+                        "false (promotion not approved —"
+                        " no candidate patch produced; validation failure under investigation)"
+                    )
+                else:
+                    current_phase = (
+                        "Phase 3 — paid-credit API call success records exist;"
+                        " post-run result review pending"
+                    )
+                    next_focus = (
+                        "Review existing paid-credit run results:"
+                        " ledger / candidate / apply / evaluate / promotion decision"
+                    )
+                    promote_note = (
+                        "false (promotion not approved —"
+                        " API call already executed; post-run review pending)"
+                    )
             else:
                 p3_run_status = (
                     f"Attempted but failed ({n_total} attempt(s))"
