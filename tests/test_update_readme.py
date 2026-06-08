@@ -561,7 +561,9 @@ class TestRealReadmeStatusBlock:
     """Verify that the real README.md has a Phase 3 status block.
 
     These tests are read-only — they check the committed README state.
-    Updated for Phase 3 (PR #58-#62 merged, first paid-credit run pending).
+    Updated for Phase 3 (PR #58-#62 merged; gemini-3-flash-preview paid-credit
+    API call success records exist in data/api_usage_ledger.json; post-run
+    result review pending; promote_approved=false).
     """
 
     @pytest.fixture(autouse=True)
@@ -582,9 +584,9 @@ class TestRealReadmeStatusBlock:
         assert "Current Phase" in self.block
 
     def test_real_readme_block_has_phase3_value(self) -> None:
-        """Real README.md status block must show Phase 3 paid-credit path ready."""
+        """Real README.md status block must show Phase 3 state."""
         assert "Phase 3" in self.block, (
-            "Status block must show Phase 3 state (paid-credit path ready)"
+            "Status block must show Phase 3 state"
         )
 
     def test_real_readme_block_shows_live_model_enabled_true(self) -> None:
@@ -600,11 +602,45 @@ class TestRealReadmeStatusBlock:
             "Status block must show primary model gemini-3-flash-preview (PR #62)"
         )
 
-    def test_real_readme_block_shows_first_run_pending(self) -> None:
-        """Real README.md status block must note that first paid-credit run is pending."""
-        assert "Not yet executed" in self.block or "first run pending" in self.block.lower(), (
-            "Status block must note that first paid-credit run is not yet executed"
-        )
+    def test_real_readme_block_shows_paid_credit_run_state(self) -> None:
+        """Real README.md status block must reflect current paid-credit run state from ledger.
+
+        When ledger has success records for the primary model, the block must show 'Executed'
+        and must NOT show 'Not yet executed'.  When no success records exist, the block must
+        show a pending or failed state.  The assertion is derived from the live ledger so it
+        stays correct as the ledger evolves.
+        """
+        import json as _json
+        ledger_path = _PROJECT_ROOT / "data" / "api_usage_ledger.json"
+        genome_path = _PROJECT_ROOT / "data" / "genome.json"
+        try:
+            ledger = _json.loads(ledger_path.read_text(encoding="utf-8"))
+            genome = _json.loads(genome_path.read_text(encoding="utf-8"))
+            model_name = genome.get("model_name", "")
+            primary_success = [
+                e for e in ledger
+                if isinstance(e, dict)
+                and e.get("model") == model_name
+                and e.get("api_mode") == "gemini_paid_credit"
+                and e.get("success") is True
+            ]
+        except Exception:
+            primary_success = []
+        if primary_success:
+            assert "Executed" in self.block, (
+                "Status block must show 'Executed' when ledger has paid-credit success records"
+            )
+            assert "Not yet executed" not in self.block, (
+                "Status block must NOT show 'Not yet executed' when success records exist"
+            )
+        else:
+            assert (
+                "Not yet executed" in self.block
+                or "Attempted but failed" in self.block
+                or "first run" in self.block.lower()
+            ), (
+                "Status block must show pending or failed state when no success records in ledger"
+            )
 
     def test_real_readme_block_has_api_mode(self) -> None:
         """Real README.md status block must show API Mode."""

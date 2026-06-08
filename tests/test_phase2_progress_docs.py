@@ -515,10 +515,13 @@ class TestNoFalseCompletionClaims:
 
 
 class TestPhase3NotStartedAndApiNotConnected:
-    """Guard that Phase 3 is not started and API is not connected.
+    """Guard Phase 3 activation state and historical Phase 2 docs consistency.
 
-    Phase 2-E addition: explicit positive checks that README and PHASE_2_PLAN
-    record the correct post-Phase-2 state.
+    Phase 2-E addition: checks that README current status block reflects Phase 3
+    activation (PR #58-#62 merged; paid-credit API calls executed) while historical
+    Phase 2 docs (PHASE_2_PLAN.md) still correctly record the pre-activation state.
+    README assertions are scoped to the status block only so they do not force the
+    current status to repeat obsolete Phase 2 wording from historical sections.
     """
 
     @pytest.fixture(autouse=True)
@@ -528,32 +531,43 @@ class TestPhase3NotStartedAndApiNotConnected:
         self.readme = _README.read_text(encoding="utf-8")
         self.plan = _PHASE2_PLAN.read_text(encoding="utf-8")
 
-    def test_readme_states_phase3_not_started(self) -> None:
-        """README.md must state that Phase 3 is not started."""
-        content_lower = self.readme.lower()
-        assert (
-            "phase 3 is not started" in content_lower
-            or "phase 3 not started" in content_lower
-            or (
-                "phase 3" in content_lower
-                and "project owner" in content_lower
-                and ("not started" in content_lower or "requires" in content_lower)
-            )
-        ), (
-            "README.md must state that Phase 3 is not started / requires Project Owner decision"
-        )
+    def test_readme_status_block_shows_phase3_activation(self) -> None:
+        """README.md current status block must show Phase 3 activation state.
 
-    def test_readme_states_api_not_connected(self) -> None:
-        """README.md must state that API remains not connected."""
-        content_lower = self.readme.lower()
-        assert (
-            "api remains not connected" in content_lower
-            or "api connection | not connected" in content_lower
-            or "not connected" in content_lower
-            or "未接続" in self.readme
-        ), (
-            "README.md must state that API remains not connected"
-        )
+        Historical Phase 2 sections may retain 'Phase 3 not started' as accurate
+        historical records, but the current status block must reflect that Phase 3
+        activation PRs #58-#62 are merged and paid-credit API calls have been made.
+        """
+        status_start = self.readme.find("CYBER_IMMUNIZER_STATUS_START")
+        status_end = self.readme.find("CYBER_IMMUNIZER_STATUS_END")
+        if status_start != -1 and status_end != -1:
+            status_block = self.readme[status_start:status_end].lower()
+            assert (
+                "phase 3 activation" in status_block
+                or "phase 3 — paid-credit" in status_block
+                or ("phase 3" in status_block and "complete" in status_block)
+            ), (
+                "README.md status block must show Phase 3 activation state"
+                " (PR #58-#62 merged)"
+            )
+
+    def test_readme_status_block_shows_paid_credit_api_mode(self) -> None:
+        """README.md current status block must show paid-credit API mode.
+
+        Historical Phase 2 sections may retain 'API not connected' as accurate
+        historical records, but the current status block must reflect that
+        live_model_enabled=true and gemini_paid_credit is the active API mode.
+        """
+        status_start = self.readme.find("CYBER_IMMUNIZER_STATUS_START")
+        status_end = self.readme.find("CYBER_IMMUNIZER_STATUS_END")
+        if status_start != -1 and status_end != -1:
+            status_block = self.readme[status_start:status_end]
+            assert (
+                "gemini_paid_credit" in status_block
+                or "Phase 3" in status_block
+            ), (
+                "README.md status block must show Phase 3 paid-credit API mode"
+            )
 
     def test_readme_phase2_complete_does_not_claim_api_connected(self) -> None:
         """README.md Phase 2 completion note must not claim API is connected."""
@@ -608,19 +622,21 @@ class TestPhase3NotStartedAndApiNotConnected:
             "PHASE_2_PLAN.md must clarify that Phase 2 complete does not mean Phase 3 is underway"
         )
 
-    def test_readme_live_model_enabled_remains_false(self) -> None:
-        """README.md must state that live_model_enabled remains false."""
-        content_lower = self.readme.lower()
-        assert (
-            "live_model_enabled remains false" in content_lower
-            or "live_model_enabled | false" in content_lower
-            or (
-                "live_model_enabled" in content_lower
-                and "false" in content_lower
+    def test_readme_status_block_shows_live_model_enabled_true(self) -> None:
+        """README.md current status block must show live_model_enabled=true (set in PR #58).
+
+        Historical Phase 2 sections may retain 'live_model_enabled remains false' as
+        accurate historical records, but the current status block must show that
+        live_model_enabled=true has been set via Phase 3 activation PR #58.
+        """
+        status_start = self.readme.find("CYBER_IMMUNIZER_STATUS_START")
+        status_end = self.readme.find("CYBER_IMMUNIZER_STATUS_END")
+        if status_start != -1 and status_end != -1:
+            status_block = self.readme[status_start:status_end]
+            assert "| live_model_enabled | true |" in status_block, (
+                "README.md status block must show live_model_enabled=true"
+                " (Phase 3 activation PR #58)"
             )
-        ), (
-            "README.md must state that live_model_enabled remains false"
-        )
 
     def test_phase2_plan_phase3_started_not_in_progress_table(self) -> None:
         """PHASE_2_PLAN.md progress checklist must NOT claim Phase 3 started."""
