@@ -50,8 +50,12 @@ Follow-up to the Audit Evidence Ledger lesson, after reviewing an external propo
   by protocol. Freshness is fail-closed: omitting `--current-head-sha` is itself a
   HOLD reason.
 
-- **Two Codex P1 findings hardened the collector before merge** (classified
-  IMPLEMENTATION_AGENT_FAILURE; both were collector blind spots, not design flaws):
+- **Three Codex P1 findings hardened the gate before merge** (classified
+  IMPLEMENTATION_AGENT_FAILURE; implementation blind spots, not design flaws):
+  (0) full-mode evaluation without `--base-ref` passed no diff context to the evidence
+  validator, so a report reciting unrelated files could make all judgment claims
+  effective — the engine now derives the diff base from the packet's `pr.base_sha`
+  when the flag is omitted, and an unloadable diff context rejects the claim;
   (1) the gate's own still-running check run would have frozen a self-referential
   `PENDING` into every CI-built packet — the build step now passes
   `--exclude-check gpt-audit-gate`, recorded in `ci.excluded_checks`, and the protocol

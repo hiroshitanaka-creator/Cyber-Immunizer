@@ -11,7 +11,9 @@ Trust model:
 * ``judgment_inputs`` are LLM claims. A claim counts ONLY when ``claim`` is
   true, ``claimed_by`` is set, and the referenced ``evidence_report`` passes
   ``scripts/validate_audit_evidence.py`` re-run by THIS engine at evaluation
-  time. A bare ``"claim": true`` with no verifiable evidence is a HOLD reason,
+  time — always with a diff base (``--base-ref`` or the packet's
+  ``pr.base_sha``), so the validator's diff-coverage rules cannot be skipped.
+  A bare ``"claim": true`` with no verifiable evidence is a HOLD reason,
   not an approval input — self-reports cannot be laundered through the packet.
 * head-SHA freshness is verified against ``--current-head-sha``; omitting the
   flag is itself a HOLD reason (fail closed), because an unverified packet may
@@ -224,9 +226,15 @@ def evaluate_judgment_inputs(
     """Honor a judgment claim only if its evidence report verifies. Returns HOLD reasons.
 
     The engine re-runs scripts/validate_audit_evidence.py itself; it never
-    trusts a recorded "validation passed" assertion.
+    trusts a recorded "validation passed" assertion. The evidence validator is
+    always given a diff base — ``base_ref`` if supplied, otherwise the packet's
+    ``pr.base_sha`` — so its diff-coverage rules (every changed file recited,
+    quotes outside the hunks) always apply. If the diff context cannot be
+    loaded, validation fails and the claim is rejected (fail closed): evidence
+    that cannot be tied to the PR's diff is not evidence about this PR.
     """
     reasons: list[str] = []
+    effective_base = base_ref or packet["machine_facts"]["pr"]["base_sha"]
     verified_reports: dict[str, dict] = {}
     for key in _JUDGMENT_KEYS:
         entry = packet["judgment_inputs"].get(key) or {}
@@ -249,7 +257,7 @@ def evaluate_judgment_inputs(
         if not report_path.is_absolute():
             report_path = root / report_path
         if report not in verified_reports:
-            verified_reports[report] = validate_report(report_path, root, base_ref)
+            verified_reports[report] = validate_report(report_path, root, effective_base)
         result = verified_reports[report]
         if not result["valid"]:
             head = "; ".join(result["errors"][:3])
@@ -336,7 +344,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--base-ref",
         default=None,
-        help="Base git ref passed through to evidence-report validation",
+        help="Diff base for evidence-report validation; when omitted, the "
+        "packet's pr.base_sha is used so diff-coverage rules always apply",
     )
     parser.add_argument(
         "--allow-frozen",

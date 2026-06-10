@@ -8,6 +8,7 @@ honors a claim without a verified evidence report.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -68,6 +69,16 @@ SPEC: detect() lowercases the payload then substring-matches 'attack'.
 def detect(payload):
     normalized = normalize(payload)
     return "attack" in normalized
+```
+
+```audit-evidence
+TYPE: CALLSITE
+SYMBOL: normalize
+COUNT: 3
+---
+core/detector.py:4:def normalize(payload):
+core/detector.py:9:    normalized = normalize(payload)
+core/detector.py:10:    return "attack" in normalized
 ```
 
 ```audit-evidence
@@ -141,6 +152,52 @@ def _green_packet(repo: Path, **judgment) -> dict:
     for key, value in judgment.items():
         packet["judgment_inputs"][key] = value
     return packet
+
+
+def _gitify(repo: Path) -> str:
+    """Turn the synthetic repo into a git repo with a base commit and a head
+    commit that appends one line to core/detector.py (so evidence diff-coverage
+    rules have a real diff to check). Returns the base commit SHA."""
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.email=t@example.com",
+                "-c",
+                "user.name=t",
+                "-c",
+                "commit.gpgsign=false",  # environment-level signing must not leak into fixtures
+                *args,
+            ],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+
+    git("init", "-q")
+    git("add", "-A")
+    git("commit", "-q", "-m", "base")
+    base_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    detector = repo / "core" / "detector.py"
+    detector.write_text(
+        detector.read_text(encoding="utf-8") + "\n# appended for diff context\n",
+        encoding="utf-8",
+    )
+    git("add", "-A")
+    git("commit", "-q", "-m", "head")
+    return base_sha
+
+
+def _gitified_green_packet(repo: Path) -> dict:
+    """Green packet whose pr.base_sha is the real base commit of the tmp repo."""
+    base_sha = _gitify(repo)
+    raw = _raw()
+    raw["pr"]["base_sha"] = base_sha
+    return build_packet(raw, repo)
 
 
 def _verified_judgments(report_rel: str) -> dict:
@@ -470,10 +527,40 @@ class TestJudgmentRules:
         assert any("bare self-report is not acceptable" in r for r in reasons)
 
     def test_claim_with_verified_evidence_passes(self, repo: Path) -> None:
+        packet = _gitified_green_packet(repo)
         (repo / "report.md").write_text(_VALID_EVIDENCE_REPORT, encoding="utf-8")
-        packet = _green_packet(repo)
         packet["judgment_inputs"] = _verified_judgments("report.md")
         assert evaluate_judgment_inputs(packet, repo, None) == []
+
+    def test_diff_coverage_enforced_without_base_ref(self, repo: Path) -> None:
+        """Codex P1: with --base-ref omitted, the engine must derive the diff
+        base from the packet (pr.base_sha) so an evidence report that ignores
+        the changed files cannot validate. core/detector.py changed and is a
+        .py file, so a report without a CALLSITE block must be rejected."""
+        packet = _gitified_green_packet(repo)
+        report_without_callsite = _VALID_EVIDENCE_REPORT.replace(
+            "```audit-evidence\n"
+            "TYPE: CALLSITE\nSYMBOL: normalize\nCOUNT: 3\n---\n"
+            "core/detector.py:4:def normalize(payload):\n"
+            "core/detector.py:9:    normalized = normalize(payload)\n"
+            'core/detector.py:10:    return "attack" in normalized\n'
+            "```\n",
+            "",
+        )
+        assert "CALLSITE" not in report_without_callsite
+        (repo / "report.md").write_text(report_without_callsite, encoding="utf-8")
+        packet["judgment_inputs"] = _verified_judgments("report.md")
+        reasons = evaluate_judgment_inputs(packet, repo, None)
+        assert any("failed validation" in r for r in reasons)
+
+    def test_unloadable_diff_context_fails_closed(self, repo: Path) -> None:
+        """A packet base SHA that does not exist locally must reject claims,
+        not skip the diff-coverage rules."""
+        (repo / "report.md").write_text(_VALID_EVIDENCE_REPORT, encoding="utf-8")
+        packet = _green_packet(repo)  # non-git repo, base_sha "aaa..." unresolvable
+        packet["judgment_inputs"] = _verified_judgments("report.md")
+        reasons = evaluate_judgment_inputs(packet, repo, None)
+        assert any("failed validation" in r for r in reasons)
 
     def test_claim_with_fabricated_evidence_holds(self, repo: Path) -> None:
         (repo / "report.md").write_text(
@@ -591,8 +678,8 @@ class TestCiGateMode:
 
 class TestEndToEnd:
     def test_fully_green_packet_allows_approve(self, repo: Path) -> None:
+        packet = _gitified_green_packet(repo)
         (repo / "report.md").write_text(_VALID_EVIDENCE_REPORT, encoding="utf-8")
-        packet = _green_packet(repo)
         packet["judgment_inputs"] = _verified_judgments("report.md")
         result = evaluate(packet, repo, current_head_sha="b" * 40)
         assert result["reasons"] == []
@@ -608,8 +695,8 @@ class TestEndToEnd:
         assert result["approve_allowed"] is False
 
     def test_cli_exit_codes(self, repo: Path, tmp_path: Path, capsys) -> None:
+        packet = _gitified_green_packet(repo)
         (repo / "report.md").write_text(_VALID_EVIDENCE_REPORT, encoding="utf-8")
-        packet = _green_packet(repo)
         packet["judgment_inputs"] = _verified_judgments("report.md")
         packet_file = tmp_path / "packet.json"
         packet_file.write_text(json.dumps(packet), encoding="utf-8")

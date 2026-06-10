@@ -106,7 +106,9 @@ The defined judgment keys (fixed set; unknown keys invalidate the packet):
 - `ssot.consistent == true`
 - every judgment input: `claim == true`, `claimed_by` set, and its
   `evidence_report` passes `scripts/validate_audit_evidence.py` (re-run by the
-  engine, with `--base-ref` passed through)
+  engine, always with a diff base — `--base-ref` if supplied, otherwise the
+  packet's `pr.base_sha` — so the validator's diff-coverage rules can never be
+  skipped; an unloadable diff context rejects the claim, fail closed)
 
 ---
 
