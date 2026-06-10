@@ -23,6 +23,40 @@ This is not a project status document. Keep entries focused on protocol lessons.
 
 ---
 
+## Machine audit gate — machine facts are collected by script; judgment claims cannot be laundered into them
+
+Follow-up to the Audit Evidence Ledger lesson, after reviewing an external proposal
+(Evidence Collector / Normalized Evidence Packet / Policy Engine):
+
+- **Machine-computable facts are not the auditor's to report**: head SHA, CI status,
+  unresolved review threads, frozen-path touches, and SSOT token consistency are now
+  collected by `scripts/build_audit_packet.py` and evaluated by
+  `scripts/audit_policy_engine.py`. An LLM transcribing a head SHA was always a
+  weaker guarantee than a script fetching it.
+
+- **The packet has a hard trust boundary**: `machine_facts` (script-written, trusted
+  directly) vs `judgment_inputs` (LLM claims, trusted only via evidence). The reviewed
+  proposal had a single flat `policy_inputs` block where a semantic claim like
+  `task_100_point_conditions_met: true` would have sat next to machine facts —
+  letting an LLM self-report masquerade as machine evidence. The two-compartment
+  design closes that hole: the collector always emits judgment fields as null and
+  discards judgment data found in raw inputs, and the policy engine honors a claim
+  only when its `evidence_report` passes `scripts/validate_audit_evidence.py`,
+  re-run by the engine itself at evaluation time.
+
+- **APPROVE is permission-gated, not self-asserted**: the policy engine computes
+  `machine_verdict` (`APPROVE_ALLOWED` / `HOLD` / `PACKET_INVALID`). An LLM APPROVE
+  emitted without engine exit 0 for a fresh packet at the current head SHA is invalid
+  by protocol. Freshness is fail-closed: omitting `--current-head-sha` is itself a
+  HOLD reason.
+
+- **Enforcement layering is deliberate**: this PR ships the scripts/schema/protocol
+  only. The GitHub Actions required check and branch protection ("Require
+  conversation resolution before merging") are a separate follow-up requiring
+  Project Owner approval for `.github/**`.
+
+---
+
 ## Audit Evidence Ledger — audits must prove they read beyond the diff; the receiving side verifies mechanically
 
 Lesson driven by a GPT audit that, when questioned, admitted it had reviewed only the diff:

@@ -93,6 +93,17 @@ If the head SHA changed, state explicitly:
 
 ---
 
+## Machine audit gate (layer 0 — runs before any verdict)
+
+Machine-computable facts (head SHA, CI status, review threads, frozen paths,
+SSOT token match) are not the auditor's to report: they are collected by
+`scripts/build_audit_packet.py` and evaluated by `scripts/audit_policy_engine.py`.
+An APPROVE verdict is valid only when the policy engine exits 0 for a fresh
+packet at the current head SHA. See `docs/audit_gate/AUDIT_PACKET_PROTOCOL.md`
+for the packet structure and the machine_facts / judgment_inputs trust boundary.
+
+---
+
 ## Audit Evidence Ledger (mandatory — proves the audit went beyond the diff)
 
 An audit that only reads the diff is invalid. Assertions such as "checked",

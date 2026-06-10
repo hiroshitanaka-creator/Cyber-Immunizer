@@ -136,7 +136,11 @@ Cyber-Immunizer/
 │   ├── propose_mutation.py     # LLM変異提案（noop/offline-sample/live-model/paid-credit）
 │   ├── api_budget.py           # API 予算管理（標準ライブラリのみ、fail-closed）
 │   ├── update_readme.py        # READMEステータスブロック更新
-│   └── validate_audit_evidence.py  # PR監査の証拠台帳を機械検証（PR_AUDIT_PROTOCOL の Audit Evidence Ledger）
+│   ├── validate_audit_evidence.py  # PR監査の証拠台帳を機械検証（PR_AUDIT_PROTOCOL の Audit Evidence Ledger）
+│   ├── build_audit_packet.py   # Audit Packet 収集・正規化（機械監査ゲート layer 0）
+│   └── audit_policy_engine.py  # APPROVE可否の機械計算（AUDIT_PACKET_PROTOCOL）
+├── schemas/
+│   └── gpt_audit_packet.schema.json  # Audit Packet スキーマ（machine_facts / judgment_inputs 分離）
 ├── tests/
 │   ├── test_contract.py              # 検出器インターフェース契約テスト（20件）
 │   ├── test_ast_policy.py            # ASTポリシー検証テスト（32件）

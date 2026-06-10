@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hiroshitanaka-creator/Cyber-Immunizer/schemas/gpt_audit_packet.schema.json",
+  "title": "GPT Audit Packet",
+  "description": "Normalized evidence packet for PR audits. machine_facts are collected by scripts/build_audit_packet.py from GitHub API / git / repository files and are the ONLY inputs the policy engine trusts directly. judgment_inputs hold LLM claims; the collector always writes them as null, and the policy engine accepts a claim only when its referenced evidence report passes scripts/validate_audit_evidence.py. A judgment claim without verified evidence never unlocks APPROVE (no self-report laundering).",
+  "type": "object",
+  "required": ["packet_schema_version", "generated_by", "source", "machine_facts", "judgment_inputs"],
+  "additionalProperties": false,
+  "properties": {
+    "packet_schema_version": { "const": 1 },
+    "generated_by": { "type": "string" },
+    "source": { "enum": ["github_api", "injected"] },
+    "machine_facts": {
+      "type": "object",
+      "required": ["pr", "ci", "review_threads", "frozen_paths", "ssot"],
+      "additionalProperties": false,
+      "properties": {
+        "pr": {
+          "type": "object",
+          "required": ["number", "state", "merged", "draft", "base_ref", "base_sha", "head_ref", "head_sha", "changed_files"],
+          "additionalProperties": false,
+          "properties": {
+            "number": { "type": "integer", "minimum": 1 },
+            "state": { "enum": ["open", "closed"] },
+            "merged": { "type": "boolean" },
+            "draft": { "type": "boolean" },
+            "base_ref": { "type": "string", "minLength": 1 },
+            "base_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+            "head_ref": { "type": "string", "minLength": 1 },
+            "head_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+            "changed_files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["path", "status"],
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "type": "string", "minLength": 1 },
+                  "status": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        },
+        "ci": {
+          "type": "object",
+          "required": ["classification", "head_sha", "check_runs"],
+          "additionalProperties": false,
+          "properties": {
+            "classification": { "enum": ["SUCCESS", "FAILURE", "PENDING", "NOT_TRIGGERED"] },
+            "head_sha": { "type": "string" },
+            "check_runs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "status", "conclusion"],
+                "additionalProperties": false,
+                "properties": {
+                  "name": { "type": "string" },
+                  "status": { "type": "string" },
+                  "conclusion": { "type": ["string", "null"] }
+                }
+              }
+            }
+          }
+        },
+        "review_threads": {
+          "type": "object",
+          "required": ["total", "unresolved", "unresolved_p1_p2", "threads"],
+          "additionalProperties": false,
+          "properties": {
+            "total": { "type": "integer", "minimum": 0 },
+            "unresolved": { "type": "integer", "minimum": 0 },
+            "unresolved_p1_p2": { "type": "integer", "minimum": 0 },
+            "threads": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["is_resolved", "is_outdated", "severity_tokens", "first_comment_excerpt"],
+                "additionalProperties": false,
+                "properties": {
+                  "is_resolved": { "type": "boolean" },
+                  "is_outdated": { "type": "boolean" },
+                  "severity_tokens": { "type": "array", "items": { "enum": ["P1", "P2", "P3"] } },
+                  "first_comment_excerpt": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "frozen_paths": {
+          "type": "object",
+          "required": ["frozen_prefixes", "touched"],
+          "additionalProperties": false,
+          "properties": {
+            "frozen_prefixes": { "type": "array", "items": { "type": "string" } },
+            "touched": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "ssot": {
+          "type": "object",
+          "required": ["state_id", "state_id_in_project_state_md", "promote_approved", "consistent"],
+          "additionalProperties": false,
+          "properties": {
+            "state_id": { "type": ["string", "null"] },
+            "state_id_in_project_state_md": { "type": "boolean" },
+            "promote_approved": { "type": ["boolean", "null"] },
+            "consistent": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "judgment_inputs": {
+      "type": "object",
+      "description": "LLM-judged claims. The collector writes every field as null. An auditor may fill claimed_by / claim / evidence_report, but the policy engine only honors claim=true when evidence_report passes scripts/validate_audit_evidence.py at evaluation time.",
+      "required": ["task_conditions_met", "scope_semantics_ok", "code_findings_resolved"],
+      "additionalProperties": false,
+      "properties": {
+        "task_conditions_met": { "$ref": "#/$defs/judgment_claim" },
+        "scope_semantics_ok": { "$ref": "#/$defs/judgment_claim" },
+        "code_findings_resolved": { "$ref": "#/$defs/judgment_claim" }
+      }
+    }
+  },
+  "$defs": {
+    "judgment_claim": {
+      "type": "object",
+      "required": ["claimed_by", "claim", "evidence_report"],
+      "additionalProperties": false,
+      "properties": {
+        "claimed_by": { "type": ["string", "null"] },
+        "claim": { "type": ["boolean", "null"] },
+        "evidence_report": { "type": ["string", "null"] }
+      }
+    }
+  }
+}
