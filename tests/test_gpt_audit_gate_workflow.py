@@ -92,6 +92,13 @@ class TestGateSteps:
         )
         assert "--github" in workflow_content
 
+    def test_excludes_own_check_run(self, workflow_content: str) -> None:
+        """The gate's own in-progress check would otherwise freeze a
+        self-referential PENDING into every CI-built packet (Codex P1)."""
+        assert "--exclude-check gpt-audit-gate" in workflow_content, (
+            "the build step must exclude the gate's own check run from CI classification"
+        )
+
     def test_evaluates_in_ci_gate_mode(self, workflow_content: str) -> None:
         assert "scripts/audit_policy_engine.py" in workflow_content
         assert "--mode ci-gate" in workflow_content, (

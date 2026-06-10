@@ -53,7 +53,9 @@ jobs:
       # 1. Collect machine facts. The packet is built by script from the GitHub
       #    API — the LLM auditor never transcribes head SHA / CI / threads.
       #    judgment_inputs are emitted as null skeletons by design.
-      #    (Standard library only: no pip install needed.)
+      #    --exclude-check drops this gate's own (still-running) check run from
+      #    CI classification; otherwise every CI-built packet would freeze a
+      #    self-referential PENDING. (Standard library only: no pip install.)
       # -----------------------------------------------------------------------
       - name: Build audit packet (machine facts, collected in CI)
         env:
@@ -63,6 +65,7 @@ jobs:
             --github "${{ github.repository }}" \
             --pr "${{ github.event.pull_request.number }}" \
             --root . \
+            --exclude-check gpt-audit-gate \
             --out gpt_audit_packet.json
 
       # -----------------------------------------------------------------------

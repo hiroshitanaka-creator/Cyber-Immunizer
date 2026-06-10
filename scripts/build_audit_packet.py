@@ -178,7 +178,16 @@ def fetch_raw_from_github(owner: str, repo: str, pr_number: int) -> dict:
             "head_ref": pr["head"]["ref"],
             "head_sha": head_sha,
         },
-        "files": [{"path": f["filename"], "status": f["status"]} for f in files],
+        "files": [
+            {
+                "path": f["filename"],
+                "status": f["status"],
+                # Renames carry the old path separately; dropping it would let a
+                # PR move a frozen file out of a frozen directory undetected.
+                "previous_filename": f.get("previous_filename"),
+            }
+            for f in files
+        ],
         "check_runs": [
             {
                 "name": c.get("name", ""),
@@ -246,7 +255,7 @@ def normalize_threads(raw_threads: list[dict]) -> dict:
 
 def frozen_touches(changed_paths: list[str], frozen_prefixes: list[str]) -> list[str]:
     return sorted(
-        p for p in changed_paths if any(p.startswith(pfx) for pfx in frozen_prefixes)
+        {p for p in changed_paths if any(p.startswith(pfx) for pfx in frozen_prefixes)}
     )
 
 
@@ -292,17 +301,29 @@ def build_packet(
     root: Path,
     frozen_prefixes: list[str] | None = None,
     source: str = "injected",
+    exclude_checks: list[str] | None = None,
 ) -> dict:
     """Normalize raw inputs into an Audit Packet.
 
     Any ``judgment_inputs`` present in ``raw`` are ignored on purpose: judgment
     claims must never enter the packet through the collection path.
+
+    ``exclude_checks`` removes check runs by exact name before CI
+    classification. The CI gate excludes its own (still-running) check, which
+    would otherwise classify every CI-built packet as PENDING forever. The
+    exclusion list is recorded in the packet for transparency.
     """
     prefixes = frozen_prefixes if frozen_prefixes is not None else DEFAULT_FROZEN_PREFIXES
+    excluded = sorted(set(exclude_checks or []))
     try:
         pr_raw = raw["pr"]
         changed_files = [
-            {"path": f["path"], "status": f["status"]} for f in raw.get("files", [])
+            {
+                "path": f["path"],
+                "status": f["status"],
+                "previous_path": f.get("previous_filename") or f.get("previous_path"),
+            }
+            for f in raw.get("files", [])
         ]
         pr = {
             "number": int(pr_raw["number"]),
@@ -325,6 +346,12 @@ def build_packet(
             "conclusion": c.get("conclusion"),
         }
         for c in raw.get("check_runs", [])
+        if c.get("name", "") not in excluded
+    ]
+    # Rename sources count as touches: moving core/foo.py to docs/foo.py still
+    # removes a frozen file.
+    frozen_candidate_paths = [f["path"] for f in changed_files] + [
+        f["previous_path"] for f in changed_files if f["previous_path"]
     ]
     return {
         "packet_schema_version": PACKET_SCHEMA_VERSION,
@@ -336,11 +363,12 @@ def build_packet(
                 "classification": classify_ci(check_runs),
                 "head_sha": pr["head_sha"],
                 "check_runs": check_runs,
+                "excluded_checks": excluded,
             },
             "review_threads": normalize_threads(raw.get("review_threads", [])),
             "frozen_paths": {
                 "frozen_prefixes": list(prefixes),
-                "touched": frozen_touches([f["path"] for f in changed_files], prefixes),
+                "touched": frozen_touches(frozen_candidate_paths, prefixes),
             },
             "ssot": collect_ssot(root),
         },
@@ -361,6 +389,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pr", type=int, help="PR number (required with --github)")
     parser.add_argument("--root", default=str(_PROJECT_ROOT), help="Repository root for SSOT facts")
     parser.add_argument("--out", default=None, help="Output file (default: stdout)")
+    parser.add_argument(
+        "--exclude-check",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="Check-run name to exclude from CI classification (repeatable). "
+        "The CI gate excludes its own still-running check.",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -375,7 +411,9 @@ def main(argv: list[str] | None = None) -> int:
         else:
             raw = json.loads(Path(args.from_raw).read_text(encoding="utf-8"))
             source = "injected"
-        packet = build_packet(raw, Path(args.root), source=source)
+        packet = build_packet(
+            raw, Path(args.root), source=source, exclude_checks=args.exclude_check
+        )
     except (CollectionError, OSError, json.JSONDecodeError) as exc:
         print(f"PACKET BUILD FAILED: {exc}", file=sys.stderr)
         return 2

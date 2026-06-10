@@ -184,6 +184,46 @@ class TestClassifyCi:
         assert classify_ci(runs) == "FAILURE"
 
 
+class TestExcludeChecks:
+    """Codex P1: the gate's own still-running check must not poison CI facts."""
+
+    _RUNS = [
+        {"name": "Test Suite", "status": "completed", "conclusion": "success"},
+        {"name": "gpt-audit-gate", "status": "in_progress", "conclusion": None},
+    ]
+
+    def test_self_check_excluded_from_classification(self, repo: Path) -> None:
+        packet = build_packet(
+            _raw(check_runs=self._RUNS), repo, exclude_checks=["gpt-audit-gate"]
+        )
+        ci = packet["machine_facts"]["ci"]
+        assert ci["classification"] == "SUCCESS"
+        assert ci["excluded_checks"] == ["gpt-audit-gate"]
+        assert all(c["name"] != "gpt-audit-gate" for c in ci["check_runs"])
+
+    def test_without_exclusion_self_check_freezes_pending(self, repo: Path) -> None:
+        packet = build_packet(_raw(check_runs=self._RUNS), repo)
+        assert packet["machine_facts"]["ci"]["classification"] == "PENDING"
+
+    def test_builder_cli_exclude_check_flag(self, repo: Path, tmp_path: Path, capsys) -> None:
+        raw_file = tmp_path / "raw.json"
+        raw_file.write_text(json.dumps(_raw(check_runs=self._RUNS)), encoding="utf-8")
+        rc = builder_main(
+            [
+                "--from-raw",
+                str(raw_file),
+                "--root",
+                str(repo),
+                "--exclude-check",
+                "gpt-audit-gate",
+            ]
+        )
+        assert rc == 0
+        packet = json.loads(capsys.readouterr().out)
+        assert packet["machine_facts"]["ci"]["classification"] == "SUCCESS"
+        assert validate_packet_structure(packet) == []
+
+
 class TestThreads:
     def test_severity_tokens(self) -> None:
         assert severity_tokens("P1: bad. Also P2 risk") == ["P1", "P2"]
@@ -211,6 +251,28 @@ class TestFrozenAndSsot:
             DEFAULT_FROZEN_PREFIXES,
         )
         assert touched == ["core/detector.py", "scripts/x.py"]
+
+    def test_rename_out_of_frozen_dir_is_detected(self, repo: Path) -> None:
+        """Codex P1: renaming core/foo.py to docs/foo.py must still count as a
+        frozen-path touch via previous_filename."""
+        raw = _raw(
+            files=[
+                {
+                    "path": "docs/foo.py",
+                    "status": "renamed",
+                    "previous_filename": "core/foo.py",
+                }
+            ]
+        )
+        packet = build_packet(raw, repo)
+        assert packet["machine_facts"]["frozen_paths"]["touched"] == ["core/foo.py"]
+        assert packet["machine_facts"]["pr"]["changed_files"][0]["previous_path"] == (
+            "core/foo.py"
+        )
+
+    def test_non_rename_has_null_previous_path(self, repo: Path) -> None:
+        packet = build_packet(_raw(), repo)
+        assert packet["machine_facts"]["pr"]["changed_files"][0]["previous_path"] is None
 
     def test_ssot_consistent(self, repo: Path) -> None:
         ssot = collect_ssot(repo)

@@ -32,11 +32,15 @@
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["path", "status"],
+                "required": ["path", "status", "previous_path"],
                 "additionalProperties": false,
                 "properties": {
                   "path": { "type": "string", "minLength": 1 },
-                  "status": { "type": "string", "minLength": 1 }
+                  "status": { "type": "string", "minLength": 1 },
+                  "previous_path": {
+                    "type": ["string", "null"],
+                    "description": "Old path for renames; rename sources count as frozen-path touches"
+                  }
                 }
               }
             }
@@ -44,11 +48,16 @@
         },
         "ci": {
           "type": "object",
-          "required": ["classification", "head_sha", "check_runs"],
+          "required": ["classification", "head_sha", "check_runs", "excluded_checks"],
           "additionalProperties": false,
           "properties": {
             "classification": { "enum": ["SUCCESS", "FAILURE", "PENDING", "NOT_TRIGGERED"] },
             "head_sha": { "type": "string" },
+            "excluded_checks": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Check-run names excluded from classification (e.g. the audit gate's own still-running check); recorded for transparency"
+            },
             "check_runs": {
               "type": "array",
               "items": {

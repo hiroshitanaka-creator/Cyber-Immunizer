@@ -93,6 +93,7 @@ _REQUIRED_PATHS: list[tuple[str, type | tuple[type, ...]]] = [
     ("machine_facts.ci.classification", str),
     ("machine_facts.ci.head_sha", str),
     ("machine_facts.ci.check_runs", list),
+    ("machine_facts.ci.excluded_checks", list),
     ("machine_facts.review_threads.total", int),
     ("machine_facts.review_threads.unresolved", int),
     ("machine_facts.review_threads.unresolved_p1_p2", int),

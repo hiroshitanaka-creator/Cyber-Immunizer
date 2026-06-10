@@ -50,6 +50,17 @@ Follow-up to the Audit Evidence Ledger lesson, after reviewing an external propo
   by protocol. Freshness is fail-closed: omitting `--current-head-sha` is itself a
   HOLD reason.
 
+- **Two Codex P1 findings hardened the collector before merge** (classified
+  IMPLEMENTATION_AGENT_FAILURE; both were collector blind spots, not design flaws):
+  (1) the gate's own still-running check run would have frozen a self-referential
+  `PENDING` into every CI-built packet — the build step now passes
+  `--exclude-check gpt-audit-gate`, recorded in `ci.excluded_checks`, and the protocol
+  defines CI artifacts as at-build-time snapshots with the reception gate building a
+  fresh packet at evaluation time; (2) renamed files only carried the new path, so
+  renaming `core/foo.py` out of a frozen directory evaded `frozen_paths.touched` —
+  `previous_filename` is now preserved as `changed_files[].previous_path` and rename
+  sources count as frozen touches.
+
 - **The authoritative packet is built in CI** (`.github/workflows/gpt-audit-gate.yml`,
   added with explicit Project Owner approval for `.github/**`): a packet built by an
   LLM-controlled process could be fabricated, so the required check builds it from the

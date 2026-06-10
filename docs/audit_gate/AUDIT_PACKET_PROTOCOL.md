@@ -77,9 +77,9 @@ The defined judgment keys (fixed set; unknown keys invalidate the packet):
 | Field | Source | Notes |
 |---|---|---|
 | `pr.*` (number, state, merged, draft, base/head ref+SHA, changed_files) | GitHub REST API | head SHA is collected, never transcribed by the auditor |
-| `ci.classification` | check runs for the head SHA | `SUCCESS` / `FAILURE` / `PENDING` / `NOT_TRIGGERED`; unknown conclusions classify as `FAILURE` (fail closed) |
+| `ci.classification` | check runs for the head SHA | `SUCCESS` / `FAILURE` / `PENDING` / `NOT_TRIGGERED`; unknown conclusions classify as `FAILURE` (fail closed); names in `ci.excluded_checks` (e.g. the gate's own run) are dropped before classification |
 | `review_threads.*` | GitHub GraphQL `reviewThreads` | unresolved = not resolved AND not outdated; `P1`/`P2` tokens detected by word-boundary regex on the first comment |
-| `frozen_paths.touched` | changed files × frozen prefixes (`core/`, `scripts/`, `.github/`, `data/`, `tests/` — mirrors `CLAUDE.md`) | touching is a fact; whether it blocks is policy (`--allow-frozen`) |
+| `frozen_paths.touched` | changed files × frozen prefixes (`core/`, `scripts/`, `.github/`, `data/`, `tests/` — mirrors `CLAUDE.md`) | touching is a fact; whether it blocks is policy (`--allow-frozen`); **rename sources count** — `previous_path` of renamed files is checked so moving a file out of a frozen directory cannot evade detection |
 | `ssot.*` | `data/project_state.json` + `docs/PROJECT_STATE.md` | consistent = `state_id` exists and appears verbatim in the md (missing files → inconsistent, fail closed) |
 
 ---
@@ -130,9 +130,16 @@ Where the packet is built matters: a packet built by an LLM-controlled process
 can be fabricated. The authoritative packet is built in CI by
 `.github/workflows/gpt-audit-gate.yml` on every pull_request event (opened /
 reopened / synchronize / ready_for_review) and uploaded as the
-`gpt-audit-packet-<head SHA>` artifact. The reception gate evaluates the
-CI-built artifact; if it is unavailable, the receiving side (Claude) builds the
-packet itself and says so.
+`gpt-audit-packet-<head SHA>` artifact.
+
+**Snapshot semantics**: CI status and review threads are time-varying, so the
+CI-built artifact is an at-build-time snapshot (sibling checks may still be
+pending while the gate runs; the gate excludes its own still-running check via
+`--exclude-check gpt-audit-gate`, recorded in `ci.excluded_checks`). For the
+full-mode reception evaluation, the receiving side (Claude) builds a **fresh
+packet at evaluation time** with the same script and uses the CI artifact as
+the immutable record that collection ran in CI, cross-checking the two where
+they should agree (head SHA, changed files, frozen touches, SSOT).
 
 ---
 
