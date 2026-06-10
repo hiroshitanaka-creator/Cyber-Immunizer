@@ -51,8 +51,9 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Valid mutation patch produced | **No** |
 | apply / evaluate / promote reached | **No** (all three) |
 | promote_approved | false |
-| state_id | `phase3_paid_credit_api_success_patch_not_produced` |
-| Next action | Fix propose / output-contract root cause before any new paid-credit run |
+| Propose/output-contract hardening | Implemented in PR #84 (no-API / no-promotion); no new paid-credit run executed |
+| state_id | `phase3_propose_output_contract_hardened_pending_owner_review` |
+| Next action | Project Owner reviews the PR #84 propose/output-contract fix before any owner-approved paid-credit rerun |
 
 ---
 
@@ -113,9 +114,15 @@ There is no adoption-gate pass/fail result from any of the 3 paid-credit runs.
 
 ## 7. Next action
 
-Fix the **propose / output-contract root cause** (Gemini returning syntactically invalid
-`replacement_code`) **before any new paid-credit run**. That remediation is a separate,
-Project-Owner-approved task and is **out of scope for the SSOT PR that introduced this file**.
+The **propose / output-contract root cause** (Gemini returning `replacement_code` that
+violated the function-body-fragment contract) was remediated in **PR #84** as a
+**no-API / no-promotion** hardening: explicit prompt obligations, stage-marked
+output-contract diagnostics, and local contract regression tests
+(see `docs/audit_gate/PROPOSE_OUTPUT_CONTRACT_ROOT_CAUSE.md`).
+
+**No new paid-credit run has been executed.** The next step is for the **Project Owner
+to review the PR #84 fix** and decide on the next owner-approved paid-credit rerun.
+`promote_approved` remains `false`.
 
 ---
 

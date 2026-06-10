@@ -294,11 +294,12 @@ REQUIRED:
 - ALL indentation must be a multiple of 4 — never 1, 2, 3, 5, 6 spaces.
 - Leading tabs are forbidden; use spaces only.
 - Comment lines must also start with at least 4 spaces.
-- return DetectionResult(...) must be at exactly 4-space indentation.
-  Exception: a return DetectionResult(...) nested inside an if/for/while
-  block follows block depth — 8 spaces for one level of nesting, 12 for
-  two levels, etc. Top-level return DetectionResult(...) at the function
-  body level must be at exactly 4 spaces.
+- Top-level return DetectionResult(...) must be at exactly 4-space
+  indentation; a return nested inside an if/for/while block follows
+  block depth (8, 12, … spaces).
+- replacement_code must be syntactically valid Python as a function body —
+  it is checked with ast.parse() and ANY SyntaxError is rejected fail-closed
+  (no patch is written).
 - replacement_code must contain executable detector logic.
 - replacement_code must contain at least one return DetectionResult(...).
 - replacement_code must end with a top-level (4-space) fallback return
@@ -311,11 +312,10 @@ REQUIRED:
 FORBIDDEN:
 - Do NOT return an empty body (only blank lines or only comments).
 - Do NOT produce a pass-only body.
+- Do NOT use placeholder ellipsis: a body whose only statement is ... is rejected.
 - Do NOT omit return DetectionResult(...) — a return statement is mandatory.
-- Do NOT end replacement_code without a top-level fallback return DetectionResult(...).
-  If the last top-level statement is an if/for/while block (even one with nested
-  returns inside), the body falls through to None when no branch is taken. Always
-  provide a fallback return at top-level (4-space indent) after all branches.
+- Do NOT end replacement_code without the top-level (4-space) fallback
+  return DetectionResult(...) required above.
 - Do NOT use any return shape other than: return DetectionResult(...)
   The following are ALL rejected:
     return None
@@ -1499,24 +1499,44 @@ def _call_gemini_api(
 # Parse and validate Gemini response
 # ---------------------------------------------------------------------------
 
+# Stage marker appended to every model-output rejection so run logs and the
+# ledger error field cannot be misread as an API/transport failure.  The three
+# paid-credit runs of 2026-06-03/04 recorded success=true (HTTP 200 + tokens)
+# while propose failed here — at the output-contract boundary, after the call.
+_OUTPUT_CONTRACT_STAGE = (
+    "propose/output-contract failure — the Gemini API call succeeded; "
+    "the model output was rejected before any patch was written"
+)
+
 
 def _parse_and_validate_response(raw_text: str) -> tuple[dict | None, str]:
     """Parse JSON, validate schema, and check replacement_code safety.
 
     Returns (patch, error).
+    Only reached when the API call itself succeeded (callers check api_err
+    first), so every error returned here is an output-contract failure,
+    never an API failure.
     """
     try:
         patch = json.loads(raw_text)
     except json.JSONDecodeError as exc:
-        return None, f"Gemini response is not valid JSON: {exc}"
+        return None, (
+            f"Gemini response is not valid JSON ({_OUTPUT_CONTRACT_STAGE}): {exc}"
+        )
 
     schema_err = _validate_patch_schema(patch)
     if schema_err:
-        return None, f"Gemini response failed schema validation: {schema_err}"
+        return None, (
+            f"Gemini response failed schema validation ({_OUTPUT_CONTRACT_STAGE}): "
+            f"{schema_err}"
+        )
 
     code_err = _validate_replacement_code(patch["replacement_code"])
     if code_err:
-        return None, f"Gemini replacement_code validation failed: {code_err}"
+        return None, (
+            f"Gemini replacement_code validation failed ({_OUTPUT_CONTRACT_STAGE}): "
+            f"{code_err}"
+        )
 
     return patch, ""
 
