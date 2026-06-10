@@ -3,18 +3,27 @@
 This repository uses Codex as an implementation agent. Keep changes minimal,
 test-backed, and limited to one purpose per PR.
 
-## Canonical current-state sources
+## Canonical current-state authority order
 
-For current project state, use only these canonical sources:
+For current project state, use this authority order:
 
-1. `data/project_state.json`
-2. `docs/PROJECT_STATE.md`
+1. **Machine evidence**
+   - Latest `main` HEAD
+   - `data/api_usage_ledger.json`
+   - `data/genome.json`
+   - GitHub Actions / CI results
+2. `data/project_state.json`
+3. `docs/PROJECT_STATE.md`
+4. **Derived summaries**
+   - `README.md` status block
+   - `CLAUDE.md`
 
 `README.md`, `CLAUDE.md`, old task reports, old PR bodies, roadmap documents,
-and historical phase documents are not canonical current-state sources. If they
-conflict with the canonical sources, the canonical sources win. Historical
-files preserve past state and must not be treated as current-state
-contradictions.
+and historical phase documents are not canonical current-state sources. Derived
+summaries can help with navigation, but if they conflict with machine evidence,
+`data/project_state.json`, or `docs/PROJECT_STATE.md`, the higher-priority
+source wins. Historical files preserve past state and must not be treated as
+current-state contradictions.
 
 ## Required pre-edit checks
 
@@ -22,6 +31,12 @@ Before editing, inspect:
 
 - `data/project_state.json`
 - `docs/PROJECT_STATE.md`
+- Task-relevant machine evidence when the task involves paid-credit state,
+  model settings, promotion state, CI state, or branch/merge state:
+  - `data/api_usage_ledger.json`
+  - `data/genome.json`
+  - GitHub Actions / CI
+  - Latest `main` HEAD
 - Any files explicitly named in the task prompt
 
 Identify the current `state_id`, current `next_action`, allowed files,
