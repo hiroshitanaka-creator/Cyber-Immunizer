@@ -320,11 +320,12 @@ class TestMachineFactRules:
     def _facts_reasons(self, repo: Path, mutate, **kwargs) -> list[str]:
         packet = build_packet(_raw(), repo)
         mutate(packet["machine_facts"])
-        return evaluate_machine_facts(
+        findings = evaluate_machine_facts(
             packet,
             kwargs.get("current_head_sha", "b" * 40),
             kwargs.get("allow_frozen", []),
         )
+        return [msg for _, msg in findings]
 
     def test_green_packet_has_no_reasons(self, repo: Path) -> None:
         assert self._facts_reasons(repo, lambda f: None) == []
@@ -339,7 +340,7 @@ class TestMachineFactRules:
 
     def test_missing_current_head_sha_fails_closed(self, repo: Path) -> None:
         packet = build_packet(_raw(), repo)
-        reasons = evaluate_machine_facts(packet, None, [])
+        reasons = [msg for _, msg in evaluate_machine_facts(packet, None, [])]
         assert any("head_sha_freshness_unverified" in r for r in reasons)
 
     def test_stale_head_sha_blocks(self, repo: Path) -> None:
@@ -424,6 +425,101 @@ class TestJudgmentRules:
         packet["judgment_inputs"] = _verified_judgments("report.md")
         reasons = evaluate_judgment_inputs(packet, repo, None)
         assert any("failed validation" in r for r in reasons)
+
+
+# ---------------------------------------------------------------------------
+# ci-gate mode: only CI-decidable rules block; pass is never approval
+# ---------------------------------------------------------------------------
+
+
+class TestCiGateMode:
+    def test_null_judgments_do_not_fail_the_gate(self, repo: Path) -> None:
+        """A freshly collected packet (judgments null) passes the CI gate."""
+        packet = build_packet(_raw(), repo)
+        result = evaluate(packet, repo, current_head_sha="b" * 40, mode="ci-gate")
+        assert result["machine_verdict"] == "CI_GATE_PASS"
+        assert result["reasons"] == []
+        assert any("claim is None" in w for w in result["warnings"])
+
+    def test_gate_pass_is_never_approve_allowed(self, repo: Path) -> None:
+        """Anti-laundering: a CI-gate pass must not be citable as APPROVE permission."""
+        (repo / "report.md").write_text(_VALID_EVIDENCE_REPORT, encoding="utf-8")
+        packet = build_packet(_raw(), repo)
+        packet["judgment_inputs"] = _verified_judgments("report.md")
+        result = evaluate(packet, repo, current_head_sha="b" * 40, mode="ci-gate")
+        assert result["machine_verdict"] == "CI_GATE_PASS"
+        assert result["approve_allowed"] is False
+
+    def test_frozen_and_threads_are_warnings_not_failures(self, repo: Path) -> None:
+        raw = _raw(
+            files=[{"path": "core/detector.py", "status": "modified"}],
+            review_threads=[
+                {"is_resolved": False, "is_outdated": False, "first_comment_body": "P2: x"}
+            ],
+        )
+        packet = build_packet(raw, repo)
+        result = evaluate(packet, repo, current_head_sha="b" * 40, mode="ci-gate")
+        assert result["machine_verdict"] == "CI_GATE_PASS"
+        assert any("frozen_paths_touched" in w for w in result["warnings"])
+        assert any("unresolved_threads=1" in w for w in result["warnings"])
+
+    def test_ci_status_of_sibling_checks_is_warning(self, repo: Path) -> None:
+        """The gate must not block on other checks' status (circular dependency)."""
+        packet = build_packet(_raw(check_runs=[]), repo)
+        result = evaluate(packet, repo, current_head_sha="b" * 40, mode="ci-gate")
+        assert result["machine_verdict"] == "CI_GATE_PASS"
+        assert any("ci_status=NOT_TRIGGERED" in w for w in result["warnings"])
+
+    def test_stale_head_fails_the_gate(self, repo: Path) -> None:
+        packet = build_packet(_raw(), repo)
+        result = evaluate(packet, repo, current_head_sha="c" * 40, mode="ci-gate")
+        assert result["machine_verdict"] == "CI_GATE_FAIL"
+        assert any("head_sha_stale" in r for r in result["reasons"])
+
+    def test_ssot_inconsistency_fails_the_gate(self, repo: Path) -> None:
+        (repo / "docs" / "PROJECT_STATE.md").write_text("| state_id | `other` |\n", "utf-8")
+        packet = build_packet(_raw(), repo)
+        result = evaluate(packet, repo, current_head_sha="b" * 40, mode="ci-gate")
+        assert result["machine_verdict"] == "CI_GATE_FAIL"
+        assert any("ssot_inconsistent" in r for r in result["reasons"])
+
+    def test_full_mode_still_blocks_on_everything(self, repo: Path) -> None:
+        """The ci-gate relaxation must not leak into full mode."""
+        raw = _raw(
+            review_threads=[
+                {"is_resolved": False, "is_outdated": False, "first_comment_body": "P2: x"}
+            ]
+        )
+        packet = build_packet(raw, repo)
+        result = evaluate(packet, repo, current_head_sha="b" * 40, mode="full")
+        assert result["machine_verdict"] == "HOLD"
+        assert any("unresolved_threads=1" in r for r in result["reasons"])
+
+    def test_unknown_mode_raises(self, repo: Path) -> None:
+        packet = build_packet(_raw(), repo)
+        with pytest.raises(ValueError):
+            evaluate(packet, repo, current_head_sha="b" * 40, mode="bogus")
+
+    def test_cli_ci_gate_mode(self, repo: Path, tmp_path: Path, capsys) -> None:
+        packet = build_packet(_raw(), repo)
+        packet_file = tmp_path / "packet.json"
+        packet_file.write_text(json.dumps(packet), encoding="utf-8")
+        rc = engine_main(
+            [
+                "--packet",
+                str(packet_file),
+                "--root",
+                str(repo),
+                "--mode",
+                "ci-gate",
+                "--current-head-sha",
+                "b" * 40,
+            ]
+        )
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "machine_verdict: CI_GATE_PASS" in out
+        assert "~ warning:" in out
 
 
 # ---------------------------------------------------------------------------

@@ -17,15 +17,30 @@ Trust model:
   flag is itself a HOLD reason (fail closed), because an unverified packet may
   describe an outdated head.
 
+Modes:
+
+* ``--mode full`` (default) — the reception-gate evaluation. Every machine-fact
+  rule and every judgment input is blocking. Exit 0 means APPROVE_ALLOWED.
+* ``--mode ci-gate`` — the GitHub Actions required-check evaluation. Only rules
+  that are deterministic at CI time block (PR open / not merged, head-SHA
+  freshness, SSOT consistency, packet structure). Rules that CI cannot decide
+  are reported as warnings, not failures: CI status of sibling checks (circular
+  — this gate is itself a check), unresolved threads (resolving a thread does
+  not re-trigger pull_request events; enforced instead by branch protection's
+  "Require conversation resolution"), frozen-path allowance (Project Owner
+  context CI cannot know), and judgment inputs (filled after collection).
+  A ci-gate pass is verdict ``CI_GATE_PASS`` and NEVER ``APPROVE_ALLOWED`` —
+  it must not be citable as permission to approve.
+
 Usage:
     python scripts/audit_policy_engine.py --packet packet.json \
-        --current-head-sha <sha> [--base-ref origin/main] \
+        [--mode full|ci-gate] --current-head-sha <sha> [--base-ref origin/main] \
         [--allow-frozen scripts/] [--root <repo>] [--json]
 
 Exit codes:
-    0  APPROVE allowed (machine_verdict=APPROVE_ALLOWED)
-    1  HOLD (machine_verdict=HOLD; see reasons)
-    2  Packet invalid (machine_verdict=PACKET_INVALID; audit cannot proceed)
+    0  full: APPROVE allowed (APPROVE_ALLOWED) / ci-gate: gate passed (CI_GATE_PASS)
+    1  full: HOLD / ci-gate: CI_GATE_FAIL (see reasons)
+    2  Packet invalid (PACKET_INVALID; audit cannot proceed)
 
 Standard library only.
 """
@@ -122,43 +137,60 @@ def validate_packet_structure(packet: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+# Finding categories that block in ci-gate mode (deterministic at CI time).
+# Everything else is advisory in ci-gate mode and blocking in full mode.
+_CI_GATE_ENFORCED = {"pr_state", "pr_merged", "head_freshness", "ssot"}
+
+
 def evaluate_machine_facts(
     packet: dict,
     current_head_sha: str | None,
     allow_frozen: list[str],
-) -> list[str]:
-    """Apply the fixed APPROVE preconditions to machine_facts. Returns HOLD reasons."""
-    reasons: list[str] = []
+) -> list[tuple[str, str]]:
+    """Apply the fixed machine-fact rules. Returns (category, message) findings."""
+    findings: list[tuple[str, str]] = []
     facts = packet["machine_facts"]
     pr = facts["pr"]
 
     if pr["state"] != "open":
-        reasons.append(f"pr_state={pr['state']} (must be open)")
+        findings.append(("pr_state", f"pr_state={pr['state']} (must be open)"))
     if pr["merged"]:
-        reasons.append("pr_already_merged")
+        findings.append(("pr_merged", "pr_already_merged"))
     if pr["draft"]:
-        reasons.append("pr_is_draft")
+        findings.append(("pr_draft", "pr_is_draft"))
 
     if current_head_sha is None:
-        reasons.append(
-            "head_sha_freshness_unverified (--current-head-sha not supplied; fail closed)"
+        findings.append(
+            (
+                "head_freshness",
+                "head_sha_freshness_unverified (--current-head-sha not supplied; fail closed)",
+            )
         )
     elif current_head_sha != pr["head_sha"]:
-        reasons.append(
-            f"head_sha_stale (packet={pr['head_sha']}, current={current_head_sha})"
+        findings.append(
+            (
+                "head_freshness",
+                f"head_sha_stale (packet={pr['head_sha']}, current={current_head_sha})",
+            )
         )
 
     ci = facts["ci"]
     if ci["classification"] != "SUCCESS":
-        reasons.append(f"ci_status={ci['classification']} (must be SUCCESS)")
+        findings.append(("ci_status", f"ci_status={ci['classification']} (must be SUCCESS)"))
     if ci["head_sha"] != pr["head_sha"]:
-        reasons.append("ci_head_sha_mismatch (CI result is not for the packet head SHA)")
+        findings.append(
+            ("ci_status", "ci_head_sha_mismatch (CI result is not for the packet head SHA)")
+        )
 
     threads = facts["review_threads"]
     if threads["unresolved"] > 0:
-        reasons.append(f"unresolved_threads={threads['unresolved']} (must be 0)")
+        findings.append(
+            ("threads", f"unresolved_threads={threads['unresolved']} (must be 0)")
+        )
     if threads["unresolved_p1_p2"] > 0:
-        reasons.append(f"unresolved_p1_p2={threads['unresolved_p1_p2']} (must be 0)")
+        findings.append(
+            ("threads", f"unresolved_p1_p2={threads['unresolved_p1_p2']} (must be 0)")
+        )
 
     blocked = [
         p
@@ -166,16 +198,21 @@ def evaluate_machine_facts(
         if not any(p.startswith(pfx) for pfx in allow_frozen)
     ]
     if blocked:
-        reasons.append(
-            "frozen_paths_touched="
-            + ",".join(blocked)
-            + " (requires explicit Project Owner allowance via --allow-frozen)"
+        findings.append(
+            (
+                "frozen",
+                "frozen_paths_touched="
+                + ",".join(blocked)
+                + " (requires explicit Project Owner allowance via --allow-frozen)",
+            )
         )
 
     if not facts["ssot"]["consistent"]:
-        reasons.append("ssot_inconsistent (data/project_state.json vs docs/PROJECT_STATE.md)")
+        findings.append(
+            ("ssot", "ssot_inconsistent (data/project_state.json vs docs/PROJECT_STATE.md)")
+        )
 
-    return reasons
+    return findings
 
 
 def evaluate_judgment_inputs(
@@ -228,21 +265,51 @@ def evaluate(
     current_head_sha: str | None = None,
     base_ref: str | None = None,
     allow_frozen: list[str] | None = None,
+    mode: str = "full",
 ) -> dict:
-    """Full evaluation. Returns the machine verdict document."""
+    """Evaluate the packet. Returns the machine verdict document.
+
+    mode="full": every finding blocks; exit verdict APPROVE_ALLOWED / HOLD.
+    mode="ci-gate": only _CI_GATE_ENFORCED categories block; the rest (and the
+    judgment inputs) are warnings; verdict CI_GATE_PASS / CI_GATE_FAIL with
+    approve_allowed always false — a CI-gate pass is not approval permission.
+    """
+    if mode not in ("full", "ci-gate"):
+        raise ValueError(f"unknown mode {mode!r}")
     structural = validate_packet_structure(packet)
     if structural:
         return {
             "machine_verdict": "PACKET_INVALID",
             "approve_allowed": False,
+            "mode": mode,
             "reasons": structural,
+            "warnings": [],
         }
-    reasons = evaluate_machine_facts(packet, current_head_sha, allow_frozen or [])
-    reasons += evaluate_judgment_inputs(packet, root, base_ref)
+
+    findings = evaluate_machine_facts(packet, current_head_sha, allow_frozen or [])
+    if mode == "full":
+        reasons = [msg for _, msg in findings]
+        reasons += evaluate_judgment_inputs(packet, root, base_ref)
+        return {
+            "machine_verdict": "APPROVE_ALLOWED" if not reasons else "HOLD",
+            "approve_allowed": not reasons,
+            "mode": mode,
+            "reasons": reasons,
+            "warnings": [],
+        }
+
+    reasons = [msg for cat, msg in findings if cat in _CI_GATE_ENFORCED]
+    warnings = [msg for cat, msg in findings if cat not in _CI_GATE_ENFORCED]
+    warnings += [
+        f"(not evaluated at CI time) {msg}"
+        for msg in evaluate_judgment_inputs(packet, root, base_ref)
+    ]
     return {
-        "machine_verdict": "APPROVE_ALLOWED" if not reasons else "HOLD",
-        "approve_allowed": not reasons,
+        "machine_verdict": "CI_GATE_PASS" if not reasons else "CI_GATE_FAIL",
+        "approve_allowed": False,
+        "mode": mode,
         "reasons": reasons,
+        "warnings": warnings,
     }
 
 
@@ -254,6 +321,12 @@ def evaluate(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Cyber-Immunizer audit policy engine")
     parser.add_argument("--packet", required=True, help="Path to the audit packet JSON")
+    parser.add_argument(
+        "--mode",
+        choices=["full", "ci-gate"],
+        default="full",
+        help="full: reception-gate evaluation (default); ci-gate: required-check subset",
+    )
     parser.add_argument(
         "--current-head-sha",
         default=None,
@@ -281,7 +354,9 @@ def main(argv: list[str] | None = None) -> int:
         result = {
             "machine_verdict": "PACKET_INVALID",
             "approve_allowed": False,
+            "mode": args.mode,
             "reasons": [f"cannot read packet: {exc}"],
+            "warnings": [],
         }
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 2
@@ -292,6 +367,7 @@ def main(argv: list[str] | None = None) -> int:
         current_head_sha=args.current_head_sha,
         base_ref=args.base_ref,
         allow_frozen=args.allow_frozen,
+        mode=args.mode,
     )
 
     if args.json:
@@ -300,10 +376,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"machine_verdict: {result['machine_verdict']}")
         for r in result["reasons"]:
             print(f"  - {r}")
+        for w in result["warnings"]:
+            print(f"  ~ warning: {w}")
 
     if result["machine_verdict"] == "PACKET_INVALID":
         return 2
-    return 0 if result["approve_allowed"] else 1
+    return 0 if result["machine_verdict"] in ("APPROVE_ALLOWED", "CI_GATE_PASS") else 1
 
 
 if __name__ == "__main__":

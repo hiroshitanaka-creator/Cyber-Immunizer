@@ -165,7 +165,8 @@ Cyber-Immunizer/
 ├── .github/
 │   ├── PULL_REQUEST_TEMPLATE.md  # PR 監査チェックリスト（GPT Audit Gate 用）
 │   └── workflows/
-│       └── immunization_loop.yml # propose / evaluate / promote 分離ワークフロー
+│       ├── immunization_loop.yml # propose / evaluate / promote 分離ワークフロー
+│       └── gpt-audit-gate.yml    # 機械監査ゲート required check（Audit Packet をCIで生成・評価）
 ├── pyproject.toml
 ├── LICENSE
 └── README.md

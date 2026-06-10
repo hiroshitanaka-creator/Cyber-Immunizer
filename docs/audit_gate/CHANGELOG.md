@@ -50,10 +50,18 @@ Follow-up to the Audit Evidence Ledger lesson, after reviewing an external propo
   by protocol. Freshness is fail-closed: omitting `--current-head-sha` is itself a
   HOLD reason.
 
-- **Enforcement layering is deliberate**: this PR ships the scripts/schema/protocol
-  only. The GitHub Actions required check and branch protection ("Require
-  conversation resolution before merging") are a separate follow-up requiring
-  Project Owner approval for `.github/**`.
+- **The authoritative packet is built in CI** (`.github/workflows/gpt-audit-gate.yml`,
+  added with explicit Project Owner approval for `.github/**`): a packet built by an
+  LLM-controlled process could be fabricated, so the required check builds it from the
+  GitHub API on every pull_request event and uploads it as an artifact. The check runs
+  the engine in `--mode ci-gate`, which blocks only on CI-decidable rules (structure,
+  PR open, head-SHA freshness, SSOT consistency) and reports the rest as warnings —
+  blocking on sibling checks would be circular, and thread resolution does not
+  re-trigger pull_request events. A green check is verdict `CI_GATE_PASS`, a vocabulary
+  deliberately disjoint from `APPROVE_ALLOWED` so a passing gate cannot be cited as
+  approval permission. Physical merge-blocking still requires the Project Owner to mark
+  `gpt-audit-gate` as a required status check and enable "Require conversation
+  resolution before merging" in branch protection (manual GitHub settings).
 
 ---
 

@@ -1,0 +1,93 @@
+name: GPT Audit Gate
+
+# Machine audit gate (layer 0) — see docs/audit_gate/AUDIT_PACKET_PROTOCOL.md.
+#
+# Builds the authoritative Audit Packet for this PR head IN CI (a packet built
+# by an LLM-controlled process could be fabricated; this one cannot), evaluates
+# the CI-decidable policy subset, and uploads the packet as an artifact for the
+# reception-gate (full-mode) evaluation.
+#
+# This workflow is read-only: no API keys, no git writes, no workflow_dispatch.
+# A green run means CI_GATE_PASS — it is NOT approval permission. APPROVE is
+# gated separately by the full-mode policy engine at reception time.
+
+"on":
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+concurrency:
+  group: gpt-audit-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gpt-audit-gate:
+    name: gpt-audit-gate
+    # Draft PRs cannot merge, so gating them only adds noise.
+    if: ${{ github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read        # read-only — never writes to the repo
+      pull-requests: read   # PR state / files / review threads
+      checks: read          # sibling check runs (recorded as facts, not gated on)
+
+    env:
+      # Hard-block any accidental API key leak at the env level.
+      # GEMINI_API_KEY is intentionally absent from this job.
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    steps:
+      # Check out the PR head itself (not the synthetic merge commit) so the
+      # SSOT facts in the packet describe the audited head SHA exactly.
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # -----------------------------------------------------------------------
+      # 1. Collect machine facts. The packet is built by script from the GitHub
+      #    API — the LLM auditor never transcribes head SHA / CI / threads.
+      #    judgment_inputs are emitted as null skeletons by design.
+      #    (Standard library only: no pip install needed.)
+      # -----------------------------------------------------------------------
+      - name: Build audit packet (machine facts, collected in CI)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/build_audit_packet.py \
+            --github "${{ github.repository }}" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --root . \
+            --out gpt_audit_packet.json
+
+      # -----------------------------------------------------------------------
+      # 2. Evaluate the CI-decidable policy subset (--mode ci-gate):
+      #    packet structure, PR open / not merged, head-SHA freshness, SSOT
+      #    consistency. Thread resolution is enforced by branch protection
+      #    ("Require conversation resolution"), frozen-path allowance by the
+      #    Project Owner, judgment inputs by the reception gate (full mode).
+      # -----------------------------------------------------------------------
+      - name: Evaluate policy engine (ci-gate mode)
+        run: |
+          python scripts/audit_policy_engine.py \
+            --packet gpt_audit_packet.json \
+            --mode ci-gate \
+            --current-head-sha "${{ github.event.pull_request.head.sha }}" \
+            --root . \
+            --json
+
+      # -----------------------------------------------------------------------
+      # 3. Publish the packet so the reception gate evaluates the CI-built
+      #    artifact, not a hand-written one.
+      # -----------------------------------------------------------------------
+      - name: Upload audit packet artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpt-audit-packet-${{ github.event.pull_request.head.sha }}
+          path: gpt_audit_packet.json

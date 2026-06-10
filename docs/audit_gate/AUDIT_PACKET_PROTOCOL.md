@@ -15,6 +15,7 @@ related:
   - scripts/build_audit_packet.py
   - scripts/audit_policy_engine.py
   - scripts/validate_audit_evidence.py
+  - .github/workflows/gpt-audit-gate.yml
   - CLAUDE.md
 last_reviewed: 2026-06-10
 AI_DOC_META_END
@@ -126,12 +127,42 @@ python scripts/audit_policy_engine.py --packet packet.json \
 ```
 
 Where the packet is built matters: a packet built by an LLM-controlled process
-can be fabricated. Until the CI gate exists, the receiving side (Claude) builds
-the packet itself during the reception gate. The planned follow-up (separate
-PR, requires Project Owner approval for `.github/**`) is to build and evaluate
-the packet in a GitHub Actions required check, plus enable branch protection's
-"Require conversation resolution before merging" (which covers unresolved
-threads with zero code).
+can be fabricated. The authoritative packet is built in CI by
+`.github/workflows/gpt-audit-gate.yml` on every pull_request event (opened /
+reopened / synchronize / ready_for_review) and uploaded as the
+`gpt-audit-packet-<head SHA>` artifact. The reception gate evaluates the
+CI-built artifact; if it is unavailable, the receiving side (Claude) builds the
+packet itself and says so.
+
+---
+
+## CI gate vs full mode — enforcement division
+
+The CI required check runs the engine with `--mode ci-gate`, which blocks only
+on rules that are deterministic at CI time. A green `gpt-audit-gate` check
+means `CI_GATE_PASS` — it is **never** approval permission (`approve_allowed`
+is always false in ci-gate output; verdict vocabularies do not overlap).
+
+| Rule | ci-gate (CI required check) | full (reception gate) | Why the split |
+|---|---|---|---|
+| Packet structure valid | blocking | blocking | deterministic |
+| PR open / not merged | blocking | blocking | deterministic |
+| head-SHA freshness | blocking | blocking | CI re-runs on synchronize, so the packet always tracks the head |
+| SSOT consistency | blocking | blocking | repository-state fact at the audited SHA |
+| CI status of sibling checks | warning | blocking | circular at CI time (this gate is itself a check; siblings may be pending) |
+| Unresolved threads / P1-P2 | warning | blocking | resolving a thread does not re-trigger pull_request events; enforced live by branch protection "Require conversation resolution" |
+| Frozen-path allowance | warning | blocking (`--allow-frozen`) | the Owner's allowance lives in the task prompt, unknown to CI |
+| Judgment inputs + evidence | warning | blocking | filled by the auditor after collection |
+
+### Branch protection (Project Owner — GitHub Settings, manual, zero code)
+
+The gate becomes physically merge-blocking only with these repository settings
+(Settings → Branches → branch protection rule for `main`):
+
+1. **Require status checks to pass before merging** → add **`gpt-audit-gate`**
+   (and the existing CI check) as required.
+2. **Require conversation resolution before merging** → ON. This enforces the
+   unresolved-thread rule live, with zero code, at the exact moment of merge.
 
 ---
 
