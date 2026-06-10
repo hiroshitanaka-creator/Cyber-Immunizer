@@ -71,3 +71,52 @@ def test_entrypoint_intake_check_mentions_mismatch_stop():
         "docs/AI_ENTRYPOINT.md intake check must instruct Claude Code to stop "
         "when a Source Evidence citation does not match actual file content"
     )
+
+
+def test_protocol_requires_design_audit_gate():
+    text = _protocol_text()
+    assert "design audit" in text.lower() or "Pre-Prompt Investigation Gate" in text, (
+        "TASK_PROMPT_PROTOCOL.md must require a design audit or Pre-Prompt Investigation Gate"
+    )
+
+
+def test_protocol_requires_100_point_completion_condition():
+    text = _protocol_text().lower()
+    assert "100-point completion condition" in text or "completion target" in text, (
+        "TASK_PROMPT_PROTOCOL.md must require a 100-point completion condition "
+        "or equivalent completion target"
+    )
+
+
+def test_protocol_requires_existing_doc_overlap_prevention():
+    text = _protocol_text().lower()
+    assert "existing-doc overlap" in text and "duplicate" in text, (
+        "TASK_PROMPT_PROTOCOL.md must require existing-doc overlap checks "
+        "and duplicate-doc prevention before new docs are created"
+    )
+
+
+def test_protocol_includes_codex_weak_model_stop_language():
+    text = _protocol_text().lower()
+    assert "codex weak-model safety" in text or "weaker" in text, (
+        "TASK_PROMPT_PROTOCOL.md must warn that receiving Codex may be weaker"
+    )
+    assert "receiving-agent stop rule" in text or "stop and report instead of editing" in text, (
+        "TASK_PROMPT_PROTOCOL.md must require receiving agents to stop on incomplete prompts"
+    )
+
+
+def test_agents_points_to_task_prompt_protocol():
+    agents = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "docs/audit_gate/TASK_PROMPT_PROTOCOL.md" in agents, (
+        "AGENTS.md must point Codex to the canonical task prompt protocol"
+    )
+
+
+def test_agents_requires_stop_on_missing_task_prompt_requirements():
+    agents = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8").lower()
+    assert "stop" in agents and "instead of editing" in agents, (
+        "AGENTS.md must tell Codex to stop instead of editing when prompt requirements are missing"
+    )
+    for required in ["design audit", "100-point", "allowed", "frozen", "source evidence", "verification commands"]:
+        assert required in agents, f"AGENTS.md task prompt reception gate must mention {required}"

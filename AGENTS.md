@@ -68,6 +68,15 @@ cleanup, workflow changes, paid-credit execution, promotion logic, or SSOT
 rewrites in the same PR. If a needed fix is outside scope, document it as a
 follow-up instead of adding it.
 
+## Task prompt reception gate
+
+Treat `docs/audit_gate/TASK_PROMPT_PROTOCOL.md` as the canonical task-prompt
+design protocol. If a received implementation task prompt lacks a design audit /
+Pre-Prompt Investigation Gate, a 100-point completion condition, explicit
+ALLOWED / REFERENCE_ONLY / FROZEN / IMPACT sections, explicit prohibitions,
+Source Evidence, verification commands, or stop-on-ambiguity instructions, stop
+and report instead of editing. This gate does not authorize scope expansion.
+
 ## Verification rule
 
 After changes, run the tests required by the task and a forbidden-path check.
