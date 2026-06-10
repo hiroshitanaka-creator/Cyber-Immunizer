@@ -24,8 +24,19 @@ AI_DOC_META_END
 
 ## Canonical state
 
-Per `data/project_state.json` (`state_id=phase3_paid_credit_api_success_patch_not_produced`)
-and `docs/PROJECT_STATE.md` (verified against this branch's HEAD):
+Current canonical state per `data/project_state.json` and `docs/PROJECT_STATE.md`
+(minimally updated within PR #84, Owner-directed):
+
+- `state_id=phase3_propose_output_contract_hardened_pending_owner_review`
+- `next_action=review_propose_output_contract_fix_before_owner_approved_paid_credit_rerun`
+
+Pre-PR84 canonical state (**historical state before this remediation** — recorded
+here because it is what triggered this analysis; NOT the current canonical state):
+
+- `state_id=phase3_paid_credit_api_success_patch_not_produced`
+- `next_action=fix_propose_output_contract_before_new_paid_credit_run`
+
+Historical facts, unchanged by this remediation:
 
 | Fact | Value |
 |---|---|
@@ -33,7 +44,6 @@ and `docs/PROJECT_STATE.md` (verified against this branch's HEAD):
 | `valid_mutation_patch_produced` | false |
 | `apply_reached` / `evaluate_reached` / `promote_reached` | false / false / false |
 | `promote_approved` | false (promotion not approved; does NOT mean the API call was unexecuted) |
-| `next_action` | `fix_propose_output_contract_before_new_paid_credit_run` |
 
 This document and its remediation are **no-API and no-promotion**: no Gemini call,
 no `workflow_dispatch`, no ledger edit, no candidate promotion.
