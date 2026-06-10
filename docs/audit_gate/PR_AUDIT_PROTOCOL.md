@@ -18,6 +18,22 @@ Do not replace `Project Owner` with vague terms.
 
 ---
 
+## Current-state authority
+
+When an audit needs the project's **current state**, interpret it in this authority order. Do not
+reconcile every historical document against every other document.
+
+1. **Current-state authority**:
+    * machine evidence (latest `main` HEAD, `data/api_usage_ledger.json`, `data/genome.json`, GitHub Actions / CI results)
+    * `data/project_state.json`
+    * `docs/PROJECT_STATE.md`
+2. `README.md` and `CLAUDE.md` are derived / operational summaries, not independent current-state sources.
+3. Historical documents are **not** current-state sources if labeled historical.
+4. PR bodies and task reports are evidence for their own PR only. They are **not** current-state authorities after merge.
+5. Future auditors **must not** request wording synchronization across historical documents unless a historical document falsely claims to be current.
+
+---
+
 ## Mandatory fields
 
 Verify and report every field below for each PR audit.

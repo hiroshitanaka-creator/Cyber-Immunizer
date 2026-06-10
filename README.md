@@ -879,13 +879,13 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 
 | Field | Value |
 |---|---|
-| Current Phase | Phase 3 — paid-credit API call success records exist; post-run result review pending |
+| Current Phase | Phase 3 — paid-credit API success records exist; no valid mutation patch produced (propose/output-contract failure) |
 | Phase 3 Activation | Complete (PR #58-#62) |
 | Phase 3 Paid-Credit API Calls | Executed (3 successful / 3 attempt(s)) |
 | Gemini Primary Model | gemini-3-flash-preview |
 | Gemini Fallback Model | gemini-3.1-flash-lite |
-| promote_approved | false (promotion not approved — API call already executed; post-run review pending) |
-| Next Focus | Review existing paid-credit run results: ledger / candidate / apply / evaluate / promotion decision |
+| promote_approved | false (promotion not approved — API executed; no valid candidate patch produced) |
+| Next Focus | Fix propose/output-contract root cause before any new paid-credit run |
 | live_model_enabled | true |
 | API Mode | gemini_paid_credit |
 | Model Provider | gemini |
@@ -911,6 +911,6 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | Fitness Report | Not available — run baseline fitness to populate TP/FP/TN/FN |
 | Adoption Gate | ✅ Passed (generation 2) |
 | Active Threat IDs | `THREAT-2024-001` `THREAT-2024-002` `THREAT-2024-003` `THREAT-2024-004` `THREAT-2024-005` |
-| Status Block Updated | 2026-06-08 05:58 UTC |
+| Status Block Updated | 2026-06-08 09:57 UTC |
 
 <!-- CYBER_IMMUNIZER_STATUS_END -->

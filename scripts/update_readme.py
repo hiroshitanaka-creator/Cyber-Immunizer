@@ -19,6 +19,17 @@ _HISTORY_PATH = _PROJECT_ROOT / "data" / "evolution_history.json"
 _THREATS_PATH = _PROJECT_ROOT / "data" / "active_threats.json"
 _REPORT_PATH = _PROJECT_ROOT / ".cyber_immunizer" / "fitness_report.json"
 _LEDGER_PATH = _PROJECT_ROOT / "data" / "api_usage_ledger.json"
+_PROJECT_STATE_PATH = _PROJECT_ROOT / "data" / "project_state.json"
+
+# Current-state authority: when data/project_state.json exists, it (not the
+# ledger alone) determines the Phase 3 current_phase / next_focus / promote
+# wording. See docs/PROJECT_STATE.md. The ledger-derived run-count status
+# (Executed / Attempted / Not yet executed) is retained as machine evidence.
+_NEXT_ACTION_TEXT = {
+    "fix_propose_output_contract_before_new_paid_credit_run": (
+        "Fix propose/output-contract root cause before any new paid-credit run"
+    ),
+}
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"
 _STATUS_END = "<!-- CYBER_IMMUNIZER_STATUS_END -->"
@@ -58,11 +69,59 @@ def _bool_str(value: object) -> str:
     return "true" if value else "false"
 
 
+def _apply_project_state(
+    state: object,
+    current_phase: str,
+    next_focus: str,
+    promote_note: str,
+) -> tuple[str, str, str]:
+    """Override Phase 3 wording from data/project_state.json when present.
+
+    project_state.json is the current-state authority (see docs/PROJECT_STATE.md).
+    Only the structured Phase 3 wording is overridden here; the ledger-derived
+    run-count status (Executed / Attempted / Not yet executed) is left untouched.
+    When *state* is not a usable dict, the inputs are returned unchanged so the
+    ledger-derived fallback wording remains in effect.
+    """
+    if not isinstance(state, dict):
+        return current_phase, next_focus, promote_note
+
+    calls = state.get("paid_credit_api_calls")
+    patch_not_produced = (
+        isinstance(calls, dict)
+        and calls.get("valid_mutation_patch_produced") is False
+    )
+
+    if patch_not_produced:
+        current_phase = (
+            "Phase 3 — paid-credit API success records exist;"
+            " no valid mutation patch produced (propose/output-contract failure)"
+        )
+
+    next_action = state.get("next_action")
+    if isinstance(next_action, str) and next_action in _NEXT_ACTION_TEXT:
+        next_focus = _NEXT_ACTION_TEXT[next_action]
+
+    promo = state.get("promotion")
+    if (
+        isinstance(promo, dict)
+        and _parse_bool(promo.get("promote_approved"), default=False) is False
+        and patch_not_produced
+    ):
+        promote_note = (
+            "false (promotion not approved —"
+            " API executed; no valid candidate patch produced)"
+        )
+
+    return current_phase, next_focus, promote_note
+
+
 def _build_status_block() -> str:
     genome = _load_json(_GENOME_PATH) or {}
     history = _load_json(_HISTORY_PATH) or []
     threats = _load_json(_THREATS_PATH) or []
     ledger = _load_json(_LEDGER_PATH)
+    project_state = _load_json(_PROJECT_STATE_PATH)
     fitness: dict | None = None
 
     raw_report = _load_json(_REPORT_PATH)
@@ -167,6 +226,10 @@ def _build_status_block() -> str:
                 )
                 next_focus = "Review ledger for failed run; diagnose cause before rerun"
                 promote_note = "false (workflow gate — Project Owner approval required)"
+        # Current-state SSOT override (data/project_state.json wins for wording).
+        current_phase, next_focus, promote_note = _apply_project_state(
+            project_state, current_phase, next_focus, promote_note
+        )
         phase_rows: list[str] = [
             f"| Phase 3 Activation | Complete (PR #58-#62) |",
             f"| Phase 3 Paid-Credit API Calls | {p3_run_status} |",
