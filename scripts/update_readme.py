@@ -29,6 +29,10 @@ _NEXT_ACTION_TEXT = {
     "fix_propose_output_contract_before_new_paid_credit_run": (
         "Fix propose/output-contract root cause before any new paid-credit run"
     ),
+    "review_propose_output_contract_fix_before_owner_approved_paid_credit_rerun": (
+        "Project Owner review of the propose/output-contract fix (PR #84)"
+        " before any owner-approved paid-credit rerun"
+    ),
 }
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"

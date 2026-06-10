@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "state_id": "phase3_paid_credit_api_success_patch_not_produced",
+  "state_id": "phase3_propose_output_contract_hardened_pending_owner_review",
   "current_phase": "phase_3",
   "phase_3_activation": "complete",
   "live_model_enabled": true,
@@ -21,7 +21,7 @@
     "meaning": "promotion_not_approved",
     "does_not_mean": "api_call_unexecuted"
   },
-  "next_action": "fix_propose_output_contract_before_new_paid_credit_run",
+  "next_action": "review_propose_output_contract_fix_before_owner_approved_paid_credit_rerun",
   "fresh_verification_policy": {
     "paid_credit_run_in_this_pr": "forbidden",
     "workflow_dispatch_in_this_pr": "forbidden",

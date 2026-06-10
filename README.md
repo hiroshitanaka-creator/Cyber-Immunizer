@@ -885,7 +885,7 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | Gemini Primary Model | gemini-3-flash-preview |
 | Gemini Fallback Model | gemini-3.1-flash-lite |
 | promote_approved | false (promotion not approved — API executed; no valid candidate patch produced) |
-| Next Focus | Fix propose/output-contract root cause before any new paid-credit run |
+| Next Focus | Project Owner review of the propose/output-contract fix (PR #84) before any owner-approved paid-credit rerun |
 | live_model_enabled | true |
 | API Mode | gemini_paid_credit |
 | Model Provider | gemini |
@@ -911,6 +911,6 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | Fitness Report | Not available — run baseline fitness to populate TP/FP/TN/FN |
 | Adoption Gate | ✅ Passed (generation 2) |
 | Active Threat IDs | `THREAT-2024-001` `THREAT-2024-002` `THREAT-2024-003` `THREAT-2024-004` `THREAT-2024-005` |
-| Status Block Updated | 2026-06-08 09:57 UTC |
+| Status Block Updated | 2026-06-10 04:25 UTC |
 
 <!-- CYBER_IMMUNIZER_STATUS_END -->
