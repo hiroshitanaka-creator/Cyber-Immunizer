@@ -1,9 +1,58 @@
+<!--
+AI_DOC_META
+status: CANONICAL
+scope: Historical record of why each Audit Gate protocol rule was added (protocol lessons, regression prevention).
+use_for:
+  - checking past protocol lessons before a merge decision
+  - recording new protocol lessons (e.g. DIFF_ONLY_AUDIT / AUDIT_EVIDENCE_MISMATCH occurrences)
+do_not_use_for:
+  - current project state (see docs/PROJECT_STATE.md / data/project_state.json)
+related:
+  - docs/audit_gate/PR_AUDIT_PROTOCOL.md
+  - docs/audit_gate/TASK_PROMPT_PROTOCOL.md
+  - CLAUDE.md
+last_reviewed: 2026-06-10
+AI_DOC_META_END
+-->
 # Audit Gate Protocol Changelog
 
 This file records why specific rules were added to the Audit Gate protocols,
 keyed to the PR lesson that motivated each addition.
 
 This is not a project status document. Keep entries focused on protocol lessons.
+
+---
+
+## Audit Evidence Ledger — audits must prove they read beyond the diff; the receiving side verifies mechanically
+
+Lesson driven by a GPT audit that, when questioned, admitted it had reviewed only the diff:
+
+- **"Checked" is not evidence**: The previous protocol required fields like "Real file
+  content checked where needed", but execution was self-reported. A diff-only audit could
+  produce a perfectly formatted report by writing checkmarks. The protocol now requires an
+  **Audit Evidence Ledger** — artifacts that are physically impossible to produce from the
+  diff alone (see `PR_AUDIT_PROTOCOL.md` → "Audit Evidence Ledger").
+
+- **Pre-diff spec recitation forces reading order**: Before reviewing the diff, the auditor
+  must quote each modified file's core processing (function name + line numbers + verbatim
+  lines, all outside the diff hunks) and explain the current spec. This cannot be written
+  after-the-fact from the diff alone, so it proves the file was actually opened first.
+
+- **Counts are recomputed, not trusted**: Call-site evidence (`COUNT` of references) and
+  negative evidence ("searched for X, found 0") are re-executed by
+  `scripts/validate_audit_evidence.py`. A stale or fabricated count fails the audit.
+
+- **One mismatch invalidates the whole audit**: A single quote or count that does not match
+  repository reality is classified `AUDIT_EVIDENCE_MISMATCH` and rejects the entire report,
+  including otherwise-plausible findings — partial trust in a fabricating auditor is not
+  recoverable. A missing/empty ledger is classified `DIFF_ONLY_AUDIT`. Both are recorded in
+  this changelog; repetition triggers `PULLBACK_PROMPT.md`.
+
+- **The receiving side runs the validator itself**: Mirroring the Prompt Reception Gate
+  lesson below, the auditor's claim that evidence was verified is ignored. `CLAUDE.md`'s
+  audit reception gate (now 12 items) requires Claude to execute
+  `python scripts/validate_audit_evidence.py --report <report> --base-ref origin/main`
+  and gate on its exit code.
 
 ---
 

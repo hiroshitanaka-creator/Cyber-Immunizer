@@ -1,3 +1,23 @@
+<!--
+AI_DOC_META
+status: CANONICAL
+scope: Mandatory PR audit and merge decision rules, including the Audit Evidence Ledger that every audit report must carry.
+use_for:
+  - auditing any PR before a merge decision
+  - constructing the Audit Evidence Ledger (pre-diff spec recitation, call-site, negative evidence, read manifest)
+  - classifying CI results, Codex findings, and audit-evidence failures
+do_not_use_for:
+  - implementation task prompt construction (see TASK_PROMPT_PROTOCOL.md)
+  - thread handoff construction (see THREAD_HANDOFF_PROTOCOL.md)
+related:
+  - docs/AI_ENTRYPOINT.md
+  - docs/AUDIT_CHARTER.md
+  - docs/audit_gate/CHANGELOG.md
+  - scripts/validate_audit_evidence.py
+  - CLAUDE.md
+last_reviewed: 2026-06-10
+AI_DOC_META_END
+-->
 # PR Audit Protocol — Cyber-Immunizer
 
 Use this protocol for every PR audit and merge decision.
@@ -70,6 +90,125 @@ If the head SHA is unchanged from a previous audit, state explicitly:
 
 If the head SHA changed, state explicitly:
 "headが更新されたため、最新差分で再監査します。"
+
+---
+
+## Audit Evidence Ledger (mandatory — proves the audit went beyond the diff)
+
+An audit that only reads the diff is invalid. Assertions such as "checked",
+"confirmed", or "no issues" carry zero evidential weight. Every audit report
+must attach an **Audit Evidence Ledger**: verbatim, machine-verifiable proof
+that the auditor read the repository beyond the diff. The receiving side
+verifies the ledger mechanically with `scripts/validate_audit_evidence.py`;
+a missing ledger or a single mismatched quote invalidates the entire audit.
+
+### Rule 1 — Pre-diff spec recitation (read the file BEFORE the diff)
+
+**Before reviewing the diff**, for every modified file, quote the file's core
+processing that is **not** part of the diff — function/class name plus line
+numbers plus verbatim lines — and explain the current specification in your
+own words. This forces the reading order: current spec first, change second.
+
+- The quoted range must lie entirely outside the diff hunks of that file.
+- For `.py` files, `SYMBOL` (the function/class name) is mandatory and must
+  appear in the quoted lines (quote the signature, not an arbitrary body slice).
+- For prose/docs files with no functions, quote a section heading and its
+  surrounding lines instead.
+- Newly added files are exempt (the whole file is the diff) but must still
+  appear in the Read Manifest as `FULL`.
+
+### Rule 2 — Call-site evidence
+
+For each changed function, constant, or schema key, list every line in the
+repository that references it (`path:lineno:content`), with an explicit total
+`COUNT`. "No callers" must be stated as `COUNT: 0`. The validator recounts and
+rejects the audit if the count is incomplete or stale. Required whenever any
+`.py` file is changed.
+
+### Rule 3 — Negative evidence (minimum 2)
+
+State at least two things you searched for and did **not** find (e.g. a
+duplicate definition, a leftover `live_model_enabled=true`, an un-updated
+generator output), each as a literal `PATTERN` with the expected `COUNT`
+(usually 0) and a `NOTE` explaining what the absence proves. The validator
+re-runs the search and rejects the audit if reality disagrees.
+
+### Rule 4 — Read manifest
+
+List every file you opened, split into `FULL:` (read in full) and
+`DIFF_ONLY: <path> reason: <text>` (diff only, with a non-trivial reason).
+Every changed file must appear in the manifest.
+
+### Evidence block format
+
+Each piece of evidence is a fenced markdown block with the info string
+`audit-evidence`, a `KEY: value` header, a `---` separator, then the verbatim
+body. Searches are literal substring matches (no regex) so the receiving side
+can reproduce them deterministically.
+
+````
+```audit-evidence
+TYPE: SPEC_RECITATION
+FILE: core/detector.py
+LINES: 40-44
+SYMBOL: detect
+SPEC: detect() normalizes the payload and runs each signature regex against it.
+---
+def detect(payload: str) -> DetectionResult:
+    normalized = _normalize(payload)
+    ...verbatim lines 40-44...
+```
+
+```audit-evidence
+TYPE: CALLSITE
+SYMBOL: detect
+COUNT: 2
+SCOPE: core/, scripts/
+---
+core/detector.py:40:def detect(payload: str) -> DetectionResult:
+scripts/evaluate_candidate.py:88:    result = detect(sample)
+```
+
+```audit-evidence
+TYPE: NEGATIVE
+PATTERN: live_model_enabled=true
+COUNT: 0
+SCOPE: core/, scripts/
+NOTE: no code path enables the live model flag outside the approved CLI gate.
+---
+```
+
+```audit-evidence
+TYPE: READ_MANIFEST
+---
+FULL: core/detector.py
+FULL: scripts/evaluate_candidate.py
+DIFF_ONLY: data/genome.json reason: generated artifact; integrity checked via ledger entry instead
+```
+````
+
+### Mechanical verification (receiving side)
+
+The receiving side (Claude or any other receiving AI) runs:
+
+```
+python scripts/validate_audit_evidence.py --report <audit_report.md> --base-ref origin/main
+```
+
+The validator confirms every quote matches the repository verbatim, every
+count matches a fresh recount, every recitation lies outside the diff, and
+every changed file is covered. Exit code 1 → the audit is rejected without
+further review.
+
+### Evidence failure classification
+
+| Classification | Meaning | Consequence |
+|---|---|---|
+| DIFF_ONLY_AUDIT | Ledger missing or empty — the auditor reviewed only the diff | Audit rejected; resubmission required; record in `docs/audit_gate/CHANGELOG.md` |
+| AUDIT_EVIDENCE_MISMATCH | A quote, count, or line number does not match repository reality (fabrication or stale read) | Audit rejected in full — one mismatch invalidates all other findings; record in `docs/audit_gate/CHANGELOG.md` |
+
+Repeated `DIFF_ONLY_AUDIT` or `AUDIT_EVIDENCE_MISMATCH` from the same auditor
+triggers `docs/audit_gate/PULLBACK_PROMPT.md`.
 
 ---
 
@@ -215,6 +354,8 @@ Merge Recommendation: APPROVE / HOLD / BLOCK
 Before final decision, check `docs/audit_gate/CHANGELOG.md` for relevant regression lessons, especially when a PR touches schemas, workflows, secret handling, generated-code boundaries, CI behavior, or audit protocol documents.
 
 Do not give APPROVE unless all are true:
+- Audit Evidence Ledger attached (pre-diff spec recitation, call-site evidence, ≥2 negative evidence, read manifest)
+- `scripts/validate_audit_evidence.py` passes for the report at the current head SHA
 - Current PR state checked
 - Current head SHA checked and stated
 - Current diff checked
@@ -255,17 +396,21 @@ Do not give APPROVE unless all are true:
    Codex状態:
    scope内 / scope外:
 
-3. Findings
+3. Audit Evidence Ledger
+   [audit-evidence blocks: SPEC_RECITATION per modified file,
+    CALLSITE per changed symbol, NEGATIVE x2+, READ_MANIFEST]
+
+4. Findings
    [Finding format below]
 
-4. Documentation / history gate
+5. Documentation / history gate
    README:
    docs:
    changelog / history docs:
    generator scripts:
    data history / ledger:
 
-5. Merge decision
+6. Merge decision
    Code Audit:
    CI Verification:
    Codex Verification:

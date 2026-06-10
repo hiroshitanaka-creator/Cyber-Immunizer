@@ -135,7 +135,8 @@ Cyber-Immunizer/
 │   ├── promote_candidate.py    # 採用ゲート通過時の昇格
 │   ├── propose_mutation.py     # LLM変異提案（noop/offline-sample/live-model/paid-credit）
 │   ├── api_budget.py           # API 予算管理（標準ライブラリのみ、fail-closed）
-│   └── update_readme.py        # READMEステータスブロック更新
+│   ├── update_readme.py        # READMEステータスブロック更新
+│   └── validate_audit_evidence.py  # PR監査の証拠台帳を機械検証（PR_AUDIT_PROTOCOL の Audit Evidence Ledger）
 ├── tests/
 │   ├── test_contract.py              # 検出器インターフェース契約テスト（20件）
 │   ├── test_ast_policy.py            # ASTポリシー検証テスト（32件）
