@@ -25,6 +25,14 @@ summaries can help with navigation, but if they conflict with machine evidence,
 source wins. Historical files preserve past state and must not be treated as
 current-state contradictions.
 
+## Canonical architecture reference
+
+The primary system architecture is defined in:
+
+- `docs/AUTONOMOUS_IMMUNE_LOOP_ARCHITECTURE.md` — CANONICAL; defines the Autonomous Immune Loop primary pipeline, lifecycle stages, progress axis, and the subordinate role of audit mechanisms.
+
+Project progress is measured by loop-stage reachability (Observe → … → Next Cycle), not by audit PR count. Audit is subordinate safety infrastructure (Safety Net / Circuit Breaker / Rollback Trigger); it does not own the main pipeline.
+
 ## Required pre-edit checks
 
 Before editing, inspect:

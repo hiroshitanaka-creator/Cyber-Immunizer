@@ -67,6 +67,7 @@ See `docs/audit_gate/PR_AUDIT_PROTOCOL.md` (Terminology rule section) for the fu
 | Secret boundary / GEMINI_API_KEY wording | docs/API_ACTIVATION_CHECKLIST.md | docs/audit_gate/PR_AUDIT_PROTOCOL.md |
 | Rollback/backtrack design | docs/ROLLBACK_BACKTRACK_DESIGN.md | docs/EVOLUTION_HISTORY_AUDIT.md |
 | Offline sample / promote separation | docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md | docs/AUDIT_CHARTER.md |
+| Autonomous Immune Loop architecture / lifecycle progress axis | docs/AUTONOMOUS_IMMUNE_LOOP_ARCHITECTURE.md | docs/PROJECT_STATE.md, data/project_state.json |
 
 ---
 
