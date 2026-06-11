@@ -2,8 +2,14 @@
 
 <!--
 AI_DOC_META
-status: CANONICAL
+document_id: project_operating_system
+risk_class: S3
+status: proposed
+authority_scope: governance_process
 scope: Project-wide minimum operating model. Defines roles, authority, PR risk classes, merge rules, WIP limit, S4 isolation, and project completion state machine.
+current_state_authority: data/project_state.json and docs/PROJECT_STATE.md remain authoritative for runtime/current-state interpretation
+activation: not an AI entrypoint until CLAUDE.md / AGENTS.md / docs/AI_ENTRYPOINT.md are updated in a separate PR
+owner_approval_required: true
 use_for:
   - determining roles and authority boundaries
   - classifying PR risk (S0–S4)
@@ -13,6 +19,7 @@ use_for:
 do_not_use_for:
   - executing paid-credit API runs
   - overriding machine evidence (data/api_usage_ledger.json, data/genome.json)
+  - overriding current-state SSOT in data/project_state.json or docs/PROJECT_STATE.md
 related:
   - docs/PROJECT_STATE.md
   - data/project_state.json
@@ -37,6 +44,25 @@ Project Owner は詳細な実装内容をすべて理解することを前提に
 - 完了状態
 
 この文書の目的は、複雑なルールを増やすことではなく、少数の明確な原則でプロジェクトを完了まで進めることである。
+
+---
+
+## Authority and Activation
+
+This document defines the project governance operating model.
+It does not replace the current-state SSOT.
+
+Current-state authority remains:
+
+1. Machine evidence
+2. `data/project_state.json`
+3. `docs/PROJECT_STATE.md`
+4. Derived summaries
+
+The STATE 1–10 machine in this document tracks the rollout of the operating model.
+It does not change the runtime project phase, `state_id`, paid-credit status, promotion status, or release status.
+
+Until `CLAUDE.md`, `AGENTS.md`, and/or `docs/AI_ENTRYPOINT.md` are updated in a later dedicated PR, this document is not the active AI entrypoint.
 
 ---
 
@@ -279,6 +305,22 @@ S4は、他の変更と同じPRに混ぜてはならない。
 - 目的を単独で定義する
 - 成功条件と停止条件を事前に定義する
 - AIの判断のみで進めてはならない
+
+### S4 Concrete Triggers
+
+以下のいずれかを含むPR・作業・操作はS4として扱う。
+
+| Category | S4 trigger |
+|---|---|
+| API / paid-credit | Gemini API呼び出し、paid-credit run、paid-credit rerun、API budget変更 |
+| GitHub Actions | `workflow_dispatch`実行、manual run、workflow permission変更、`.github/workflows/**`変更 |
+| Promotion / release | `promote_approved`変更、candidate promotion、release/tag作成、release artifact変更 |
+| State / ledger | `data/api_usage_ledger.json`、`data/project_state.json`、promotion/release/API実行結果を記録するledger/state変更 |
+| Core safety boundary | `core/**`のsandbox、AST policy、secret scan、replacement validation、candidate hash検証の緩和 |
+| Model / budget | `live_model_enabled`、`api_mode`、model provider/name、fallback model、budget/cost cap変更 |
+| Secrets / permissions | secrets、tokens、repository permission、workflow permission、environment protection変更 |
+
+不明な場合はS4候補としてHOLDする。
 
 ---
 
