@@ -301,3 +301,91 @@ class TestFailureDiagnosticsIdentifyContractStage:
         marker must not collide with it."""
         assert "API call failed" not in pm._OUTPUT_CONTRACT_STAGE
         assert "propose/output-contract failure" in pm._OUTPUT_CONTRACT_STAGE
+
+
+# ---------------------------------------------------------------------------
+# 6. Paid-credit budget estimation — retry multiplier, not char multiplier
+# ---------------------------------------------------------------------------
+
+
+class TestPaidCreditBudgetRepeatMultiplier:
+    """The paid-credit budget gate must price every permitted API attempt.
+
+    ``max_output_tokens`` is already a token cap, so the conservative
+    character-to-token multiplier applies only to prompt characters.  The only
+    repeat multiplier for output tokens is the bounded request-attempt budget
+    used by the Gemini retry loop.
+    """
+
+    def test_output_tokens_are_multiplied_by_attempt_budget_only(self) -> None:
+        genome = {
+            "model_name": "gemini-2.0-flash",
+            "max_model_requests_per_run": 3,
+        }
+
+        (
+            per_attempt_input_tokens,
+            per_attempt_output_tokens,
+            total_input_tokens,
+            total_output_tokens,
+            _total_cost,
+        ) = pm._estimated_paid_credit_budget(
+            genome,
+            input_chars=10,
+            max_output_tokens=100,
+        )
+
+        assert per_attempt_input_tokens == 20
+        assert per_attempt_output_tokens == 100
+        assert total_input_tokens == 60
+        assert total_output_tokens == 300
+
+    def test_attempt_budget_is_capped_at_retry_hard_limit(self) -> None:
+        genome = {
+            "model_name": "gemini-2.0-flash",
+            "max_model_requests_per_run": pm._GEMINI_API_MAX_ATTEMPTS + 10,
+        }
+
+        assert (
+            pm._effective_request_attempt_budget(genome)
+            == pm._GEMINI_API_MAX_ATTEMPTS
+        )
+
+        (
+            _per_attempt_input_tokens,
+            per_attempt_output_tokens,
+            _total_input_tokens,
+            total_output_tokens,
+            _total_cost,
+        ) = pm._estimated_paid_credit_budget(
+            genome,
+            input_chars=10,
+            max_output_tokens=100,
+        )
+
+        assert per_attempt_output_tokens == 100
+        assert total_output_tokens == 100 * pm._GEMINI_API_MAX_ATTEMPTS
+
+    def test_gemini3_thinking_allowance_is_per_attempt(self) -> None:
+        genome = {
+            "model_name": "gemini-3-flash-preview",
+            "max_model_requests_per_run": 2,
+        }
+
+        (
+            _per_attempt_input_tokens,
+            per_attempt_output_tokens,
+            _total_input_tokens,
+            total_output_tokens,
+            _total_cost,
+        ) = pm._estimated_paid_credit_budget(
+            genome,
+            input_chars=10,
+            max_output_tokens=100,
+        )
+
+        assert (
+            per_attempt_output_tokens
+            == 100 + pm._GEMINI3_THINKING_ESTIMATE_LOW_TOKENS
+        )
+        assert total_output_tokens == per_attempt_output_tokens * 2

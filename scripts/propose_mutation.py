@@ -1592,6 +1592,59 @@ def _propose_via_gemini_live(
     return _parse_and_validate_response(raw_text)  # type: ignore[arg-type]
 
 
+
+
+def _effective_request_attempt_budget(genome: dict) -> int:
+    """Return the bounded Gemini request-attempt budget for one run.
+
+    The genome value represents a cap on generate_content calls, including
+    transient retries.  Budget estimation must use the same effective bound as
+    _call_gemini_api so a retry-capable run is charged against the pre-call
+    budget for every permitted attempt, not just the final attempt.
+    """
+    request_attempt_budget = int(genome.get("max_model_requests_per_run", 1))
+    return min(request_attempt_budget, _GEMINI_API_MAX_ATTEMPTS)
+
+
+def _estimated_paid_credit_budget(
+    genome: dict,
+    input_chars: int,
+    max_output_tokens: int,
+) -> tuple[int, int, int, int, float]:
+    """Estimate paid-credit tokens/cost for all allowed request attempts.
+
+    Returns:
+        (per_attempt_input_tokens, per_attempt_output_tokens,
+         total_input_tokens, total_output_tokens, total_cost_usd)
+
+    max_output_tokens is already a token cap.  It must not be passed through
+    the character-to-token multiplier.  The retry/request-attempt budget is a
+    separate repeat multiplier applied to both input and output token estimates.
+    """
+    from scripts import api_budget as budget  # standard-library-only module
+
+    model_name = str(genome.get("model_name", "gemini-2.0-flash"))
+    effective_attempts = _effective_request_attempt_budget(genome)
+
+    per_attempt_input_tokens = budget.estimate_tokens_from_chars(input_chars)
+    per_attempt_output_tokens = max_output_tokens
+    if model_name.startswith("gemini-3"):
+        per_attempt_output_tokens += _GEMINI3_THINKING_ESTIMATE_LOW_TOKENS
+
+    total_input_tokens = per_attempt_input_tokens * effective_attempts
+    total_output_tokens = per_attempt_output_tokens * effective_attempts
+    total_cost = budget.estimate_cost_usd(
+        total_input_tokens, total_output_tokens, model_name
+    )
+    return (
+        per_attempt_input_tokens,
+        per_attempt_output_tokens,
+        total_input_tokens,
+        total_output_tokens,
+        total_cost,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Paid-credit Gemini API call — --gemini-paid-credit path
 # ---------------------------------------------------------------------------
@@ -1623,10 +1676,16 @@ def _propose_via_gemini_paid_credit(
     max_prompt_chars: int = int(genome.get("max_prompt_chars", 12000))
     api_mode: str = genome.get("api_mode", "gemini_paid_credit")
     # Pass genome's request budget so that retries never exceed the allowed
-    # number of generate_content calls for this run.  With the current default
-    # of max_model_requests_per_run=1 the effective retry count is 1 (no retry),
-    # keeping actual API calls in lockstep with the budget estimate.
-    request_attempt_budget: int = int(genome.get("max_model_requests_per_run", 1))
+    # number of generate_content calls for this run.  Budget estimation below
+    # uses the same bounded attempt count so retry-capable runs cannot pass the
+    # budget gate with only a one-attempt estimate.
+    request_attempt_budget: int = _effective_request_attempt_budget(genome)
+    if request_attempt_budget < 1:
+        return None, (
+            "Gemini API call failed: invalid max_model_requests_per_run="
+            f"{genome.get('max_model_requests_per_run')!r} — "
+            "request budget must be >= 1."
+        )
 
     # Build user prompt (never includes secrets)
     user_prompt = _build_user_prompt(genome, detector_source)
@@ -1647,23 +1706,18 @@ def _propose_via_gemini_paid_credit(
 
     # Cost estimation
     input_chars = len(full_prompt_for_scan)
+    (
+        per_attempt_input_tokens,
+        per_attempt_output_tokens,
+        est_input_tokens,
+        est_output_tokens,
+        est_cost,
+    ) = _estimated_paid_credit_budget(genome, input_chars, max_output_tokens)
     # estimated_output_chars is kept for the ledger diagnostic record only.
     # max_output_tokens is already a token cap — NOT a character count.
-    # Passing it through estimate_tokens_from_chars() would multiply the token
-    # cap by the char-to-token multiplier and make valid budgets fail.
-    # The conservative estimator applies only to character-counted inputs.
-    #
-    # For Gemini 3 models running with thinking_level="low", thinking tokens are
-    # billed alongside output tokens per Google pricing docs.  Add a conservative
-    # allowance (_GEMINI3_THINKING_ESTIMATE_LOW_TOKENS) — not a hard cap, but a
-    # prudent worst-case estimate for the pre-call budget gate.
-    effective_output_token_budget = max_output_tokens
-    if model_name.startswith("gemini-3"):
-        effective_output_token_budget += _GEMINI3_THINKING_ESTIMATE_LOW_TOKENS
-    estimated_output_chars = effective_output_token_budget * 4  # ledger diagnostic only
-    est_input_tokens = budget.estimate_tokens_from_chars(input_chars)
-    est_output_tokens = effective_output_token_budget
-    est_cost = budget.estimate_cost_usd(est_input_tokens, est_output_tokens, model_name)
+    # The retry/request-attempt budget is the only repeat multiplier applied to
+    # output-token estimates.
+    estimated_output_chars = per_attempt_output_tokens * request_attempt_budget * 4
 
     # Load ledger and assert budget — FAIL CLOSED for missing/malformed ledger.
     # Use strict_load_ledger so that a missing ledger is treated as
@@ -1703,7 +1757,7 @@ def _propose_via_gemini_paid_credit(
     if (
         api_err == ""
         and actual_billable_response_tokens is not None
-        and actual_billable_response_tokens > est_output_tokens
+        and actual_billable_response_tokens > per_attempt_output_tokens
     ):
         overrun_err = (
             "actual billable response tokens exceeded pre-call estimate; "
@@ -2016,17 +2070,16 @@ def run_gemini_paid_credit_preflight() -> tuple[dict, str]:
     input_chars = len(full_prompt)
     # max_output_tokens is already a token cap — NOT a character count.
     # The conservative char-to-token estimator applies only to character-counted
-    # inputs (like the prompt).  Re-estimating the token cap via
-    # estimate_tokens_from_chars would multiply it by the char multiplier,
-    # making valid budgets fail.
-    est_input_tokens = budget.estimate_tokens_from_chars(input_chars)
-    # For Gemini 3 models running with thinking_level="low", add a conservative
-    # thinking token allowance to the preflight budget estimate.
-    effective_output_token_budget = max_output_tokens
-    if model_name.startswith("gemini-3"):
-        effective_output_token_budget += _GEMINI3_THINKING_ESTIMATE_LOW_TOKENS
-    est_output_tokens = effective_output_token_budget
-    est_cost = budget.estimate_cost_usd(est_input_tokens, est_output_tokens, model_name)
+    # inputs (like the prompt).  The request-attempt budget is applied as a
+    # separate repeat multiplier so preflight reflects the worst-case cost of
+    # all permitted transient retries.
+    (
+        est_input_tokens,
+        est_output_tokens,
+        total_est_input_tokens,
+        total_est_output_tokens,
+        est_cost,
+    ) = _estimated_paid_credit_budget(genome, input_chars, max_output_tokens)
 
     # --- Step 17: Budget availability check ---
     budget_ok, budget_err_msg = budget.assert_budget_available(genome, ledger, est_cost)
