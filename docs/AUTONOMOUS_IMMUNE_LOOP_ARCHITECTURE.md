@@ -170,7 +170,7 @@ The current lifecycle position is determined by `data/project_state.json` and `d
 | Apply | Generate candidate file from patch | `mutation_patch.json` | Candidate file | Syntactically valid, passes AST policy | Re-Materialize or re-Propose | **Not reached** (`apply_reached: false`) |
 | Evaluate | Measure candidate fitness in sandbox | Candidate file | Fitness report | Adoption gate threshold met | Reject; re-Propose | **Not reached** (`evaluate_reached: false`) |
 | Adopt | Stage candidate for promotion | Fitness report | Adoption decision record | Positive adoption record | Hold; re-Evaluate or re-Propose | **Not reached** |
-| Promote | Update detector / genome / history | Adoption record | Updated core/detector.py, genome, history | Atomic update; README refreshed | Block; hold at Adopt | **Not reached** (`promote_approved: false`) |
+| Promote | Update detector / genome / history | Adoption record | Updated core/detector.py, genome, history | Sequential update (no transaction); README refreshed | Block; hold at Adopt | **Not reached** (`promote_approved: false`) |
 | Memory | Record cycle outcome; prep next cycle | Promotion outcome | Updated evolution history | History entry appended | Retry / partial-cycle log | **Not reached** |
 | Next Cycle | Restart loop with improved genome | Updated genome + history | New Observe phase | Loop iterates with promoted genome | N/A | **Not reached** |
 
