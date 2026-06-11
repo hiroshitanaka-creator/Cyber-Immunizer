@@ -260,15 +260,16 @@ Historical docs preserve past state and must not be rewritten merely because cur
 
 ## 8. Non-Goals for This Document
 
-This document is architecture-only. The following actions are explicitly out of scope:
+This document defines architecture only. The following remain out of scope regardless of PR activity:
 
 - No paid-credit run.
 - No API call.
 - No workflow dispatch.
 - No promotion.
-- No data-state update.
-- No README update.
+- No data-state update (`data/**` frozen).
 - No historical-doc synchronization.
 - No audit protocol expansion.
 - No runtime code change.
-- No changes to `CLAUDE.md`, `AGENTS.md`, `.github/**`, `core/**`, `scripts/**`, or `data/**`.
+- No changes to `.github/**`, `core/**`, `scripts/**`.
+
+Note: `README.md`, `CLAUDE.md`, and `AGENTS.md` may receive cross-reference links pointing to this document as a separate, Project Owner-approved step. Such cross-reference additions do not change the architecture defined here and do not affect runtime behavior.
