@@ -132,7 +132,7 @@ Each stage is described below.
 - **Purpose**: Update the detector, genome, and evolution history under configured promotion rules and with Project Owner approval.
 - **Input**: Adoption decision record from Adopt.
 - **Output**: Updated `core/detector.py`, `data/genome.json`, `data/evolution_history.json`.
-- **Success evidence**: All three targets updated atomically; README status block refreshed by generator.
+- **Success evidence**: All three targets updated sequentially (`core/detector.py` → `data/genome.json` → `data/evolution_history.json`); README status block refreshed by generator. Note: no transaction or rollback exists — partial-promotion failure is possible if a later write fails.
 - **Failure return path**: Promotion blocked (missing approval, failing checks) → hold at Adopt; do not promote.
 - **Current reachability (Phase 3)**: Not reached — `promote_reached: false`, `promote_approved: false` per `data/project_state.json`.
 
@@ -229,8 +229,8 @@ not by the number of audit PRs merged.
 | `README.md` | Public overview and derived status summary. | Do not treat as higher authority than project_state. |
 | `scripts/update_readme.py` | README generated status-block updater. | Reference only; do not modify. |
 | `docs/human用roadmap/phase3_to_phase7_roadmap.md` | Project Owner roadmap / handoff context. | Historical or planning context must not override current-state SSOT. |
-| `CLAUDE.md` | Claude operational instructions and receiving gate. | Derived operational summary; frozen in this PR. |
-| `AGENTS.md` | Codex workflow rules. | Derived operational summary; frozen in this PR. |
+| `CLAUDE.md` | Claude operational instructions and receiving gate. | Derived operational summary; cross-reference link to this document added in this PR. |
+| `AGENTS.md` | Codex workflow rules. | Derived operational summary; cross-reference link to this document added in this PR. |
 | `docs/audit_gate/**` | Audit protocols and task/PR gates. | Subordinate safety infrastructure, not the main immune loop. |
 
 ### Current-state authority order (preserved from docs/PROJECT_STATE.md)
