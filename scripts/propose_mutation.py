@@ -282,6 +282,7 @@ STRICT RULES — YOU MUST FOLLOW ALL OF THEM:
     payloads, shellcode, or real attack strings.
 16. Do not include raw offensive payloads. Use only the neutralized
     symbolic indicator tokens defined in the test corpus.
+17. Avoid runtime allocation risk: non-constant repeat multiplier is rejected (e.g. 0.3 * count; use constant float 0.7).
 
 REPLACEMENT_CODE FORMAT CONTRACT:
 replacement_code is inserted as-is as the body of inspect_request().
@@ -660,6 +661,10 @@ def _validate_replacement_code(code: str) -> str:
        c. All indentation counts must be multiples of 4; non-multiples
           (e.g. 6 spaces) indicate misaligned indentation and are rejected.
     6. Python syntax (AST parse only — code is never executed).
+    6.5 Runtime allocation risk check — repeat-multiplier sub-case only (mirrors
+       the BinOp(Mult) branch of apply-side check_runtime_allocation_risks):
+       a non-constant repeat multiplier in BinOp(Mult) is rejected fail-closed
+       before the patch is written.
     7. Semantic body validation (after successful AST parse):
        - replacement body (function body past _mutation_anchor) must not be empty.
        - replacement body must not contain only pass / comments.
@@ -792,6 +797,36 @@ def _validate_replacement_code(code: str) -> str:
     except UnicodeError as exc:
         return f"replacement_code is not valid Python source text: {type(exc).__name__}"
     else:
+        # 6.5 Runtime allocation risk check — repeat-multiplier sub-case only
+        # (G1 gap closure; S4 artifact 7571321383 failure cause).
+        # Detects BinOp(Mult) where a non-integer constant (float, string, …)
+        # is multiplied by a bare Name variable — the exact pattern that caused
+        # the S4 run-#47 apply failure (e.g. confidence = 0.3 * indicator_count).
+        # Violation string matches core/policy.py _check_repeat_mult() so error
+        # messages are consistent between propose and apply stages.
+        # Excluded: Call-node multipliers (e.g. 0.12 * len(matched)) and
+        # Name × Name / Name × Call expressions — only the non-int-const × Name
+        # shape is targeted here.
+        for _g1_node in ast.walk(tree):
+            if isinstance(_g1_node, ast.BinOp) and isinstance(_g1_node.op, ast.Mult):
+                _g1_left, _g1_right = _g1_node.left, _g1_node.right
+                _g1_left_nonint = (
+                    isinstance(_g1_left, ast.Constant)
+                    and not isinstance(_g1_left.value, int)
+                )
+                _g1_right_nonint = (
+                    isinstance(_g1_right, ast.Constant)
+                    and not isinstance(_g1_right.value, int)
+                )
+                if (
+                    (_g1_left_nonint and isinstance(_g1_right, ast.Name))
+                    or (_g1_right_nonint and isinstance(_g1_left, ast.Name))
+                ):
+                    return (
+                        "replacement_code runtime allocation risk violation: "
+                        "runtime allocation risk: repeat multiplier is non-constant "
+                        "(cannot bound statically) — fail-closed"
+                    )
         # 7. Semantic body validation.
         # Find _candidate_body in the parsed tree and inspect its body.
         # body[0] is always _mutation_anchor = None (the anchor statement).
