@@ -18,8 +18,12 @@ Codex Review P2 指摘を受けて Name/Call/Attribute オペランドと int/fl
 
 | ファイル | 変更種別 | 内容 |
 |---|---|---|
-| `scripts/propose_mutation.py` | 編集 | check 6.5 拡張（G1 Codex P2 対応）、G1 helper 関数追加、`_SAMPLE_MUTATION` をブランチベース confidence に更新、docstring 更新 |
-| `tests/test_propose_output_contract.py` | 編集 | `TestRuntimeAllocationRiskGap` クラスを 17 テストに拡張（12 rejection + 5 regression） |
+| `scripts/propose_mutation.py` | 編集 | check 6.5 拡張（G1 Codex P2 対応）、G1 helper 関数追加（`_g1_is_repeat_const`, `_g1_is_runtime_derived`）、`_SAMPLE_MUTATION` をブランチベース confidence に更新、docstring 更新 |
+| `tests/test_propose_output_contract.py` | 編集 | `TestRuntimeAllocationRiskGap` クラスを 27 テストに拡張（12 numeric + 6 str + 2 BinOp + 8 regression = 27 テスト）、合計 54 テスト |
+| `tests/test_gemini_integration.py` | 編集 | `0.12 * len(matched)` 含む 4 箇所の fixture をブランチベース confidence に更新 |
+| `tests/test_project_state_sync.py` | 編集 | `assert actual == 3` → `assert actual == 4`（S4 run #47 追加分） |
+| `data/project_state.json` | 編集 | success_records 3→4、S4 Outcome B 実態（apply_reached=true）を反映 |
+| `docs/PROJECT_STATE.md` | 編集 | S4 run #47 事実（4件目成功・patch 生成・apply 到達・G1 失敗）を反映 |
 | `docs/task_reports/TASK_REPORT_G1_REPEAT_MULTIPLIER_GAP_CLOSURE_20260612.md` | 更新 | Codex P2 解決状況・後検証結果を追記 |
 
 ---
@@ -62,9 +66,9 @@ Codex Review P2 指摘を受けて Name/Call/Attribute オペランドと int/fl
 
 ### `tests/test_propose_output_contract.py`
 
-`TestRuntimeAllocationRiskGap` クラスを 5 テスト → 17 テストに拡張:
+`TestRuntimeAllocationRiskGap` クラスを 27 テストに拡張（合計 54 テスト）:
 
-**12 rejection テスト（新規）:**
+**12 numeric rejection テスト（float/int × Name/Call/Attribute 各方向）:**
 
 | テスト名 | 検証パターン |
 |---|---|
@@ -81,28 +85,51 @@ Codex Review P2 指摘を受けて Name/Call/Attribute オペランドと int/fl
 | `test_int_times_attribute_rejected` | `2 * request.score` (int × Attribute) |
 | `test_attribute_times_int_rejected` | `request.score * 2` (Attribute × int) |
 
-**5 regression テスト（旧 5 テストを更新・置換）:**
+**6 str rejection テスト（Codex P2 #2 対応）:**
+
+| テスト名 | 検証パターン |
+|---|---|
+| `test_str_times_call_rejected` | `"a" * len(request.path)` (str × Call) |
+| `test_call_times_str_rejected` | `len(request.path) * "a"` (Call × str) |
+| `test_str_times_name_rejected` | `"a" * indicator_count` (str × Name) |
+| `test_name_times_str_rejected` | `indicator_count * "a"` (Name × str) |
+| `test_str_times_attribute_rejected` | `"a" * request.score` (str × Attribute) |
+| `test_attribute_times_str_rejected` | `request.score * "a"` (Attribute × str) |
+
+**2 BinOp arithmetic rejection テスト（Codex P2 #3 対応）:**
+
+| テスト名 | 検証パターン |
+|---|---|
+| `test_float_times_arithmetic_name_rejected` | `0.3 * (indicator_count + 1)` (float × BinOp[Name]) |
+| `test_str_times_arithmetic_call_rejected` | `"a" * (len(matched) + 1)` (str × BinOp[Call]) |
+
+**8 regression テスト:**
 
 | テスト名 | 検証内容 |
 |---|---|
+| `test_constant_only_multiplication_passes` | `0.3 * 0.9` は誤検知しない |
 | `test_branch_based_confidence_still_passes` | ブランチベース confidence が拒否されない |
 | `test_valid_fixture_still_passes` | `_VALID_BODY` が引き続き合格する |
 | `test_offline_sample_still_passes` | `_SAMPLE_MUTATION`（ブランチベース更新後）が引き続き合格する |
 | `test_full_contract_path_rejects_unsafe_multiplier` | `_parse_and_validate_response` でも拒否される |
+| `test_full_contract_path_rejects_str_repeat_multiplier` | str 乗算のフルコントラクトパステスト |
 | `test_prompt_states_runtime_allocation_obligation` | プロンプトに 3 フレーズが存在する |
+| `test_g1_branch_body_passes_full_validation` | `_G1_BRANCH_BODY` が合格する |
 
 ---
 
-## Codex Review P2 解決状況
+## Codex Review P2 解決状況（GitHub スレッド全解決）
 
 | Codex 指摘 | 内容 | 対応 |
 |---|---|---|
-| P2: check too narrow | check 6.5 が `non-int Constant × Name` のみ対象 | `_g1_is_numeric_const × _g1_is_runtime_derived` に拡張、12 パターン全対応 |
-| P2: Call オペランド未対応 | `0.12 * len(matched)` が通過してしまう | `_g1_is_runtime_derived` に `ast.Call` を含める |
-| P2: Attribute オペランド未対応 | `0.2 * request.score` が通過してしまう | `_g1_is_runtime_derived` に `ast.Attribute` を含める |
-| P2: int 定数未対応 | `2 * indicator_count` が通過してしまう | `_g1_is_numeric_const` で `int` も対象にする |
-| P2: 逆順オペランド不完全 | `indicator_count * 0.3` 等が通過してしまう | `or` の両方向で両 helper を呼び出す |
-| P2: offline sample が G1 違反 | `per_signal_boost * len(matched)` がテスト通過していたが G1 違反 | `_SAMPLE_MUTATION` をブランチベース confidence に変更 |
+| P2 #1: check too narrow | check 6.5 が `non-int Constant × Name` のみ対象。`0.3 * len(matched)`, `2 * indicator_count` が通過 | `_g1_is_numeric_const × _g1_is_runtime_derived` に拡張（Call/Attribute/int 定数を含む）。12 numeric パターン全対応 |
+| P2 #2: str 定数未対応 | `"a" * len(request.path)` が通過してしまう | `_g1_is_repeat_const` に `str` を追加（`_g1_is_numeric_const` から改名）。str × Name/Call/Attribute（両方向）6 パターン全対応 |
+| P2 #3: arithmetic BinOp 未対応 | `0.3 * (indicator_count + 1)` が通過してしまう | `_g1_is_runtime_derived` に `ast.BinOp` 対応追加（`ast.walk` で Name/Call/Attribute を検索）。定数のみ BinOp は誤検知しない |
+
+**GitHub スレッド解決状況:**
+- `PRRT_kwDOSnyUcM6I6ZQu` (P2 #1) — resolved ✅
+- `PRRT_kwDOSnyUcM6JEWws` (P2 #2) — resolved ✅
+- `PRRT_kwDOSnyUcM6JE8hb` (P2 #3) — resolved ✅
 
 ---
 
@@ -117,14 +144,14 @@ Codex Review P2 指摘を受けて Name/Call/Attribute オペランドと int/fl
 
 ---
 
-## テスト検証結果
+## テスト検証結果（最終）
 
 ```
-pytest tests/test_propose_output_contract.py -q
-→ 44 passed in 0.10s
-
-pytest tests/test_gemini_paid_credit.py tests/test_workflow.py -q
-→ 195 passed in 0.33s
+pytest tests/test_propose_output_contract.py -q  → 54 passed
+pytest tests/test_gemini_integration.py -q        → 264 passed
+pytest tests/test_project_state_sync.py -q        → 10 passed
+pytest tests/test_gemini_paid_credit.py tests/test_workflow.py -q → 195 passed
+pytest -q (full suite)                            → 1947 passed, 0 failed ✅
 ```
 
 ---
@@ -132,28 +159,33 @@ pytest tests/test_gemini_paid_credit.py tests/test_workflow.py -q
 ## 後検証
 
 ```
-git grep "_g1_is_numeric_const\|_g1_is_runtime_derived" scripts/propose_mutation.py
-→ scripts/propose_mutation.py:def _g1_is_numeric_const(node: ast.expr) -> bool:
+git grep "_g1_is_repeat_const\|_g1_is_runtime_derived" scripts/propose_mutation.py
+→ scripts/propose_mutation.py:def _g1_is_repeat_const(node: ast.expr) -> bool:
 → scripts/propose_mutation.py:def _g1_is_runtime_derived(node: ast.expr) -> bool:
-→ scripts/propose_mutation.py:    (_g1_is_numeric_const(_g1_l) and _g1_is_runtime_derived(_g1_r))
-→ scripts/propose_mutation.py:    or (_g1_is_numeric_const(_g1_r) and _g1_is_runtime_derived(_g1_l))
+→ scripts/propose_mutation.py:    (_g1_is_repeat_const(_g1_l) and _g1_is_runtime_derived(_g1_r))
+→ scripts/propose_mutation.py:    or (_g1_is_repeat_const(_g1_r) and _g1_is_runtime_derived(_g1_l))
 
 git grep "per_signal_boost" scripts/propose_mutation.py
 → (no output — multiplier expression removed from _SAMPLE_MUTATION)
 
 git grep "repeat multiplier" scripts/propose_mutation.py
 → (violation string present in check 6.5 and rule 17)
+
+# CI状態（PR #91, commit 506fc3e）:
+# Test Suite (job 81000530102): completed / success
+# Test Suite (job 81000523704): completed / success
+# mergeable_state: "clean"
 ```
 
 ---
 
 ## 残存事項・注意点
 
-1. **`tests/test_gemini_integration.py` fixture 更新**: `0.12 * len(matched)` を含む 3 テスト fixture が G1 違反となる。FROZEN ファイルのため別タスクで対応が必要。
+1. **次の paid-credit run**: propose/apply 両側でルールが完全に一致した（int/float/str × Name/Call/Attribute/BinOp(runtime) の全パターン対応）。Gemini が repeat multiplier を使用した場合は propose 段階で失敗し、不要な artifact アップロードを防ぐ。
 
-2. **`data/project_state.json` success count 不一致**: 前タスクから残存。本タスクのスコープ外。
+2. **`CLAUDE.md` 出力ルール（日本語最終出力 + SendUserFile MD 配信）**: PR #91 diff 整理のためリバート済み。Owner が必要と判断した場合は別 PR で main に反映する。
 
-3. **次の paid-credit run**: propose/apply 両側でルールが完全に一致した（18 パターン全対応）。Gemini が repeat multiplier を使用した場合は propose 段階で失敗し、不要な artifact アップロードを防ぐ。
+3. **PR #91 マージ待ち**: コード変更・CI・Codex Review はすべて完了。Project Owner の最終マージ承認が必要。
 
 ---
 
