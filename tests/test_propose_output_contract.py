@@ -307,41 +307,116 @@ class TestFailureDiagnosticsIdentifyContractStage:
 # 6. Runtime allocation risk gap (G1) — S4 repeat-multiplier regression
 # ---------------------------------------------------------------------------
 
+# Helper: build a minimal-valid replacement_code body with the given
+# confidence expression injected as the second statement.
+def _g1_body(conf_expr: str) -> str:
+    return (
+        '    matched = ["x"]\n'
+        f'    confidence = {conf_expr}\n'
+        '    return DetectionResult(blocked=True, reason="test", '
+        'confidence=confidence, matched_signals=tuple(matched))'
+    )
 
-# A replacement_code body whose confidence expression uses a non-constant
-# repeat multiplier (float * Name).  This is the pattern that caused S4
-# run #47 (artifact 7571321383) to fail at apply_mutation.py step 7.
-_G1_REPEAT_MULT_BODY = (
-    '    indicator_count = len(matched)\n'
-    '    confidence = 0.3 * indicator_count\n'
-    '    return DetectionResult(blocked=False, reason="no match", '
-    'confidence=0.0, matched_signals=())'
+
+# Branch-based confidence — no multiplier, always safe.
+_G1_BRANCH_BODY = (
+    '    matched = ["x"]\n'
+    '    confidence = 0.5\n'
+    '    if len(matched) > 1:\n'
+    '        confidence = 0.7\n'
+    '    if len(matched) > 2:\n'
+    '        confidence = 0.9\n'
+    '    return DetectionResult(blocked=True, reason="test", '
+    'confidence=confidence, matched_signals=tuple(matched))'
 )
 
 
 class TestRuntimeAllocationRiskGap:
-    """Pin the G1 gap closure so propose and apply share the exact same
-    repeat-multiplier constraint and cannot diverge in future runs."""
+    """Pin the G1 gap closure: propose-side check 6.5 must reject all 12
+    multiplication patterns that apply-side core/policy.py _check_repeat_mult()
+    rejects, covering both operand orders and all runtime-expression kinds."""
 
-    def test_non_constant_repeat_multiplier_rejected(self) -> None:
-        """0.3 * indicator_count (float * Name) must be rejected by
-        _validate_replacement_code at check 6.5 before reaching the apply side."""
-        err = pm._validate_replacement_code(_G1_REPEAT_MULT_BODY)
-        assert err != "", "non-constant repeat multiplier must be rejected"
-        assert "runtime allocation risk" in err, (
-            f"error must name the violation category, got: {err!r}"
-        )
-        assert "repeat multiplier is non-constant" in err, (
-            f"error must include the exact policy violation string, got: {err!r}"
+    # --- 12 rejection tests ---------------------------------------------------
+
+    def test_float_times_name_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("0.3 * indicator_count"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_name_times_float_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("indicator_count * 0.3"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_float_times_call_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("0.12 * len(matched)"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_call_times_float_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("len(matched) * 0.12"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_float_times_attribute_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("0.2 * request.score"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_attribute_times_float_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("request.score * 0.2"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_int_times_name_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("2 * indicator_count"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_name_times_int_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("indicator_count * 2"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_int_times_call_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("2 * len(matched)"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_call_times_int_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("len(matched) * 2"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_int_times_attribute_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("2 * request.score"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_attribute_times_int_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("request.score * 2"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    # --- 5 pass-through / regression tests ------------------------------------
+
+    def test_branch_based_confidence_still_passes(self) -> None:
+        """Branch-based confidence (no multiplier) must not be flagged."""
+        assert pm._validate_replacement_code(_G1_BRANCH_BODY) == "", (
+            "branch-based confidence must pass check 6.5"
         )
 
-    def test_non_constant_repeat_multiplier_rejected_through_full_contract_path(
-        self,
-    ) -> None:
-        """End to end: a schema-valid patch carrying the G1 body is rejected
-        by _parse_and_validate_response and yields no patch dict."""
-        patch, err = pm._parse_and_validate_response(_patch_json(_G1_REPEAT_MULT_BODY))
-        assert patch is None, "G1 body must not produce a valid patch"
+    def test_valid_fixture_still_passes(self) -> None:
+        """Standard _VALID_BODY fixture must continue to pass after G1 broadening."""
+        assert pm._validate_replacement_code(_VALID_BODY) == "", (
+            "valid fixture must still pass after G1 check broadening"
+        )
+
+    def test_offline_sample_still_passes(self) -> None:
+        """Offline sample must pass: it uses branch-based confidence after the
+        _SAMPLE_MUTATION update, so no multiplier expression is present."""
+        patch, err = pm._parse_and_validate_response(
+            json.dumps(pm._SAMPLE_MUTATION)
+        )
+        assert err == "", (
+            f"offline sample must still pass after G1 broadening, got: {err!r}"
+        )
+        assert patch is not None
+
+    def test_full_contract_path_rejects_unsafe_multiplier(self) -> None:
+        """End to end: a schema-valid patch carrying a G1-violating body is
+        rejected by _parse_and_validate_response and yields no patch dict."""
+        unsafe_body = _g1_body("0.3 * indicator_count")
+        patch, err = pm._parse_and_validate_response(_patch_json(unsafe_body))
+        assert patch is None, "G1-violating body must not produce a valid patch"
         assert "runtime allocation risk" in err, (
             f"contract-path error must name the G1 violation, got: {err!r}"
         )
@@ -359,22 +434,3 @@ class TestRuntimeAllocationRiskGap:
         assert "non-constant" in prompt, (
             "prompt must use 'non-constant' to describe the rejected multiplier pattern"
         )
-
-    def test_valid_fixture_still_passes_validator(self) -> None:
-        """The G1 check must not break valid replacement_code that contains no
-        non-constant multiplication."""
-        assert pm._validate_replacement_code(_VALID_BODY) == "", (
-            "valid fixture must still pass after G1 check is added"
-        )
-
-    def test_offline_sample_still_passes_full_contract_path(self) -> None:
-        """The offline sample uses per_signal_boost * len(matched) where both
-        operands are _looks_like_int_expr=True (Name * Call), so it must NOT
-        be flagged — only float-constant * Name is rejected."""
-        patch, err = pm._parse_and_validate_response(
-            json.dumps(pm._SAMPLE_MUTATION)
-        )
-        assert err == "", (
-            f"offline sample must still pass after G1 check, got: {err!r}"
-        )
-        assert patch is not None

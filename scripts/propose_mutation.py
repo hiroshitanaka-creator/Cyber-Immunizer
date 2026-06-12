@@ -203,9 +203,13 @@ _SAMPLE_MUTATION: dict = {
 
     if matched:
         # Multi-signal matches get progressively higher confidence.
-        base_confidence = 0.5
-        per_signal_boost = 0.12
-        confidence = min(1.0, base_confidence + per_signal_boost * len(matched))
+        # Branch-based thresholds avoid runtime allocation risk from
+        # multiplier expressions (e.g. float * len(matched)).
+        confidence = 0.5
+        if len(matched) > 1:
+            confidence = 0.7
+        if len(matched) > 2:
+            confidence = 0.9
         return DetectionResult(
             blocked=True,
             reason=f"suspicious indicator matched: {matched[0]!r}",
@@ -640,6 +644,26 @@ def _validate_detection_result_static_values(call: ast.Call) -> str:
 
 
 # ---------------------------------------------------------------------------
+# G1 repeat-multiplier helpers — used by check 6.5 in _validate_replacement_code
+# ---------------------------------------------------------------------------
+
+
+def _g1_is_numeric_const(node: ast.expr) -> bool:
+    """Return True if node is an integer or float literal (numeric constant)."""
+    return isinstance(node, ast.Constant) and isinstance(node.value, (int, float))
+
+
+def _g1_is_runtime_derived(node: ast.expr) -> bool:
+    """Return True if node is a runtime-derived expression that apply-side
+    core.policy._looks_like_int_expr treats as potentially integer-typed.
+
+    Covers: bare variable names (ast.Name), attribute accesses (ast.Attribute,
+    e.g. request.score), and function/method calls (ast.Call, e.g. len(matched)).
+    """
+    return isinstance(node, (ast.Name, ast.Attribute, ast.Call))
+
+
+# ---------------------------------------------------------------------------
 # Helper: validate replacement_code for forbidden patterns
 # ---------------------------------------------------------------------------
 
@@ -661,10 +685,12 @@ def _validate_replacement_code(code: str) -> str:
        c. All indentation counts must be multiples of 4; non-multiples
           (e.g. 6 spaces) indicate misaligned indentation and are rejected.
     6. Python syntax (AST parse only — code is never executed).
-    6.5 Runtime allocation risk check — repeat-multiplier sub-case only (mirrors
-       the BinOp(Mult) branch of apply-side check_runtime_allocation_risks):
-       a non-constant repeat multiplier in BinOp(Mult) is rejected fail-closed
-       before the patch is written.
+    6.5 Runtime allocation risk check — repeat-multiplier (G1 gap closure, mirrors
+       apply-side core/policy.py _check_repeat_mult()): BinOp(Mult) where one
+       operand is a numeric constant (int or float) and the other is a
+       runtime-derived expression (Name, Call, or Attribute) is rejected
+       fail-closed before the patch is written. Covers all 12 operand-order
+       combinations: float/int × Name/Call/Attribute and reversed.
     7. Semantic body validation (after successful AST parse):
        - replacement body (function body past _mutation_anchor) must not be empty.
        - replacement body must not contain only pass / comments.
@@ -797,30 +823,21 @@ def _validate_replacement_code(code: str) -> str:
     except UnicodeError as exc:
         return f"replacement_code is not valid Python source text: {type(exc).__name__}"
     else:
-        # 6.5 Runtime allocation risk check — repeat-multiplier sub-case only
-        # (G1 gap closure; S4 artifact 7571321383 failure cause).
-        # Detects BinOp(Mult) where a non-integer constant (float, string, …)
-        # is multiplied by a bare Name variable — the exact pattern that caused
-        # the S4 run-#47 apply failure (e.g. confidence = 0.3 * indicator_count).
-        # Violation string matches core/policy.py _check_repeat_mult() so error
-        # messages are consistent between propose and apply stages.
-        # Excluded: Call-node multipliers (e.g. 0.12 * len(matched)) and
-        # Name × Name / Name × Call expressions — only the non-int-const × Name
-        # shape is targeted here.
+        # 6.5 Runtime allocation risk check — repeat-multiplier (G1 gap closure).
+        # Rejects BinOp(Mult) where one operand is a numeric constant (int or
+        # float) and the other is a runtime-derived expression (Name, Call, or
+        # Attribute) — mirrors apply-side core/policy.py _check_repeat_mult().
+        # Covers all 12 rejection patterns (both operand orders, all runtime
+        # expression kinds, both int and float constants):
+        #   float×Name, float×Call, float×Attribute (and reversed)
+        #   int×Name, int×Call, int×Attribute (and reversed)
+        # Violation string matches core/policy.py exactly for consistent errors.
         for _g1_node in ast.walk(tree):
             if isinstance(_g1_node, ast.BinOp) and isinstance(_g1_node.op, ast.Mult):
-                _g1_left, _g1_right = _g1_node.left, _g1_node.right
-                _g1_left_nonint = (
-                    isinstance(_g1_left, ast.Constant)
-                    and not isinstance(_g1_left.value, int)
-                )
-                _g1_right_nonint = (
-                    isinstance(_g1_right, ast.Constant)
-                    and not isinstance(_g1_right.value, int)
-                )
+                _g1_l, _g1_r = _g1_node.left, _g1_node.right
                 if (
-                    (_g1_left_nonint and isinstance(_g1_right, ast.Name))
-                    or (_g1_right_nonint and isinstance(_g1_left, ast.Name))
+                    (_g1_is_numeric_const(_g1_l) and _g1_is_runtime_derived(_g1_r))
+                    or (_g1_is_numeric_const(_g1_r) and _g1_is_runtime_derived(_g1_l))
                 ):
                     return (
                         "replacement_code runtime allocation risk violation: "
