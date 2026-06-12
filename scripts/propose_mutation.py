@@ -648,12 +648,13 @@ def _validate_detection_result_static_values(call: ast.Call) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _g1_is_numeric_const(node: ast.expr) -> bool:
+def _g1_is_repeat_const(node: ast.expr) -> bool:
     """Return True if node is an int, float, or string literal constant.
 
-    String constants are included because ``str * runtime_int`` is string
-    repetition — the same runtime allocation risk as numeric multiplication
-    (apply-side core/policy.py _check_repeat_mult rejects this shape too).
+    All three types are repeat-multiplier bases that apply-side
+    core/policy.py _check_repeat_mult() rejects when the other operand is
+    runtime-derived: int/float are numeric multipliers; str is a string
+    repetition base (``"a" * n`` where n is runtime-derived).
     """
     return isinstance(node, ast.Constant) and isinstance(node.value, (int, float, str))
 
@@ -663,9 +664,20 @@ def _g1_is_runtime_derived(node: ast.expr) -> bool:
     core.policy._looks_like_int_expr treats as potentially integer-typed.
 
     Covers: bare variable names (ast.Name), attribute accesses (ast.Attribute,
-    e.g. request.score), and function/method calls (ast.Call, e.g. len(matched)).
+    e.g. request.score), function/method calls (ast.Call, e.g. len(matched)),
+    and arithmetic BinOp expressions that contain at least one runtime-derived
+    sub-node (e.g. indicator_count + 1) — mirroring apply-side treatment of
+    BinOp as integer-like.  Pure constant-only BinOps (e.g. 0.5 + 0.1) are
+    not considered runtime-derived.
     """
-    return isinstance(node, (ast.Name, ast.Attribute, ast.Call))
+    if isinstance(node, (ast.Name, ast.Attribute, ast.Call)):
+        return True
+    if isinstance(node, ast.BinOp):
+        return any(
+            isinstance(n, (ast.Name, ast.Attribute, ast.Call))
+            for n in ast.walk(node)
+        )
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -690,12 +702,14 @@ def _validate_replacement_code(code: str) -> str:
        c. All indentation counts must be multiples of 4; non-multiples
           (e.g. 6 spaces) indicate misaligned indentation and are rejected.
     6. Python syntax (AST parse only — code is never executed).
-    6.5 Runtime allocation risk check — repeat-multiplier (G1 gap closure, mirrors
-       apply-side core/policy.py _check_repeat_mult()): BinOp(Mult) where one
-       operand is a numeric constant (int or float) and the other is a
-       runtime-derived expression (Name, Call, or Attribute) is rejected
-       fail-closed before the patch is written. Covers all 12 operand-order
-       combinations: float/int × Name/Call/Attribute and reversed.
+    6.5 Runtime allocation risk check — repeat-multiplier (G1 gap closure).
+       Rejects BinOp(Mult) where one operand is a literal constant (int, float,
+       or str) and the other is a runtime-derived expression (Name, Call,
+       Attribute, or BinOp containing any of those), fail-closed before the
+       patch is written.  Mirrors apply-side core/policy.py _check_repeat_mult().
+       Covers 3 constant kinds × 4 runtime-derived kinds × 2 operand orders =
+       up to 24 explicit shape combinations; does not claim full equivalence to
+       core.policy.check_runtime_allocation_risks().
     7. Semantic body validation (after successful AST parse):
        - replacement body (function body past _mutation_anchor) must not be empty.
        - replacement body must not contain only pass / comments.
@@ -831,20 +845,18 @@ def _validate_replacement_code(code: str) -> str:
         # 6.5 Runtime allocation risk check — repeat-multiplier (G1 gap closure).
         # Rejects BinOp(Mult) where one operand is a literal constant (int,
         # float, or str) and the other is a runtime-derived expression (Name,
-        # Call, or Attribute) — mirrors apply-side core/policy.py
-        # _check_repeat_mult().
-        # Covers 18 rejection patterns (both operand orders, all runtime
-        # expression kinds, int/float/str constants):
-        #   float×Name, float×Call, float×Attribute (and reversed)
-        #   int×Name, int×Call, int×Attribute (and reversed)
-        #   str×Name, str×Call, str×Attribute (and reversed)
+        # Call, Attribute, or arithmetic BinOp containing any of those) —
+        # mirrors apply-side core/policy.py _check_repeat_mult().
+        # Constant kinds: int, float, str.
+        # Runtime-derived kinds: Name, Call, Attribute, BinOp(runtime).
+        # Both operand orders rejected.
         # Violation string matches core/policy.py exactly for consistent errors.
         for _g1_node in ast.walk(tree):
             if isinstance(_g1_node, ast.BinOp) and isinstance(_g1_node.op, ast.Mult):
                 _g1_l, _g1_r = _g1_node.left, _g1_node.right
                 if (
-                    (_g1_is_numeric_const(_g1_l) and _g1_is_runtime_derived(_g1_r))
-                    or (_g1_is_numeric_const(_g1_r) and _g1_is_runtime_derived(_g1_l))
+                    (_g1_is_repeat_const(_g1_l) and _g1_is_runtime_derived(_g1_r))
+                    or (_g1_is_repeat_const(_g1_r) and _g1_is_runtime_derived(_g1_l))
                 ):
                     return (
                         "replacement_code runtime allocation risk violation: "

@@ -161,8 +161,9 @@ git grep "repeat multiplier" scripts/propose_mutation.py
 
 | Codex Review コメント | 分類 | 対応内容 | 変更ファイル | 残存リスク |
 |---|---|---|---|---|
-| P2 — Reject multipliers that apply will fail (`0.3 * len(matched)`, `2 * indicator_count`) | ALREADY_ADDRESSED | コミット `4f97aec` で float/int × Call/Name/Attribute を全対応済み | `scripts/propose_mutation.py` | なし |
-| P2 — Mirror all repeat-multiplier shapes (`"a" * len(request.path)`) | FIXED_IN_THIS_TASK | `_g1_is_numeric_const` に `str` を追加し、str × runtime_derived も拒否するよう拡張。テスト 2 件追加 | `scripts/propose_mutation.py`, `tests/test_propose_output_contract.py` | なし |
+| P2 — Reject multipliers that apply will fail (`0.3 * len(matched)`, `2 * indicator_count`) | ALREADY_ADDRESSED | `4f97aec` で float/int × Call/Name/Attribute を全対応済み（12 パターン）。本タスクで regression テスト 12 件確認済み | `scripts/propose_mutation.py`, `tests/test_propose_output_contract.py` | なし |
+| P2 — Mirror all repeat-multiplier shapes (`"a" * len(request.path)`) | FIXED_IN_THIS_TASK | `_g1_is_repeat_const` に `str` を追加し、str × Name/Call/Attribute（両方向）を拒否。テスト 6 件追加（str×Call×2, str×Name×2, str×Attribute×2）、フルコントラクトパステスト追加 | `scripts/propose_mutation.py`, `tests/test_propose_output_contract.py` | なし |
+| P2 — Cover arithmetic runtime multipliers (`0.3 * (indicator_count + 1)`, `"a" * (len(matched) + 1)`) | FIXED_IN_THIS_TASK | `_g1_is_runtime_derived` に `ast.BinOp` 対応を追加（BinOp 内に Name/Call/Attribute があれば runtime-derived と判定）。テスト 2 件追加。定数のみの BinOp（`0.3 * 0.9`）は誤検知しないことをテストで確認 | `scripts/propose_mutation.py`, `tests/test_propose_output_contract.py` | なし |
 
 ---
 
@@ -242,17 +243,19 @@ Pre-existing failure: `test_project_state_matches_ledger_success_count` —
 
 ## Definition of Done 確認
 
-- [x] check 6.5 が 18 パターンすべてを拒否する（float/int/str × Name/Call/Attribute、両方向）
+- [x] check 6.5 が int/float/str × Name/Call/Attribute/BinOp(runtime) の全パターンを拒否
 - [x] `_validate_replacement_code()` が `_VALID_BODY` / `_G1_BRANCH_BODY` を合格させる
+- [x] 定数のみの乗算（`0.3 * 0.9`）が誤検知しない
 - [x] `_SAMPLE_MUTATION` がブランチベース confidence に更新され G1 check を通過する
-- [x] `TestRuntimeAllocationRiskGap` 19 テスト全通過（12 numeric + 2 string + 5 regression）
-- [x] `pytest tests/test_propose_output_contract.py -q`: 46 passed
-- [x] `pytest tests/test_gemini_paid_credit.py tests/test_workflow.py -q`: 195 passed
-- [x] `pytest tests/test_gemini_integration.py -q`: 264 passed
-- [x] `pytest -q (full)`: **1939 passed, 0 failed** ✅
+- [x] `TestRuntimeAllocationRiskGap` 全テスト通過（12 numeric + 6 str + 2 BinOp + 8 regression = 28 テスト）
+- [x] `pytest tests/test_propose_output_contract.py -q`: 54 passed
+- [x] `pytest -q (full)`: **1947 passed, 0 failed** ✅
 - [x] `scripts/propose_mutation.py` 以外の runtime コードは無変更
 - [x] `core/policy.py` / `core/detector.py` / `data/api_usage_ledger.json` 無変更
-- [x] Codex P2 コメントの全指摘が解決された（P2 #1: ALREADY_ADDRESSED / P2 #2: FIXED_IN_THIS_TASK）
+- [x] Codex P2 コメント 3 件全解決（P2 #1: ALREADY_ADDRESSED / P2 #2: FIXED / P2 #3: FIXED）
+- [x] ヘルパー名 `_g1_is_numeric_const` → `_g1_is_repeat_const` に改名（str を含む意味を正確化）
+- [x] `_g1_is_runtime_derived` が `ast.BinOp`（runtime sub-node 含む）を対応
+- [x] docstring の stale 記述（"numeric constant (int or float)", "12 combinations"）を修正
 - [x] `data/project_state.json` が S4 Outcome B 実態を反映（4 records, apply_reached=true）
 - [x] `docs/PROJECT_STATE.md` が S4 Outcome B 事実を反映
 - [x] `CLAUDE.md` は PR diff からリバート済み
