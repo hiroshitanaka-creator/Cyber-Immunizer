@@ -157,6 +157,39 @@ git grep "repeat multiplier" scripts/propose_mutation.py
 
 ---
 
+## CI Follow-up: Integration Fixture Update
+
+**Reason**: Full `pytest` run (CI-equivalent) includes `tests/test_gemini_integration.py` which contained 4 occurrences of `0.12 * len(matched)` in test fixtures — correctly rejected by the completed G1 validator.
+
+**Fixtures updated** in `tests/test_gemini_integration.py`:
+
+| Location | Old pattern | New pattern |
+|---|---|---|
+| `valid_patch_dict()` fixture (line ~133) | `boost = min(1.0, 0.5 + 0.12 * len(matched))` + `confidence=boost` | branch-based confidence |
+| `test_accepts_safe_code` (line ~618) | same | branch-based confidence |
+| `test_accepts_valid_multiline_replacement_code` (line ~703) | `confidence=min(1.0, 0.5 + 0.12 * len(matched))` | branch-based confidence |
+| `test_accepts_nested_return_plus_top_level_fallback` (line ~898) | same | branch-based confidence |
+
+**What did NOT change:**
+- No runtime code was changed
+- No validator was weakened
+- No data, workflow, detector, or policy files were changed
+- No assertions were weakened; no tests were deleted or skipped
+
+**Post-fix verification:**
+```
+pytest tests/test_gemini_integration.py -q      → 264 passed
+pytest tests/test_propose_output_contract.py -q → 44 passed
+pytest tests/test_gemini_paid_credit.py tests/test_workflow.py -q → 195 passed
+pytest -q                                        → 1936 passed, 1 failed (pre-existing)
+```
+
+Pre-existing failure: `test_project_state_matches_ledger_success_count` —
+`data/project_state.json` declares 3 primary-model successes but ledger has 4.
+`data/**` is FROZEN; this failure predates this task and is out of scope.
+
+---
+
 ## Definition of Done 確認
 
 - [x] check 6.5 が 12 パターンすべてを拒否する（float/int × Name/Call/Attribute、両方向）
@@ -165,6 +198,8 @@ git grep "repeat multiplier" scripts/propose_mutation.py
 - [x] `TestRuntimeAllocationRiskGap` 17 テスト全通過
 - [x] `pytest tests/test_propose_output_contract.py -q`: 44 passed
 - [x] `pytest tests/test_gemini_paid_credit.py tests/test_workflow.py -q`: 195 passed
+- [x] `pytest tests/test_gemini_integration.py -q`: 264 passed
+- [x] `pytest -q`: 1936 passed（残 1 failure は pre-existing / FROZEN scope 外）
 - [x] `scripts/propose_mutation.py` 以外の runtime コードは無変更
 - [x] `core/policy.py` / `core/detector.py` / `data/**` 無変更
 - [x] Codex P2 コメントの全指摘が解決された
