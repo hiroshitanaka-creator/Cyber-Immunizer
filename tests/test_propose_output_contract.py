@@ -301,3 +301,222 @@ class TestFailureDiagnosticsIdentifyContractStage:
         marker must not collide with it."""
         assert "API call failed" not in pm._OUTPUT_CONTRACT_STAGE
         assert "propose/output-contract failure" in pm._OUTPUT_CONTRACT_STAGE
+
+
+# ---------------------------------------------------------------------------
+# 6. Runtime allocation risk gap (G1) — S4 repeat-multiplier regression
+# ---------------------------------------------------------------------------
+
+# Helper: build a minimal-valid replacement_code body with the given
+# confidence expression injected as the second statement.
+def _g1_body(conf_expr: str) -> str:
+    return (
+        '    matched = ["x"]\n'
+        f'    confidence = {conf_expr}\n'
+        '    return DetectionResult(blocked=True, reason="test", '
+        'confidence=confidence, matched_signals=tuple(matched))'
+    )
+
+
+# Branch-based confidence — no multiplier, always safe.
+_G1_BRANCH_BODY = (
+    '    matched = ["x"]\n'
+    '    confidence = 0.5\n'
+    '    if len(matched) > 1:\n'
+    '        confidence = 0.7\n'
+    '    if len(matched) > 2:\n'
+    '        confidence = 0.9\n'
+    '    return DetectionResult(blocked=True, reason="test", '
+    'confidence=confidence, matched_signals=tuple(matched))'
+)
+
+
+class TestRuntimeAllocationRiskGap:
+    """Pin the G1 gap closure: propose-side check 6.5 must reject all 12
+    multiplication patterns that apply-side core/policy.py _check_repeat_mult()
+    rejects, covering both operand orders and all runtime-expression kinds."""
+
+    # --- 12 rejection tests ---------------------------------------------------
+
+    def test_float_times_name_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("0.3 * indicator_count"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_name_times_float_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("indicator_count * 0.3"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_float_times_call_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("0.12 * len(matched)"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_call_times_float_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("len(matched) * 0.12"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_float_times_attribute_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("0.2 * request.score"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_attribute_times_float_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("request.score * 0.2"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_int_times_name_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("2 * indicator_count"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_name_times_int_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("indicator_count * 2"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_int_times_call_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("2 * len(matched)"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_call_times_int_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("len(matched) * 2"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_int_times_attribute_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("2 * request.score"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    def test_attribute_times_int_rejected(self) -> None:
+        err = pm._validate_replacement_code(_g1_body("request.score * 2"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
+
+    # --- 2 string-constant rejection tests (Codex P2 #2) ----------------------
+
+    def test_str_times_call_rejected(self) -> None:
+        """\"a\" * len(request.path) — string constant × Call — must be rejected.
+        Apply-side _check_repeat_mult rejects this as runtime allocation risk."""
+        err = pm._validate_replacement_code(_g1_body('"a" * len(request.path)'))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err, (
+            f"str×Call must be rejected, got: {err!r}"
+        )
+
+    def test_call_times_str_rejected(self) -> None:
+        """len(request.path) * \"a\" — Call × string constant — must be rejected."""
+        err = pm._validate_replacement_code(_g1_body('len(request.path) * "a"'))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err, (
+            f"Call×str must be rejected, got: {err!r}"
+        )
+
+    def test_str_times_name_rejected(self) -> None:
+        """\"a\" * indicator_count — string constant × Name — must be rejected."""
+        err = pm._validate_replacement_code(_g1_body('"a" * indicator_count'))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err, (
+            f"str×Name must be rejected, got: {err!r}"
+        )
+
+    def test_name_times_str_rejected(self) -> None:
+        """indicator_count * \"a\" — Name × string constant — must be rejected."""
+        err = pm._validate_replacement_code(_g1_body('indicator_count * "a"'))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err, (
+            f"Name×str must be rejected, got: {err!r}"
+        )
+
+    def test_str_times_attribute_rejected(self) -> None:
+        """\"a\" * request.score — string constant × Attribute — must be rejected."""
+        err = pm._validate_replacement_code(_g1_body('"a" * request.score'))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err, (
+            f"str×Attribute must be rejected, got: {err!r}"
+        )
+
+    def test_attribute_times_str_rejected(self) -> None:
+        """request.score * \"a\" — Attribute × string constant — must be rejected."""
+        err = pm._validate_replacement_code(_g1_body('request.score * "a"'))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err, (
+            f"Attribute×str must be rejected, got: {err!r}"
+        )
+
+    # --- 2 arithmetic BinOp rejection tests (Codex P2 #3) ---------------------
+
+    def test_float_times_arithmetic_name_rejected(self) -> None:
+        """0.3 * (indicator_count + 1) — float × BinOp(Name) — must be rejected."""
+        err = pm._validate_replacement_code(_g1_body("0.3 * (indicator_count + 1)"))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err, (
+            f"float×BinOp(Name) must be rejected, got: {err!r}"
+        )
+
+    def test_str_times_arithmetic_call_rejected(self) -> None:
+        """\"a\" * (len(matched) + 1) — str × BinOp(Call) — must be rejected."""
+        err = pm._validate_replacement_code(_g1_body('"a" * (len(matched) + 1)'))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err, (
+            f"str×BinOp(Call) must be rejected, got: {err!r}"
+        )
+
+    # --- 7 pass-through / regression tests ------------------------------------
+
+    def test_branch_based_confidence_still_passes(self) -> None:
+        """Branch-based confidence (no multiplier) must not be flagged."""
+        assert pm._validate_replacement_code(_G1_BRANCH_BODY) == "", (
+            "branch-based confidence must pass check 6.5"
+        )
+
+    def test_valid_fixture_still_passes(self) -> None:
+        """Standard _VALID_BODY fixture must continue to pass after G1 broadening."""
+        assert pm._validate_replacement_code(_VALID_BODY) == "", (
+            "valid fixture must still pass after G1 check broadening"
+        )
+
+    def test_offline_sample_still_passes(self) -> None:
+        """Offline sample must pass: it uses branch-based confidence after the
+        _SAMPLE_MUTATION update, so no multiplier expression is present."""
+        patch, err = pm._parse_and_validate_response(
+            json.dumps(pm._SAMPLE_MUTATION)
+        )
+        assert err == "", (
+            f"offline sample must still pass after G1 broadening, got: {err!r}"
+        )
+        assert patch is not None
+
+    def test_constant_only_multiplication_passes(self) -> None:
+        """0.3 * 0.9 (constant × constant) must NOT be flagged — purely static."""
+        body = (
+            '    confidence = 0.3 * 0.9\n'
+            '    return DetectionResult(blocked=False, reason="no match", '
+            'confidence=confidence, matched_signals=())'
+        )
+        assert pm._validate_replacement_code(body) == "", (
+            "constant×constant multiplication must not be rejected by check 6.5"
+        )
+
+    def test_full_contract_path_rejects_unsafe_multiplier(self) -> None:
+        """End to end: a schema-valid patch carrying a G1-violating body is
+        rejected by _parse_and_validate_response and yields no patch dict."""
+        unsafe_body = _g1_body("0.3 * indicator_count")
+        patch, err = pm._parse_and_validate_response(_patch_json(unsafe_body))
+        assert patch is None, "G1-violating body must not produce a valid patch"
+        assert "runtime allocation risk" in err, (
+            f"contract-path error must name the G1 violation, got: {err!r}"
+        )
+
+    def test_full_contract_path_rejects_str_repeat_multiplier(self) -> None:
+        """End to end: string repeat multiplier in schema-valid patch is rejected."""
+        str_repeat_body = (
+            '    matched = ["x"]\n'
+            '    confidence = 0.7\n'
+            '    repeated = "a" * len(request.path)\n'
+            '    return DetectionResult(blocked=True, reason="test", '
+            'confidence=confidence, matched_signals=tuple(matched))'
+        )
+        patch, err = pm._parse_and_validate_response(_patch_json(str_repeat_body))
+        assert patch is None, "string repeat multiplier must not produce a valid patch"
+        assert "runtime allocation risk" in err
+        assert "repeat multiplier is non-constant" in err
+
+    def test_prompt_states_runtime_allocation_obligation(self) -> None:
+        """Rule 17 in _LLM_SYSTEM_PROMPT must explicitly state the runtime
+        allocation risk constraint so the model cannot generate violating code."""
+        prompt = pm._LLM_SYSTEM_PROMPT
+        assert "runtime allocation risk" in prompt, (
+            "prompt must state 'runtime allocation risk' (rule 17)"
+        )
+        assert "repeat multiplier" in prompt, (
+            "prompt must name 'repeat multiplier' so the model knows the constraint"
+        )
+        assert "non-constant" in prompt, (
+            "prompt must use 'non-constant' to describe the rejected multiplier pattern"
+        )

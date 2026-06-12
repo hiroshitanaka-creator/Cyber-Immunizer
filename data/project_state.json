@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "state_id": "phase3_propose_output_contract_hardened_pending_owner_review",
+  "state_id": "phase3_s4_materialize_reached_apply_blocked_g1_gap_closing",
   "current_phase": "phase_3",
   "phase_3_activation": "complete",
   "live_model_enabled": true,
@@ -9,10 +9,10 @@
   "primary_model": "gemini-3-flash-preview",
   "fallback_model": "gemini-3.1-flash-lite",
   "paid_credit_api_calls": {
-    "gemini_3_flash_preview_success_records": 3,
+    "gemini_3_flash_preview_success_records": 4,
     "api_success_meaning": "http_200_and_token_usage_recorded",
-    "valid_mutation_patch_produced": false,
-    "apply_reached": false,
+    "valid_mutation_patch_produced": true,
+    "apply_reached": true,
     "evaluate_reached": false,
     "promote_reached": false
   },
@@ -21,7 +21,7 @@
     "meaning": "promotion_not_approved",
     "does_not_mean": "api_call_unexecuted"
   },
-  "next_action": "review_propose_output_contract_fix_before_owner_approved_paid_credit_rerun",
+  "next_action": "merge_g1_repeat_multiplier_gap_closure_then_update_project_state_and_prepare_owner_approved_next_s4_rerun",
   "fresh_verification_policy": {
     "paid_credit_run_in_this_pr": "forbidden",
     "workflow_dispatch_in_this_pr": "forbidden",
