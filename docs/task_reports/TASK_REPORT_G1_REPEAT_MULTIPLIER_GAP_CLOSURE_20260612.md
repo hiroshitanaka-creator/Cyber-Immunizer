@@ -153,7 +153,57 @@ git grep "repeat multiplier" scripts/propose_mutation.py
 
 2. **`data/project_state.json` success count 不一致**: 前タスクから残存。本タスクのスコープ外。
 
-3. **次の paid-credit run**: propose/apply 両側でルールが完全に一致した（12 パターン全対応）。Gemini が repeat multiplier を使用した場合は propose 段階で失敗し、不要な artifact アップロードを防ぐ。
+3. **次の paid-credit run**: propose/apply 両側でルールが完全に一致した（18 パターン全対応）。Gemini が repeat multiplier を使用した場合は propose 段階で失敗し、不要な artifact アップロードを防ぐ。
+
+---
+
+## Codex Review Comment Resolution
+
+| Codex Review コメント | 分類 | 対応内容 | 変更ファイル | 残存リスク |
+|---|---|---|---|---|
+| P2 — Reject multipliers that apply will fail (`0.3 * len(matched)`, `2 * indicator_count`) | ALREADY_ADDRESSED | コミット `4f97aec` で float/int × Call/Name/Attribute を全対応済み | `scripts/propose_mutation.py` | なし |
+| P2 — Mirror all repeat-multiplier shapes (`"a" * len(request.path)`) | FIXED_IN_THIS_TASK | `_g1_is_numeric_const` に `str` を追加し、str × runtime_derived も拒否するよう拡張。テスト 2 件追加 | `scripts/propose_mutation.py`, `tests/test_propose_output_contract.py` | なし |
+
+---
+
+## CI Follow-up: Project State / Ledger Sync
+
+**原因**: `test_project_state_sync.py::test_project_state_matches_ledger_success_count` が失敗。`data/project_state.json` が success records = 3 と宣言しているが、`data/api_usage_ledger.json` には S4 run #47（2026-06-11）を含む 4 件が存在する。
+
+**変更内容**:
+- `data/project_state.json`: `gemini_3_flash_preview_success_records` 3 → 4、S4 Outcome B 実態（`valid_mutation_patch_produced=true`, `apply_reached=true`）に更新、`state_id` / `next_action` 更新
+- `tests/test_project_state_sync.py`: `assert actual == 3` → `assert actual == 4`
+- `docs/PROJECT_STATE.md`: S4 run #47 の事実（4 件目成功、patch 生成、apply 到達、G1 失敗）を反映
+
+**変更しなかったもの**: `data/api_usage_ledger.json`（FROZEN）、runtime コード、validator、workflow
+
+---
+
+## Diff Cleanup
+
+| ファイル | 判定 | 理由 |
+|---|---|---|
+| `CLAUDE.md` | **リバート** | PR #91 のスコープ外（出力ルール追加は別途反映） |
+| `docs/task_reports/TASK_PROPOSAL_CI_FIX_PROJECT_STATE_SYNC.md` | **削除** | 作業前の提案書。実作業完了で不要 |
+| `scripts/propose_mutation.py` | KEEP | G1 check 拡張（str 対応）が本 PR の主題 |
+| `tests/test_propose_output_contract.py` | KEEP | G1 テスト追加 |
+| `tests/test_gemini_integration.py` | KEEP | G1 違反 fixture の修正 |
+| `tests/test_project_state_sync.py` | KEEP | ledger 実態への追従 |
+| `data/project_state.json` | KEEP | SSOT 正確性確保 |
+| `docs/PROJECT_STATE.md` | KEEP | SSOT 人間可読版の更新 |
+| `docs/task_reports/TASK_REPORT_*` | KEEP | 監査証拠 |
+
+---
+
+## Final Verification
+
+```
+pytest tests/test_project_state_sync.py -q     → 10 passed
+pytest tests/test_propose_output_contract.py -q → 46 passed
+pytest tests/test_gemini_integration.py -q      → 264 passed
+pytest tests/test_gemini_paid_credit.py tests/test_workflow.py -q → 459 passed
+pytest -q (full)                                → 1939 passed, 0 failed ✅
+```
 
 ---
 
@@ -192,14 +242,18 @@ Pre-existing failure: `test_project_state_matches_ledger_success_count` —
 
 ## Definition of Done 確認
 
-- [x] check 6.5 が 12 パターンすべてを拒否する（float/int × Name/Call/Attribute、両方向）
+- [x] check 6.5 が 18 パターンすべてを拒否する（float/int/str × Name/Call/Attribute、両方向）
 - [x] `_validate_replacement_code()` が `_VALID_BODY` / `_G1_BRANCH_BODY` を合格させる
 - [x] `_SAMPLE_MUTATION` がブランチベース confidence に更新され G1 check を通過する
-- [x] `TestRuntimeAllocationRiskGap` 17 テスト全通過
-- [x] `pytest tests/test_propose_output_contract.py -q`: 44 passed
+- [x] `TestRuntimeAllocationRiskGap` 19 テスト全通過（12 numeric + 2 string + 5 regression）
+- [x] `pytest tests/test_propose_output_contract.py -q`: 46 passed
 - [x] `pytest tests/test_gemini_paid_credit.py tests/test_workflow.py -q`: 195 passed
 - [x] `pytest tests/test_gemini_integration.py -q`: 264 passed
-- [x] `pytest -q`: 1936 passed（残 1 failure は pre-existing / FROZEN scope 外）
+- [x] `pytest -q (full)`: **1939 passed, 0 failed** ✅
 - [x] `scripts/propose_mutation.py` 以外の runtime コードは無変更
-- [x] `core/policy.py` / `core/detector.py` / `data/**` 無変更
-- [x] Codex P2 コメントの全指摘が解決された
+- [x] `core/policy.py` / `core/detector.py` / `data/api_usage_ledger.json` 無変更
+- [x] Codex P2 コメントの全指摘が解決された（P2 #1: ALREADY_ADDRESSED / P2 #2: FIXED_IN_THIS_TASK）
+- [x] `data/project_state.json` が S4 Outcome B 実態を反映（4 records, apply_reached=true）
+- [x] `docs/PROJECT_STATE.md` が S4 Outcome B 事実を反映
+- [x] `CLAUDE.md` は PR diff からリバート済み
+- [x] `TASK_PROPOSAL_CI_FIX_PROJECT_STATE_SYNC.md` は PR diff から削除済み

@@ -47,13 +47,15 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Model provider | gemini |
 | Primary model | gemini-3-flash-preview |
 | Fallback model | gemini-3.1-flash-lite |
-| paid-credit API success records (primary model) | 3 |
-| Valid mutation patch produced | **No** |
-| apply / evaluate / promote reached | **No** (all three) |
+| paid-credit API success records (primary model) | **4** |
+| Valid mutation patch produced | **Yes** (S4 run #47, 2026-06-11) |
+| apply reached | **Yes** — apply failed at G1 repeat-multiplier runtime allocation risk |
+| evaluate reached | **No** |
+| promote reached | **No** |
 | promote_approved | false |
-| Propose/output-contract hardening | Implemented in PR #84 (no-API / no-promotion); no new paid-credit run executed |
-| state_id | `phase3_propose_output_contract_hardened_pending_owner_review` |
-| Next action | Project Owner reviews the PR #84 propose/output-contract fix before any owner-approved paid-credit rerun |
+| Propose/output-contract hardening | Implemented in PR #84; G1 repeat-multiplier gap closure in PR #91 (pending merge) |
+| state_id | `phase3_s4_materialize_reached_apply_blocked_g1_gap_closing` |
+| Next action | Merge PR #91 (G1 gap closure), then await Owner-approved next S4 rerun |
 
 ---
 
@@ -62,9 +64,10 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Source | What it proves |
 |---|---|
 | `data/genome.json` | `live_model_enabled=true`, `api_mode=gemini_paid_credit`, `model_provider=gemini`, `model_name=gemini-3-flash-preview`, `fallback_model_name=gemini-3.1-flash-lite` |
-| `data/api_usage_ledger.json` | Exactly 3 records with `provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true` (2026-06-03 / 2026-06-04) |
-| `docs/audit_gate/PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md` | For those 3 runs: no valid mutation patch produced; apply / evaluate / promote not reached |
-| GitHub Actions (runs 26919888348 / 26922191264 / 26924388218) | All three `workflow_dispatch` runs concluded `failure` at finalize-propose-status; evaluate / promote jobs skipped |
+| `data/api_usage_ledger.json` | **4** records with `provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true` (2026-06-03 / 2026-06-04 ×3, 2026-06-11 S4 run #47) |
+| `docs/audit_gate/PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md` | First 3 runs: no valid mutation patch (propose output-contract failures). S4 run #47: valid mutation_patch.json produced; apply reached and failed at G1 repeat-multiplier runtime allocation risk |
+| GitHub Actions (runs 26919888348 / 26922191264 / 26924388218) | First three runs concluded `failure` at finalize-propose-status; evaluate / promote jobs skipped |
+| GitHub Actions (S4 run #47, 2026-06-11) | Materialize reached; apply reached; apply failed (G1 repeat-multiplier); evaluate / promote not reached |
 
 `data/project_state.json` mirrors these machine facts and must not contradict `data/genome.json` or `data/api_usage_ledger.json`.
 
@@ -74,8 +77,14 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 
 `success=true` in `data/api_usage_ledger.json` records **API/token success only** — the Gemini API
 returned an HTTP 200 response and token usage was recorded. It does **not** mean a valid mutation
-patch was produced. For all 3 primary-model success records, `propose_mutation.py` rejected the
+patch was produced or that apply/evaluate/promote were reached.
+
+For the first 3 primary-model success records, `propose_mutation.py` rejected the
 returned `replacement_code` as syntactically invalid Python, so no `mutation_patch.json` was written.
+
+For the 4th record (S4 run #47, 2026-06-11), `propose_mutation.py` accepted the
+`replacement_code` and wrote a valid `mutation_patch.json`. `apply_mutation.py` was reached
+but failed at the G1 repeat-multiplier runtime allocation risk check (Step 7 of apply).
 
 ---
 
@@ -92,37 +101,41 @@ promotion gate was never reached because no valid candidate patch was produced.
 
 ---
 
-## 5. No valid mutation patch was produced
+## 5. Mutation patch production
 
-For the 3 primary-model `success=true` records, **no valid mutation patch was produced**. The
+For the first 3 primary-model `success=true` records, **no valid mutation patch was produced**. The
 Gemini output failed `propose_mutation.py` validation (`replacement_code` was not valid Python
-syntax — a function definition with an empty body), so `patch_exists=false` for all three runs.
+syntax — a function definition with an empty body).
+
+For S4 run #47 (4th record, 2026-06-11): a valid `mutation_patch.json` **was produced**. The
+propose/output-contract hardening (PR #84) functioned correctly.
 
 ---
 
-## 6. apply / evaluate / promote were not reached
+## 6. apply / evaluate / promote status
 
-For those same 3 runs:
+For the first 3 runs: apply, evaluate, and promote were **not reached**.
 
-* **apply** was not reached.
-* **evaluate** was not reached (evaluate job skipped; no `fitness_report.json`, no adoption-gate result).
-* **promote** was not reached (promote job skipped; never eligible).
+For S4 run #47:
+* **apply** was **reached** — `apply_mutation.py` ran and failed at Step 7 (G1 repeat-multiplier
+  runtime allocation risk: `confidence` expression used `float * runtime_var`).
+* **evaluate** was **not reached** (apply failed; evaluate job skipped).
+* **promote** was **not reached** (never eligible).
 
-There is no adoption-gate pass/fail result from any of the 3 paid-credit runs.
+There is no adoption-gate pass/fail result from any of the 4 paid-credit runs.
+`promote_approved` remains `false`.
 
 ---
 
 ## 7. Next action
 
-The **propose / output-contract root cause** (Gemini returning `replacement_code` that
-violated the function-body-fragment contract) was remediated in **PR #84** as a
-**no-API / no-promotion** hardening: explicit prompt obligations, stage-marked
-output-contract diagnostics, and local contract regression tests
-(see `docs/audit_gate/PROPOSE_OUTPUT_CONTRACT_ROOT_CAUSE.md`).
+The **G1 repeat-multiplier gap** (apply-side `core/policy.py _check_repeat_mult` rejecting
+`float * runtime_var` patterns that propose-side did not pre-screen) is being closed in **PR #91**:
+propose-side `_validate_replacement_code` check 6.5 now rejects all 18 multiplication patterns
+(int/float/str × Name/Call/Attribute, both orders).
 
 **No new paid-credit run has been executed.** The next step is for the **Project Owner
-to review the PR #84 fix** and decide on the next owner-approved paid-credit rerun.
-`promote_approved` remains `false`.
+to merge PR #91** and then approve the next S4 rerun. `promote_approved` remains `false`.
 
 ---
 

@@ -386,6 +386,23 @@ class TestRuntimeAllocationRiskGap:
         err = pm._validate_replacement_code(_g1_body("request.score * 2"))
         assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err
 
+    # --- 2 string-constant rejection tests (Codex P2 #2) ----------------------
+
+    def test_str_times_call_rejected(self) -> None:
+        """\"a\" * len(request.path) — string constant × Call — must be rejected.
+        Apply-side _check_repeat_mult rejects this as runtime allocation risk."""
+        err = pm._validate_replacement_code(_g1_body('"a" * len(request.path)'))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err, (
+            f"str×Call must be rejected, got: {err!r}"
+        )
+
+    def test_call_times_str_rejected(self) -> None:
+        """len(request.path) * \"a\" — Call × string constant — must be rejected."""
+        err = pm._validate_replacement_code(_g1_body('len(request.path) * "a"'))
+        assert "runtime allocation risk" in err and "repeat multiplier is non-constant" in err, (
+            f"Call×str must be rejected, got: {err!r}"
+        )
+
     # --- 5 pass-through / regression tests ------------------------------------
 
     def test_branch_based_confidence_still_passes(self) -> None:

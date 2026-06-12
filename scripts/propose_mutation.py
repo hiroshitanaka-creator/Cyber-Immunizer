@@ -649,8 +649,13 @@ def _validate_detection_result_static_values(call: ast.Call) -> str:
 
 
 def _g1_is_numeric_const(node: ast.expr) -> bool:
-    """Return True if node is an integer or float literal (numeric constant)."""
-    return isinstance(node, ast.Constant) and isinstance(node.value, (int, float))
+    """Return True if node is an int, float, or string literal constant.
+
+    String constants are included because ``str * runtime_int`` is string
+    repetition — the same runtime allocation risk as numeric multiplication
+    (apply-side core/policy.py _check_repeat_mult rejects this shape too).
+    """
+    return isinstance(node, ast.Constant) and isinstance(node.value, (int, float, str))
 
 
 def _g1_is_runtime_derived(node: ast.expr) -> bool:
@@ -824,13 +829,15 @@ def _validate_replacement_code(code: str) -> str:
         return f"replacement_code is not valid Python source text: {type(exc).__name__}"
     else:
         # 6.5 Runtime allocation risk check — repeat-multiplier (G1 gap closure).
-        # Rejects BinOp(Mult) where one operand is a numeric constant (int or
-        # float) and the other is a runtime-derived expression (Name, Call, or
-        # Attribute) — mirrors apply-side core/policy.py _check_repeat_mult().
-        # Covers all 12 rejection patterns (both operand orders, all runtime
-        # expression kinds, both int and float constants):
+        # Rejects BinOp(Mult) where one operand is a literal constant (int,
+        # float, or str) and the other is a runtime-derived expression (Name,
+        # Call, or Attribute) — mirrors apply-side core/policy.py
+        # _check_repeat_mult().
+        # Covers 18 rejection patterns (both operand orders, all runtime
+        # expression kinds, int/float/str constants):
         #   float×Name, float×Call, float×Attribute (and reversed)
         #   int×Name, int×Call, int×Attribute (and reversed)
+        #   str×Name, str×Call, str×Attribute (and reversed)
         # Violation string matches core/policy.py exactly for consistent errors.
         for _g1_node in ast.walk(tree):
             if isinstance(_g1_node, ast.BinOp) and isinstance(_g1_node.op, ast.Mult):
