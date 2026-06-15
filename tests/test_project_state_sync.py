@@ -270,6 +270,14 @@ def test_next_action_is_post_pr91_rerun_preparation() -> None:
         "next_action must not reference the pre-PR91-merge G1 gap closure "
         "(PR #91 is merged)"
     )
-    assert "s4_rerun" in next_action or "owner_approved" in next_action, (
-        "next_action must reference the owner-approved next S4 rerun"
+    # After run 5 (2026-06-15), next_action may reference triage/artifact review
+    # (no longer just the pending S4 rerun, since that run has now occurred).
+    assert (
+        "s4_rerun" in next_action
+        or "owner_approved" in next_action
+        or "triage" in next_action
+        or "artifact" in next_action
+    ), (
+        "next_action must reference the current state: "
+        "either the pending rerun or artifact triage after the 5th run"
     )
