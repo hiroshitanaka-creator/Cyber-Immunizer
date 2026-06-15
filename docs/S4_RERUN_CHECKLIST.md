@@ -110,6 +110,47 @@ Action: Owner reviews and confirms `core/detector.py` was updated to the promote
 
 ---
 
+## Local Triage Tool
+
+After downloading artifacts from a completed S4 rerun, use `scripts/triage_s4_rerun.py`
+to classify the pipeline stage reached and get a recommended next action deterministically.
+The tool never calls any API, never modifies ledger files, and suppresses secret-pattern strings.
+
+```bash
+# Download artifacts from the GitHub Actions run into a local directory, then:
+python scripts/triage_s4_rerun.py --artifacts-dir /path/to/artifacts --json
+
+# Optionally write a Markdown summary:
+python scripts/triage_s4_rerun.py --artifacts-dir /path/to/artifacts --json --markdown triage_summary.md
+```
+
+**Expected artifacts in `--artifacts-dir`:**
+
+| Filename | Source artifact | Indicates |
+|---|---|---|
+| `mutation_patch.json` | `mutation-patch` | propose reached |
+| `api_usage_ledger.json` | `api-usage-ledger` | ledger updated |
+| `candidate_detector.py` | `candidate-detector` | apply reached |
+| `fitness_report.json` | `fitness-report` | evaluate reached |
+| `promote_result.json` | (promote job) | promote reached |
+
+**Classifications returned:**
+
+| Classification | Meaning |
+|---|---|
+| `propose_failed` | No valid patch produced |
+| `apply_failed_or_not_reached` | Patch produced but candidate file not written |
+| `evaluate_rejected` | Adoption gate failed (`passed_adoption_gate=false`) |
+| `promote_eligible` | Gate passed — awaits Owner approval (`requires_owner_approval=true`) |
+| `promoted` | promote_result.json present — verify genome/ledger update |
+| `tool_failure` | Malformed artifact — re-download and re-triage |
+
+> **Note:** `promote_eligible` classification does **not** trigger promotion.
+> The tool is read-only. Project Owner must explicitly approve promotion
+> before triggering `workflow_dispatch` with `promote_approved=true`.
+
+---
+
 ## Ledger Verification (all outcomes)
 
 After any rerun that reaches the Gemini API:
