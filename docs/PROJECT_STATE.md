@@ -53,9 +53,9 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | evaluate reached | **No** |
 | promote reached | **No** |
 | promote_approved | false |
-| Propose/output-contract hardening | Implemented in PR #84; G1 repeat-multiplier gap closure in PR #91 (pending merge) |
-| state_id | `phase3_s4_materialize_reached_apply_blocked_g1_gap_closing` |
-| Next action | Merge PR #91 (G1 gap closure), then await Owner-approved next S4 rerun |
+| Propose/output-contract hardening | Implemented in PR #84; G1 repeat-multiplier gap closure in PR #91 (merged) |
+| state_id | `phase3_s4_g1_gap_closed_pending_owner_approved_next_s4_rerun` |
+| Next action | Owner-approved next S4 paid-credit rerun (G1 gap closed; PR #91 merged) |
 
 ---
 
@@ -129,13 +129,13 @@ There is no adoption-gate pass/fail result from any of the 4 paid-credit runs.
 
 ## 7. Next action
 
-The **G1 repeat-multiplier gap** (apply-side `core/policy.py _check_repeat_mult` rejecting
-`float * runtime_var` patterns that propose-side did not pre-screen) is being closed in **PR #91**:
+**PR #91 is merged.** The G1 repeat-multiplier gap (apply-side `core/policy.py _check_repeat_mult`
+rejecting `float * runtime_var` patterns that propose-side did not pre-screen) has been closed:
 propose-side `_validate_replacement_code` check 6.5 now rejects all 18 multiplication patterns
 (int/float/str × Name/Call/Attribute, both orders).
 
-**No new paid-credit run has been executed.** The next step is for the **Project Owner
-to merge PR #91** and then approve the next S4 rerun. `promote_approved` remains `false`.
+The next step is for the **Project Owner to approve and execute the next S4 paid-credit rerun**.
+No new paid-credit run has been executed since S4 run #47. `promote_approved` remains `false`.
 
 ---
 

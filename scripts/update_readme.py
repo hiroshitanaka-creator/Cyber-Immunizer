@@ -33,6 +33,10 @@ _NEXT_ACTION_TEXT = {
         "Project Owner review of the propose/output-contract fix (PR #84)"
         " before any owner-approved paid-credit rerun"
     ),
+    "prepare_owner_approved_next_s4_rerun_post_g1_gap_closure": (
+        "Owner-approved next S4 paid-credit rerun"
+        " (G1 repeat-multiplier gap closed; PR #91 merged)"
+    ),
 }
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"
@@ -95,11 +99,29 @@ def _apply_project_state(
         isinstance(calls, dict)
         and calls.get("valid_mutation_patch_produced") is False
     )
+    patch_produced = (
+        isinstance(calls, dict)
+        and calls.get("valid_mutation_patch_produced") is True
+    )
+    apply_reached = (
+        isinstance(calls, dict)
+        and calls.get("apply_reached") is True
+    )
+    evaluate_reached = (
+        isinstance(calls, dict)
+        and calls.get("evaluate_reached") is True
+    )
 
     if patch_not_produced:
         current_phase = (
             "Phase 3 — paid-credit API success records exist;"
             " no valid mutation patch produced (propose/output-contract failure)"
+        )
+    elif patch_produced and apply_reached and not evaluate_reached:
+        current_phase = (
+            "Phase 3 — valid mutation patch produced (S4 run #47);"
+            " apply reached; G1 gap closed (PR #91 merged);"
+            " Owner-approved next S4 rerun pending"
         )
 
     next_action = state.get("next_action")
@@ -110,12 +132,17 @@ def _apply_project_state(
     if (
         isinstance(promo, dict)
         and _parse_bool(promo.get("promote_approved"), default=False) is False
-        and patch_not_produced
     ):
-        promote_note = (
-            "false (promotion not approved —"
-            " API executed; no valid candidate patch produced)"
-        )
+        if patch_not_produced:
+            promote_note = (
+                "false (promotion not approved —"
+                " API executed; no valid candidate patch produced)"
+            )
+        elif patch_produced and apply_reached and not evaluate_reached:
+            promote_note = (
+                "false (promotion not approved —"
+                " apply failed at G1; evaluate/promote not reached)"
+            )
 
     return current_phase, next_focus, promote_note
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "state_id": "phase3_s4_materialize_reached_apply_blocked_g1_gap_closing",
+  "state_id": "phase3_s4_g1_gap_closed_pending_owner_approved_next_s4_rerun",
   "current_phase": "phase_3",
   "phase_3_activation": "complete",
   "live_model_enabled": true,
@@ -14,14 +14,15 @@
     "valid_mutation_patch_produced": true,
     "apply_reached": true,
     "evaluate_reached": false,
-    "promote_reached": false
+    "promote_reached": false,
+    "g1_gap_closure_pr91": "merged"
   },
   "promotion": {
     "promote_approved": false,
     "meaning": "promotion_not_approved",
     "does_not_mean": "api_call_unexecuted"
   },
-  "next_action": "merge_g1_repeat_multiplier_gap_closure_then_update_project_state_and_prepare_owner_approved_next_s4_rerun",
+  "next_action": "prepare_owner_approved_next_s4_rerun_post_g1_gap_closure",
   "fresh_verification_policy": {
     "paid_credit_run_in_this_pr": "forbidden",
     "workflow_dispatch_in_this_pr": "forbidden",
