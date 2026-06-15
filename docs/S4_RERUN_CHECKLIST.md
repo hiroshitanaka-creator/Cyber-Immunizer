@@ -58,9 +58,9 @@ After a successful run, verify the following artifacts exist and are non-empty:
 | Artifact | Location / Job | Indicates |
 |---|---|---|
 | `mutation-patch` | `propose` job upload | `mutation_patch.json` was accepted by propose-side checks |
-| `api-usage-ledger` | `persist-ledger` job upload | Ledger persisted; new record added with `success=true` |
-| `candidate-detector` | `evaluate` job upload | `apply_mutation.py` (a step in the evaluate job) wrote the candidate file |
-| `fitness-report` | `evaluate` job upload | `evaluate_candidate.py` completed the fitness run |
+| `api-usage-ledger` | `propose` job upload; `persist-ledger` downloads and commits it | Ledger changed and must be persisted before the run is considered budget-consistent |
+| `candidate-detector` | `evaluate` job upload after the apply step | `apply_mutation.py` wrote the candidate file |
+| `fitness-report` | `evaluate` job upload after the evaluation step | `evaluate_candidate.py` completed the fitness run |
 
 ---
 
