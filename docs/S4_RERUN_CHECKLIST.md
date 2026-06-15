@@ -27,8 +27,10 @@ AI_DOC_META_END
 
 - [ ] **Project Owner has explicitly approved this rerun** in writing (GitHub comment, issue, or
   direct message). No rerun is permitted without this approval.
-- [ ] Confirm `promote_approved = false` is set in `data/genome.json` before triggering.
-  Setting `promote_approved = true` on a first rerun after a gap closure is **not recommended**.
+- [ ] Confirm `data/project_state.json` shows `promotion.promote_approved=false`.
+- [ ] When triggering `workflow_dispatch`, set input `promote_approved=false` for the first
+  post-PR91 rerun. Setting `promote_approved=true` on a first rerun after a gap closure is
+  **not recommended** unless the Project Owner explicitly approves promotion.
 - [ ] Confirm `data/project_state.json` shows
   `"state_id": "phase3_s4_g1_gap_closed_pending_owner_approved_next_s4_rerun"`.
 - [ ] Confirm no uncommitted changes to `core/**`, `scripts/**`, `.github/**`, or `data/**`
@@ -42,7 +44,7 @@ AI_DOC_META_END
 |---|---|---|
 | workflow_dispatch mode | `gemini-paid-credit` | Do not use `noop` or `offline-sample` for a paid run |
 | promote_approved | `false` (recommended for first rerun) | Owner must explicitly set `true` to enable promotion |
-| Branch | `main` (or Owner-designated branch) | Confirm with Owner before triggering |
+| Branch | `main` only | `gemini-paid-credit` is rejected outside `main` by the workflow guard (lines 113–119 of `immunization_loop.yml`) |
 
 > **Never display, log, or record the `GEMINI_API_KEY` value.** It is a GitHub Actions secret
 > and must not appear in any artifact, comment, or task report.
@@ -55,9 +57,9 @@ After a successful run, verify the following artifacts exist and are non-empty:
 
 | Artifact | Location / Job | Indicates |
 |---|---|---|
-| `mutation-patch` | `materialize` job upload | `mutation_patch.json` was accepted by propose-side checks |
+| `mutation-patch` | `propose` job upload | `mutation_patch.json` was accepted by propose-side checks |
 | `api-usage-ledger` | `persist-ledger` job upload | Ledger persisted; new record added with `success=true` |
-| `candidate-detector` | `apply` job upload | `apply_mutation.py` wrote the candidate file |
+| `candidate-detector` | `evaluate` job upload | `apply_mutation.py` (a step in the evaluate job) wrote the candidate file |
 | `fitness-report` | `evaluate` job upload | `evaluate_candidate.py` completed the fitness run |
 
 ---
@@ -67,8 +69,8 @@ After a successful run, verify the following artifacts exist and are non-empty:
 ### A. Evaluate not reached (apply failed again)
 
 Evidence to check:
-- GitHub Actions run → `apply` job logs → identify the failing policy check (Step number and
-  constraint name).
+- GitHub Actions run → `evaluate` job → "Apply mutation patch to candidate file" step logs →
+  identify the failing policy check (Step number and constraint name).
 - `data/api_usage_ledger.json` → confirm the new ledger record exists with `success=true`.
 - `mutation-patch` artifact → inspect `replacement_code` for the pattern that triggered the check.
 
@@ -78,8 +80,9 @@ next rerun.
 ### B. Apply failed / Adoption gate rejected
 
 Evidence to check:
-- `apply` job logs → Step 7 (`_check_repeat_mult`) or other policy check.
-- If apply succeeded: `fitness-report` artifact → `adoption_gate_passed` field.
+- `evaluate` job → "Apply mutation patch to candidate file" step logs → Step 7
+  (`_check_repeat_mult`) or other policy check.
+- If apply succeeded and evaluate ran: `fitness-report` artifact → `adoption_gate_passed` field.
 - If adoption gate rejected: `rejection_reasons` list in the fitness report.
 
 Action: diagnose which constraint was violated and determine whether a propose-side pre-screen
