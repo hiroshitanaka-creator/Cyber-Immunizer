@@ -36,6 +36,10 @@ _FORBIDDEN_STALE = [
     "live_model_enabled=false",
     "controlled paid-credit run not yet executed",
     "Review existing paid-credit run results",
+    # Post-PR-#91-merge: these strings described the pre-merge state and must
+    # not appear in active current-state sources once PR #91 is merged.
+    "PR #91 (pending merge)",
+    "to merge PR #91",
 ]
 
 # Active current-state surfaces that must never carry a stale claim.
@@ -205,3 +209,67 @@ def test_historical_state_docs_are_labeled() -> None:
             f"{doc.name} preserves old phase state and must carry the "
             f"'{_HISTORICAL_LABEL}' label pointing to the SSOT"
         )
+
+
+# 11.
+def test_phase3_active() -> None:
+    state = _load(_PROJECT_STATE_PATH)
+    assert state.get("current_phase") == "phase_3", (
+        "current_phase must be 'phase_3'"
+    )
+    assert state.get("live_model_enabled") is True, (
+        "live_model_enabled must be true in Phase 3"
+    )
+
+
+# 12.
+def test_valid_mutation_patch_produced() -> None:
+    state = _load(_PROJECT_STATE_PATH)
+    calls = state.get("paid_credit_api_calls", {})
+    assert calls.get("valid_mutation_patch_produced") is True, (
+        "S4 run #47 produced a valid mutation_patch.json; "
+        "valid_mutation_patch_produced must be true"
+    )
+
+
+# 13.
+def test_apply_reached() -> None:
+    state = _load(_PROJECT_STATE_PATH)
+    calls = state.get("paid_credit_api_calls", {})
+    assert calls.get("apply_reached") is True, (
+        "S4 run #47 reached apply_mutation.py; apply_reached must be true"
+    )
+
+
+# 14.
+def test_evaluate_and_promote_not_reached() -> None:
+    state = _load(_PROJECT_STATE_PATH)
+    calls = state.get("paid_credit_api_calls", {})
+    assert calls.get("evaluate_reached") is False, (
+        "evaluate was not reached in any paid-credit run; evaluate_reached must be false"
+    )
+    assert calls.get("promote_reached") is False, (
+        "promote was not reached in any paid-credit run; promote_reached must be false"
+    )
+
+
+# 15.
+def test_promote_approved_is_false() -> None:
+    state = _load(_PROJECT_STATE_PATH)
+    promo = state.get("promotion", {})
+    assert promo.get("promote_approved") is False, (
+        "promote_approved must be false — no promotion has been approved"
+    )
+
+
+# 16.
+def test_next_action_is_post_pr91_rerun_preparation() -> None:
+    state = _load(_PROJECT_STATE_PATH)
+    next_action = state.get("next_action", "")
+    assert "merge_g1" not in next_action, (
+        "next_action must not reference the pre-PR91-merge G1 gap closure "
+        "(PR #91 is merged)"
+    )
+    assert "s4_rerun" in next_action or "owner_approved" in next_action, (
+        "next_action must reference the owner-approved next S4 rerun"
+    )
