@@ -4101,14 +4101,17 @@ class TestNoComprehensionGuard:
     def test_system_prompt_forbids_list_comprehension(self) -> None:
         """System prompt must explicitly state that list comprehensions are forbidden."""
         system = pm._LLM_SYSTEM_PROMPT
-        assert "list comprehension" in system.lower() or "listcomp" in system.lower(), (
+        # Accepts either the explicit phrase ("list comprehension") or the
+        # collective shorthand ("list/set/dict comprehensions") introduced in P2.
+        assert "list comprehension" in system.lower() or "list/set/dict" in system.lower(), (
             "System prompt must mention list comprehension prohibition"
         )
 
     def test_system_prompt_forbids_set_comprehension(self) -> None:
         """System prompt must explicitly mention set comprehension prohibition."""
         system = pm._LLM_SYSTEM_PROMPT
-        assert "set comprehension" in system.lower(), (
+        # Accepts either the explicit phrase or the collective shorthand.
+        assert "set comprehension" in system.lower() or "list/set/dict" in system.lower(), (
             "System prompt must mention set comprehension prohibition"
         )
 
@@ -4186,6 +4189,59 @@ class TestNoComprehensionGuard:
     # ------------------------------------------------------------------ #
     # DetectionResult shape invariant still holds
     # ------------------------------------------------------------------ #
+
+    # ------------------------------------------------------------------ #
+    # ImportError fail-closed
+    # ------------------------------------------------------------------ #
+
+    def test_check66_import_error_fails_closed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When core.policy cannot be imported, check 6.6 must fail-closed (reject, not skip).
+
+        The check must return a non-empty error rather than silently passing the
+        candidate through to the apply-stage backstop.  Only the 'from core import
+        policy' call is intercepted; all other imports are unaffected.
+        """
+        # Valid code with no comprehensions — would pass check 6.6 under normal
+        # conditions, so any rejection is purely from the ImportError path.
+        code = (
+            "    surface = request.path.lower()\n"
+            "    if 'sqli_indicator' in surface:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='sqli indicator matched',\n"
+            "            confidence=0.8,\n"
+            "            matched_signals=('sqli_indicator',),\n"
+            "        )\n"
+            + self._VALID_FALLBACK
+        )
+
+        # Capture the real __import__ before patching so unrelated imports work.
+        import builtins as _builtins
+
+        original_import = _builtins.__import__
+
+        def _mock_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            # Intercept only 'from core import policy'; pass everything else.
+            fromlist = args[2] if len(args) > 2 else kwargs.get("fromlist", ())
+            if name == "core" and "policy" in (fromlist or ()):
+                raise ImportError("Simulated: core.policy unavailable for testing")
+            return original_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=_mock_import):
+            err = pm._validate_replacement_code(code)
+
+        assert err != "", (
+            "ImportError in core.policy import must cause fail-closed rejection; "
+            "got empty string (check 6.6 must NOT silently skip)"
+        )
+        assert any(
+            phrase in err.lower()
+            for phrase in ("core.policy", "check 6.6", "fail-closed")
+        ), (
+            f"Error must mention core.policy / check 6.6 / fail-closed; got: {err!r}"
+        )
 
     def test_detection_result_shape_still_validated_after_check66(self) -> None:
         """Check 6.6 does not interfere with check 10/11 DetectionResult shape validation.

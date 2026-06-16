@@ -287,7 +287,7 @@ STRICT RULES — YOU MUST FOLLOW ALL OF THEM:
 16. Do not include raw offensive payloads. Use only the neutralized
     symbolic indicator tokens defined in the test corpus.
 17. Avoid runtime allocation risk: non-constant repeat multiplier is rejected (e.g. 0.3 * count; use constant float 0.7).
-18. No list comprehension, set comprehension, dict comprehension, or generator expression — all rejected. Use for-loop + append.
+18. Do not use list/set/dict comprehensions or generator expressions in replacement_code. Use explicit for-loop + append.
 
 REPLACEMENT_CODE FORMAT CONTRACT:
 replacement_code is inserted as-is as the body of inspect_request().
@@ -709,7 +709,8 @@ def _validate_replacement_code(code: str) -> str:
        Re-uses core.policy to prevent policy drift between propose and apply
        stages. Run 7 failure root cause: list comprehension in replacement_code
        passed propose-stage but was rejected at apply-stage; this check closes
-       that gap by failing closed at propose time.
+       that gap by failing closed at propose time. ImportError from core.policy
+       also fails closed — the check must not be skipped silently.
     7. Semantic body validation (after successful AST parse):
        - replacement body (function body past _mutation_anchor) must not be empty.
        - replacement body must not contain only pass / comments.
@@ -869,9 +870,8 @@ def _validate_replacement_code(code: str) -> str:
         # Mirrors apply-stage policy so candidates with comprehensions are
         # rejected at propose time before any patch is written (fail-closed).
         # Re-using core.policy avoids policy drift between propose and apply stages.
-        # If core.policy is unavailable (ImportError), this check is skipped and
-        # the apply-stage core.policy check remains the backstop — but since
-        # core.policy is always present in this project, ImportError should not occur.
+        # ImportError is also fail-closed: if core.policy is unavailable the safety
+        # check cannot run, so the candidate is rejected rather than silently allowed.
         try:
             from core import policy as _core_policy  # type: ignore[import]
             _alloc_violations = _core_policy.check_runtime_allocation_risks(tree)
@@ -880,8 +880,11 @@ def _validate_replacement_code(code: str) -> str:
                     "replacement_code runtime allocation risk violation: "
                     + _alloc_violations[0]
                 )
-        except ImportError:
-            pass  # check 6.5 still guards repeat-multiplier; apply-stage check backstops rest
+        except ImportError as exc:
+            return (
+                "replacement_code runtime allocation risk violation: "
+                f"core.policy unavailable for check 6.6 ({type(exc).__name__}) — fail-closed"
+            )
 
         # 7. Semantic body validation.
         # Find _candidate_body in the parsed tree and inspect its body.

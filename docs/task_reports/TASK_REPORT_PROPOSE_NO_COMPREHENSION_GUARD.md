@@ -1,84 +1,99 @@
-# タスク完了報告 — propose-no-comprehension-guard
+# タスク完了報告 — propose-no-comprehension-guard（監査修正版）
 
 ## 概要
 
-Run 7 でリストコンプリヘンションを含む `replacement_code` が propose 段階のバリデーションを通過したが apply 段階の `core.policy.check_runtime_allocation_risks()` で却下された根本原因を解消するため、propose 段階に Check 6.6 を追加した。これにより、`ast.ListComp` / `ast.SetComp` / `ast.DictComp` および安全でない `ast.GeneratorExp` を含むコードが propose 時点で fail-closed で却下される。Gemini 向けプロンプトにも明示的禁止ルールとスコアリングガイダンスを追記した。
+Run 7 でリストコンプリヘンションを含む `replacement_code` が propose 段階のバリデーションを通過したが apply 段階の `core.policy.check_runtime_allocation_risks()` で却下された根本原因を解消するため、propose 段階に Check 6.6 を追加した（PR #104 初版）。
+
+その後の監査指摘（P1〜P3）に対応し、以下の修正を実施した:
+
+- **P1**: Check 6.6 の ImportError ハンドリングを fail-closed に変更（skip → reject）
+- **P2**: System prompt の Rule 18 文言を短縮・整合（`"all rejected"` → `join()` 例外を LLM に教えない表現へ）
+- **P3**: `valid_patch` フィクスチャと `_VALID_RESPONSE_TEXT` の無効なコードを修正
 
 ## 変更ファイル一覧
 
-- `scripts/propose_mutation.py` — Check 6.6 追加、プロンプト更新
-- `tests/test_gemini_integration.py` — 新規テストクラス `TestNoComprehensionGuard`（20テスト）追加、既存フィクスチャのリストコンプリヘンション除去
-- `tests/test_gemini_paid_credit.py` — 既存フィクスチャのリストコンプリヘンション除去（8テスト修正）
+- `scripts/propose_mutation.py` — Check 6.6 ImportError fail-closed 化、Rule 18 文言更新
+- `tests/test_gemini_integration.py` — ImportError fail-closed テスト追加、prompt assertion 更新
+- `tests/test_gemini_paid_credit.py` — フィクスチャ整理（リストコンプリヘンション除去・runtime multiplier 除去）
 - `docs/task_reports/TASK_REPORT_PROPOSE_NO_COMPREHENSION_GUARD.md` — 本報告書
 
 ## 主な変更内容
 
 ### `scripts/propose_mutation.py`
 
-- **Check 6.6** を `_validate_replacement_code()` に追加（Check 6.5 の直後）
+**PR #104 初版（Check 6.6 本体）:**
+- `_validate_replacement_code()` に Check 6.6 を追加（Check 6.5 の直後）
   - `core.policy.check_runtime_allocation_risks(tree)` を再利用して `ListComp` / `SetComp` / `DictComp` / 安全でない `GeneratorExp` を reject
   - apply 段階と同じポリシーを使うことで policy drift を防止
-  - `ImportError` 時は skip（backstop として apply 段階のチェックが残る）
-- **`_LLM_SYSTEM_PROMPT` STRICT RULES** に Rule 18 追加（コンパクトな1行）:
-  - `"18. No list comprehension, set comprehension, dict comprehension, or generator expression — all rejected. Use for-loop + append."`
-  - テスト要件: `"list comprehension"`, `"set comprehension"`, `"dict comprehension"`, `"generator"`, `"for-loop"` / `"append"` が全てシステムプロンプトに含まれる
-- **`_build_scoring_guidance()`** の末尾に1行追加:
-  - `"- NO-COMPREHENSION: list/set/dict comprehensions and generator expressions rejected; use for-loop + append."`
-  - テスト要件: user prompt に `"comprehension"` / `"for-loop"` が含まれる
-- **プロンプト長制約を維持**: 変更後の full prompt は 11585 chars（headroom 415 chars ≥ 200 chars 要件をクリア）
-  - 冗長な FORBIDDEN セクションの return shape 列挙を 1 行に短縮（530 → 225 chars）
-  - 冗長なコンプリヘンション禁止 4-bullet を削除（Rule 18 でカバー）
+- `_LLM_SYSTEM_PROMPT` STRICT RULES に Rule 18 追加
+- `_build_scoring_guidance()` の末尾に NO-COMPREHENSION ガイダンス追加
+- 冗長な FORBIDDEN セクションの return shape 列挙を短縮してプロンプト長を予算内に維持
+
+**監査修正 P1（ImportError fail-closed）:**
+- `except ImportError: pass` → `except ImportError as exc: return (error message)` に変更
+  - error message: `"core.policy unavailable for check 6.6 ({exc.__class__.__name__}) — fail-closed"`
+- コメントの「apply-stage backstop に任せる」という記述を削除
+
+**監査修正 P2（Rule 18 文言整合）:**
+- 旧: `"18. No list comprehension, set comprehension, dict comprehension, or generator expression — all rejected. Use for-loop + append."`
+- 新: `"18. Do not use list/set/dict comprehensions or generator expressions in replacement_code. Use explicit for-loop + append."`
+- `"all rejected"` という誤解を招く文言を削除（core.policy は join(generator) を許容するが LLM に例外条件を教えない）
+
+**プロンプト長**: 11578 chars（headroom 422 chars ≥ 200 chars 要件をクリア）
 
 ### `tests/test_gemini_integration.py`
 
-- `valid_patch` フィクスチャのリストコンプリヘンション → for-loop + append に変換
-- `test_accepts_safe_code` および `test_accepts_nested_return_plus_top_level_fallback` の `replacement_code` フィクスチャ更新
-- **新規テストクラス `TestNoComprehensionGuard`** を追加（20テスト）:
-  - `test_rejects_list_comprehension_simple`
-  - `test_rejects_list_comprehension_with_if_filter`
-  - `test_rejects_set_comprehension`
-  - `test_rejects_dict_comprehension`
-  - `test_rejects_unsafe_generator_expression_in_any`
-  - `test_rejects_standalone_generator_expression`
-  - `test_rejects_list_comprehension_in_return_context`
-  - `test_accepts_for_loop_instead_of_list_comprehension`
-  - `test_accepts_sample_mutation_no_comprehension`
-  - `test_system_prompt_forbids_list_comprehension`
-  - `test_system_prompt_forbids_set_comprehension`
-  - `test_system_prompt_forbids_dict_comprehension`
-  - `test_system_prompt_forbids_generator_expression`
-  - `test_system_prompt_recommends_for_loop`
-  - `test_user_prompt_contains_no_comprehension_guidance`
-  - `test_prompt_headroom_after_guidance_added`
-  - `test_prompt_headroom_with_real_genome`
-  - `test_detection_result_shape_still_validated_after_check66`
-  - `test_detection_result_shape_validated_when_no_comprehension`
+**PR #104 初版:**
+- 既存フィクスチャのリストコンプリヘンション → for-loop + append に変換
+- `TestNoComprehensionGuard` クラス追加（20テスト）
+
+**監査修正 P1 テスト:**
+- `test_check66_import_error_fails_closed` を `TestNoComprehensionGuard` に追加
+  - 有効な（コンプリヘンションなし）コードで `core.policy` import を monkeypatch で封鎖
+  - `_validate_replacement_code()` が空文字でないエラーを返すことを assert
+  - エラーに `"core.policy"` / `"check 6.6"` / `"fail-closed"` のいずれかが含まれることを assert
+
+**監査修正 P2 テスト:**
+- `test_system_prompt_forbids_list_comprehension`: `"list/set/dict"` を許容する assert に更新
+- `test_system_prompt_forbids_set_comprehension`: 同様に `"list/set/dict"` を許容する assert に更新
 
 ### `tests/test_gemini_paid_credit.py`
 
-- 8テストが失敗していたフィクスチャ（`replacement_code` 内のリストコンプリヘンション）を for-loop + append に変換:
-  - `TestPaidCreditLedgerAppend::test_appends_usage_record_on_success`（line 627）
-  - `TestConservativeMultilingualBudgetRefusal` 内2テスト（lines 1883, 2024）
-  - `TestThinkingBudgetInEstimation._VALID_RESPONSE`（line 2099）
-  - `TestActualThinkingTokensInLedger._VALID_RESPONSE`（line 2270）
+**PR #104 初版:**
+- 8テストのフィクスチャのリストコンプリヘンション → for-loop + append に変換
+
+**監査修正 P3（invalid fixture 整理）:**
+- `valid_patch` フィクスチャ（line 104）:
+  - `[ind for ind in indicators if ind in surface]` → for-loop + append に変換
+  - `min(1.0, 0.5 + 0.12 * len(matched))` runtime multiplier → branch-constant `confidence = 0.7 / 0.9` に変換
+  - docstring から `(no '__' in code)` の限定表現を削除
+- `TestPaidCreditLedgerFailures._VALID_RESPONSE_TEXT`:
+  - `[ind for ind in indicators if ind in surface]` → for-loop + append に変換
 
 ## 後検証結果
 
 ```
-pytest tests/ -q
-2147 passed, 5 warnings in 4.18s
+pytest tests/test_gemini_integration.py -q  → 307 passed
+pytest tests/test_gemini_paid_credit.py -q  → 74 passed
+pytest tests/ -q                            → 2148 passed, 5 warnings
 
-prompt headroom: 415 chars (max_prompt_chars=12000, full_prompt=11585, require>=200) ✅
-list comprehension in system prompt: True ✅
-set comprehension in system prompt: True ✅
-dict comprehension in system prompt: True ✅
-generator in system prompt: True ✅
-for-loop in system prompt: True ✅
-comprehension in user prompt: True ✅
+python scripts/propose_mutation.py --noop --json         → success: true
+python scripts/propose_mutation.py --offline-sample --json → success: true
+
+prompt headroom: 422 chars (max_prompt_chars=12000, full_prompt=11578, require>=200) ✅
 ```
 
 ## 残存事項・注意点
 
 - `core/policy.py` は FROZEN のため未変更。Check 6.6 は `core.policy.check_runtime_allocation_risks()` を呼び出すことで policy drift を防止している。
-- `tests/test_gemini_paid_credit.py` の `valid_patch` フィクスチャ（line 114）はリストコンプリヘンションと runtime multiplier（`0.12 * len(matched)`）を残したまま。このフィクスチャを使用するテストは高レベルモックで `_validate_replacement_code` を経由しないため現時点で問題なし。将来のテスト変更時に注意が必要。
-- `TestPaidCreditLedgerFailures._VALID_RESPONSE_TEXT`（line 1051）も同様にリストコンプリヘンションを残したまま。このクラスのテストは ledger write を先にモックして失敗させるため `_parse_and_validate_response` に到達しない。
+
+## Safety Invariants
+
+- No Gemini API call ✅
+- No OpenAI API call ✅
+- No workflow_dispatch ✅
+- No paid-credit run ✅
+- No preflight run ✅
+- No promotion ✅
+- No ledger/genome/detector/workflow changes ✅
+- No weakening of core.policy ✅

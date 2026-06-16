@@ -102,7 +102,7 @@ def ledger_file(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def valid_patch() -> dict:
-    """A patch dict that passes all validation checks (no '__' in code)."""
+    """A patch dict that passes all validation checks."""
     return {
         "mutation_rationale": "Improve coverage for path traversal patterns.",
         "target_threats": ["THREAT-2024-001"],
@@ -111,13 +111,18 @@ def valid_patch() -> dict:
         "replacement_code": (
             "    surface = request.path.lower() + ' ' + request.body.lower()\n"
             "    indicators = ['path-traversal', 'sqli', 'xss', 'cmd-delim']\n"
-            "    matched = [ind for ind in indicators if ind in surface]\n"
+            "    matched = []\n"
+            "    for ind in indicators:\n"
+            "        if ind in surface:\n"
+            "            matched.append(ind)\n"
             "    if matched:\n"
-            "        boost = min(1.0, 0.5 + 0.12 * len(matched))\n"
+            "        confidence = 0.7\n"
+            "        if len(matched) > 2:\n"
+            "            confidence = 0.9\n"
             "        return DetectionResult(\n"
             "            blocked=True,\n"
             "            reason='indicator matched: ' + matched[0],\n"
-            "            confidence=boost,\n"
+            "            confidence=confidence,\n"
             "            matched_signals=tuple(matched),\n"
             "        )\n"
             "    return DetectionResult(\n"
@@ -1059,7 +1064,10 @@ class TestPaidCreditLedgerFailures:
         "replacement_code": (
             "    surface = request.path.lower() + ' ' + request.body.lower()\n"
             "    indicators = ['path_traversal_indicator', 'sqli_indicator']\n"
-            "    matched = [ind for ind in indicators if ind in surface]\n"
+            "    matched = []\n"
+            "    for ind in indicators:\n"
+            "        if ind in surface:\n"
+            "            matched.append(ind)\n"
             "    if matched:\n"
             "        return DetectionResult(\n"
             "            blocked=True,\n"
