@@ -881,13 +881,13 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 
 | Field | Value |
 |---|---|
-| Current Phase | Phase 3 — 5th paid-credit API success recorded (2026-06-15); run 5 artifact triage pending |
+| Current Phase | Phase 3 — runs 5 & 6 triaged: both reached evaluate, adoption gate rejected (score regression) |
 | Phase 3 Activation | Complete (PR #58-#62) |
-| Phase 3 Paid-Credit API Calls | Executed (5 successful / 5 attempt(s)) |
+| Phase 3 Paid-Credit API Calls | Executed (6 successful / 6 attempt(s)) |
 | Gemini Primary Model | gemini-3-flash-preview |
 | Gemini Fallback Model | gemini-3.1-flash-lite |
-| promote_approved | false (promotion not approved — run 5 artifact triage pending) |
-| Next Focus | Triage run 5 artifacts with scripts/triage_s4_rerun.py; update apply/evaluate/promote state |
+| promote_approved | false (promotion not approved — no candidate has passed the adoption gate) |
+| Next Focus | Owner decision: runs 5 & 6 reached evaluate but regressed below best=729.34; decide propose-side improvement before any rerun |
 | live_model_enabled | true |
 | API Mode | gemini_paid_credit |
 | Model Provider | gemini |
@@ -913,6 +913,6 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | Fitness Report | Not available — run baseline fitness to populate TP/FP/TN/FN |
 | Adoption Gate | ✅ Passed (generation 2) |
 | Active Threat IDs | `THREAT-2024-001` `THREAT-2024-002` `THREAT-2024-003` `THREAT-2024-004` `THREAT-2024-005` |
-| Status Block Updated | 2026-06-15 23:44 UTC |
+| Status Block Updated | 2026-06-16 04:04 UTC |
 
 <!-- CYBER_IMMUNIZER_STATUS_END -->
