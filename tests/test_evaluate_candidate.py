@@ -432,3 +432,258 @@ class TestResourceLimitConstants:
         assert _EVAL_MAX_PROCESSES >= 8, (
             "Process limit must allow a small number of subprocesses"
         )
+
+
+# ===========================================================================
+# F. Fitness report schema: stage field and required fields
+# ===========================================================================
+
+
+class TestFitnessReportSchema:
+    """fitness_report.json must always include the required schema fields."""
+
+    def test_report_has_stage_field(self, tmp_path: Path) -> None:
+        """fitness_report.json must include stage='evaluate_candidate'."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("subprocess.run", return_value=_fake_proc(_FAKE_REJECTED_OUTPUT)):
+                evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        assert report_path.exists()
+        report = json.loads(report_path.read_text())
+        assert report.get("stage") == "evaluate_candidate"
+
+    def test_report_has_passed_adoption_gate(self, tmp_path: Path) -> None:
+        """fitness_report.json must include passed_adoption_gate field."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("subprocess.run", return_value=_fake_proc(_FAKE_REJECTED_OUTPUT)):
+                evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        report = json.loads(report_path.read_text())
+        assert "passed_adoption_gate" in report
+        assert isinstance(report["passed_adoption_gate"], bool)
+
+    def test_report_has_is_tool_failure(self, tmp_path: Path) -> None:
+        """fitness_report.json must include is_tool_failure field."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("subprocess.run", return_value=_fake_proc(_FAKE_REJECTED_OUTPUT)):
+                evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        report = json.loads(report_path.read_text())
+        assert "is_tool_failure" in report
+
+    def test_report_has_timed_out(self, tmp_path: Path) -> None:
+        """fitness_report.json must include timed_out field."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("subprocess.run", return_value=_fake_proc(_FAKE_REJECTED_OUTPUT)):
+                evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        report = json.loads(report_path.read_text())
+        assert "timed_out" in report
+        assert isinstance(report["timed_out"], bool)
+
+    def test_report_has_candidate_hash(self, tmp_path: Path) -> None:
+        """fitness_report.json must include candidate_hash field."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("subprocess.run", return_value=_fake_proc(_FAKE_REJECTED_OUTPUT)):
+                evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        report = json.loads(report_path.read_text())
+        assert "candidate_hash" in report
+        assert report["candidate_hash"] is not None
+        assert len(report["candidate_hash"]) == 64
+
+
+# ===========================================================================
+# G. Non-existent candidate → report generated with candidate_hash=null
+# ===========================================================================
+
+
+class TestNonExistentCandidateReport:
+    """A non-existent candidate file must produce a report with candidate_hash=null."""
+
+    def test_nonexistent_candidate_generates_report(self, tmp_path: Path) -> None:
+        """evaluate_candidate must write fitness_report.json even when file doesn't exist."""
+        candidate = tmp_path / "does_not_exist.py"
+        report_path = tmp_path / "report.json"
+
+        result = evaluate_candidate(
+            candidate, timeout_seconds=5, report_path=report_path
+        )
+
+        assert result["success"] is False
+        assert result["is_tool_failure"] is True
+        assert report_path.exists(), "report must be written when candidate file is missing"
+
+    def test_nonexistent_candidate_report_has_null_hash(self, tmp_path: Path) -> None:
+        """Report for a non-existent candidate must have candidate_hash=null."""
+        candidate = tmp_path / "does_not_exist.py"
+        report_path = tmp_path / "report.json"
+
+        evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        report = json.loads(report_path.read_text())
+        assert report.get("candidate_hash") is None
+
+    def test_nonexistent_candidate_report_stage(self, tmp_path: Path) -> None:
+        """Report for non-existent candidate must have stage='evaluate_candidate'."""
+        candidate = tmp_path / "does_not_exist.py"
+        report_path = tmp_path / "report.json"
+
+        evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        report = json.loads(report_path.read_text())
+        assert report.get("stage") == "evaluate_candidate"
+
+
+# ===========================================================================
+# H. AST validation failure → report generated with candidate_hash populated
+# ===========================================================================
+
+
+class TestAstFailureReport:
+    """AST validation failure must produce a report with candidate_hash."""
+
+    def test_ast_failure_generates_report(self, tmp_path: Path) -> None:
+        """AST validation failure must write fitness_report.json."""
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": False, "violations": ["forbidden import"]}):
+            result = evaluate_candidate(
+                candidate, timeout_seconds=5, report_path=report_path
+            )
+
+        assert result["is_tool_failure"] is True
+        assert report_path.exists(), "report must be written on AST validation failure"
+
+    def test_ast_failure_report_has_candidate_hash(self, tmp_path: Path) -> None:
+        """Report on AST failure must include the candidate's hash."""
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": False, "violations": ["forbidden"]}):
+            evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        report = json.loads(report_path.read_text())
+        assert report.get("candidate_hash") is not None
+        assert len(report["candidate_hash"]) == 64
+
+    def test_ast_failure_report_has_stage(self, tmp_path: Path) -> None:
+        """Report on AST failure must have stage='evaluate_candidate'."""
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": False, "violations": ["violation"]}):
+            evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        report = json.loads(report_path.read_text())
+        assert report.get("stage") == "evaluate_candidate"
+
+    def test_ast_failure_report_violations_populated(self, tmp_path: Path) -> None:
+        """Report on AST failure must include the violation list."""
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+        violations = ["forbidden import: os", "dunder access denied"]
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": False, "violations": violations}):
+            evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        report = json.loads(report_path.read_text())
+        assert report.get("violations") == violations
+
+
+# ===========================================================================
+# I. No secrets in fitness report
+# ===========================================================================
+
+
+class TestNoSecretsInReport:
+    """fitness_report.json must not contain secret-like env vars or raw payloads."""
+
+    _SECRET_KEYS = [
+        "GEMINI_API_KEY",
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_ACCESS_KEY_ID",
+        "OPENAI_API_KEY",
+    ]
+
+    def test_no_secret_env_vars_in_report_on_failure(self, tmp_path: Path) -> None:
+        """fitness_report.json must not contain secret env-var names on failure."""
+        if not _resource_limits_supported():
+            pytest.skip("POSIX resource limits not available on this platform")
+
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        # Inject fake secrets into the environment to verify they are stripped
+        fake_env = {k: "FAKE_SECRET_VALUE" for k in self._SECRET_KEYS}
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch.dict(os.environ, fake_env):
+                with patch("subprocess.run",
+                           side_effect=OSError("simulated launch error")):
+                    evaluate_candidate(
+                        candidate, timeout_seconds=5, report_path=report_path
+                    )
+
+        report_text = report_path.read_text()
+        for key in self._SECRET_KEYS:
+            assert "FAKE_SECRET_VALUE" not in report_text, (
+                f"Secret value for {key} must not appear in fitness_report.json"
+            )
+
+    def test_safe_env_strips_secrets_from_subprocess(self, tmp_path: Path) -> None:
+        """_safe_env() must strip all known secret env vars before subprocess launch."""
+        from scripts.evaluate_candidate import _safe_env
+        import os
+
+        fake_env = {k: "SECRET_VALUE" for k in self._SECRET_KEYS}
+        with patch.dict(os.environ, fake_env):
+            safe = _safe_env()
+
+        for key in self._SECRET_KEYS:
+            assert key not in safe, (
+                f"{key} must be stripped by _safe_env() — must not reach subprocess"
+            )

@@ -144,8 +144,38 @@ def evaluate_candidate(
 
     When soft_reject=True, the caller can use is_tool_failure to determine
     whether to exit 1 (tool broken) or exit 0 (gate evaluated, candidate rejected).
+
+    A fitness_report.json (or the path specified by report_path) is written for
+    EVERY exit path — including AST failures and candidate-not-found — so that
+    CI artifacts always carry diagnostic information.
     """
     report_path = report_path or _REPORT_PATH
+
+    # --- Pre-step: Attempt to compute candidate hash before any validation ---
+    # Computed here so it is available even in early-exit paths (e.g. AST failure).
+    # Hash is None when the file cannot be read (handled fail-closed below).
+    candidate_hash: str | None = None
+    try:
+        _raw = candidate_path.read_text(encoding="utf-8")
+        candidate_hash = hashlib.sha256(_raw.encode()).hexdigest()
+    except OSError:
+        pass
+
+    # --- Pre-step: Guard for missing candidate file (fail-closed) ---
+    if not candidate_path.exists():
+        result = {
+            "success": False,
+            "passed_adoption_gate": False,
+            "timed_out": False,
+            "return_code": None,
+            "violations": [f"candidate file not found: {candidate_path}"],
+            "fitness_report": None,
+            "error": f"candidate file not found: {candidate_path}",
+            "is_tool_failure": True,
+            "candidate_hash": None,
+        }
+        _write_report(result, None, report_path)
+        return result
 
     # --- Step 1: AST validation (fast, in-process) ---
     val_result = validate(candidate_path)
@@ -159,12 +189,12 @@ def evaluate_candidate(
             "fitness_report": None,
             "error": "AST validation failed",
             "is_tool_failure": True,  # AST violation is always a hard failure
+            "candidate_hash": candidate_hash,
         }
+        _write_report(result, candidate_hash, report_path)
         return result
 
-    # --- Step 2: Compute candidate hash ---
-    source = candidate_path.read_text(encoding="utf-8")
-    candidate_hash = hashlib.sha256(source.encode()).hexdigest()
+    # candidate_hash was computed in the pre-step above; no need to re-read.
 
     # --- Step 3: Build physical resource limiter (fail closed if unsupported) ---
     # On Linux/POSIX, resource limits are mandatory.  We never run untrusted
@@ -300,9 +330,27 @@ def evaluate_candidate(
     return result
 
 
-def _write_report(result: dict, candidate_hash: str, report_path: Path) -> None:
+def _write_report(result: dict, candidate_hash: str | None, report_path: Path) -> None:
+    """Write structured fitness report JSON.
+
+    Outputs a normalised schema that always includes 'stage' and 'candidate_hash'.
+    The 'metrics' key carries the raw fitness subprocess output (or null on failure).
+    No secret env vars or raw payloads are included: the fitness subprocess runs with
+    _safe_env() which strips all secrets, and only its JSON stdout is stored here.
+    """
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {**result, "candidate_hash": candidate_hash}
+    payload = {
+        "stage": "evaluate_candidate",
+        "success": result.get("success", False),
+        "passed_adoption_gate": result.get("passed_adoption_gate", False),
+        "is_tool_failure": result.get("is_tool_failure", True),
+        "timed_out": result.get("timed_out", False),
+        "candidate_hash": candidate_hash,
+        "violations": result.get("violations", []),
+        "error": result.get("error", ""),
+        "metrics": result.get("fitness_report"),
+        "return_code": result.get("return_code"),
+    }
     report_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
@@ -317,6 +365,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="Output JSON")
     parser.add_argument("--baseline", action="store_true", help="Baseline evaluation mode")
     parser.add_argument(
+        "--report",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Write structured JSON fitness report to PATH. "
+            "Defaults to .cyber_immunizer/fitness_report.json when omitted."
+        ),
+    )
+    parser.add_argument(
         "--soft-reject",
         action="store_true",
         help=(
@@ -330,6 +387,7 @@ def main(argv: list[str] | None = None) -> int:
     result = evaluate_candidate(
         Path(args.candidate),
         timeout_seconds=args.timeout,
+        report_path=Path(args.report) if args.report else None,
         baseline_mode=args.baseline,
         soft_reject=args.soft_reject,
     )

@@ -412,15 +412,27 @@ jobs:
           path: .cyber_immunizer/
 
       - name: Apply mutation patch to candidate file
+        id: apply
         run: |
           python scripts/apply_mutation.py \
             --patch .cyber_immunizer/mutation_patch.json \
             --base core/detector.py \
             --out .cyber_immunizer/candidate_detector.py \
-            --json
+            --json \
+            --report .cyber_immunizer/apply_report.json
+
+      - name: Upload apply report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apply-report
+          path: .cyber_immunizer/apply_report.json
+          retention-days: 1
+          if-no-files-found: warn
 
       - name: Evaluate candidate (subprocess + timeout)
         id: evaluate
+        if: steps.apply.outcome == 'success'
         run: |
           # --soft-reject: exit 0 when gate evaluated cleanly (even if rejected);
           # exit 1 only on tool failures (AST violation, timeout, crash).
@@ -428,11 +440,12 @@ jobs:
             --candidate .cyber_immunizer/candidate_detector.py \
             --timeout 10 \
             --json \
+            --report .cyber_immunizer/fitness_report.json \
             --soft-reject
 
           # Extract passed_adoption_gate from the fitness report
           if [ -f ".cyber_immunizer/fitness_report.json" ]; then
-            GATE=$(python -c "import json; r=json.load(open('.cyber_immunizer/fitness_report.json')); fr=r.get('fitness_report') or r; print('true' if fr.get('passed_adoption_gate') else 'false')")
+            GATE=$(python -c "import json; r=json.load(open('.cyber_immunizer/fitness_report.json')); print('true' if r.get('passed_adoption_gate') else 'false')")
             echo "passed_adoption_gate=$GATE" >> "$GITHUB_OUTPUT"
           else
             echo "passed_adoption_gate=false" >> "$GITHUB_OUTPUT"
@@ -445,6 +458,7 @@ jobs:
           name: candidate-detector
           path: .cyber_immunizer/candidate_detector.py
           retention-days: 1
+          if-no-files-found: warn
 
       - name: Upload fitness report artifact
         if: always()
@@ -453,6 +467,7 @@ jobs:
           name: fitness-report
           path: .cyber_immunizer/fitness_report.json
           retention-days: 1
+          if-no-files-found: warn
 
   # -----------------------------------------------------------------------
   # Job 5: PROMOTE
