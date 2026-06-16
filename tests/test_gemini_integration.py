@@ -127,6 +127,7 @@ def valid_patch() -> dict:
 
     Uses plain string indicators without '__' so it passes _validate_replacement_code.
     (Live-model output must not contain '__'; the offline sample is trusted separately.)
+    Uses for-loops instead of list comprehensions (comprehensions are rejected by check 6.6).
     """
     return {
         "mutation_rationale": "Improve coverage for path traversal indicators.",
@@ -136,7 +137,10 @@ def valid_patch() -> dict:
         "replacement_code": (
             "    surface = request.path.lower() + ' ' + request.body.lower()\n"
             "    indicators = ['path-traversal', 'sqli', 'xss', 'cmd-delim']\n"
-            "    matched = [ind for ind in indicators if ind in surface]\n"
+            "    matched = []\n"
+            "    for ind in indicators:\n"
+            "        if ind in surface:\n"
+            "            matched.append(ind)\n"
             "    if matched:\n"
             "        confidence = 0.5\n"
             "        if len(matched) > 1:\n"
@@ -620,12 +624,17 @@ class TestReplacementCodeValidation:
         (which contain '__') is rejected here — those tokens are only trusted
         in --offline-sample (pre-validated, no API path). Live-model code
         should use plain string logic without dunder tokens.
+        Uses for-loops instead of list comprehensions (comprehensions are rejected
+        by check 6.6 — see no-comprehension guard added for Run 7 regression).
         """
-        # A snippet with no forbidden tokens at all.
+        # A snippet with no forbidden tokens and no comprehensions.
         safe_code = (
             "    surface = request.path.lower() + ' ' + request.body.lower()\n"
             "    indicators = ['path-traversal', 'sqli', 'xss', 'cmd-delim']\n"
-            "    matched = [ind for ind in indicators if ind in surface]\n"
+            "    matched = []\n"
+            "    for ind in indicators:\n"
+            "        if ind in surface:\n"
+            "            matched.append(ind)\n"
             "    if matched:\n"
             "        confidence = 0.5\n"
             "        if len(matched) > 1:\n"
@@ -907,11 +916,15 @@ class TestFallthroughReturnGuard:
         """Check 9 accepts code with nested returns followed by a top-level fallback.
 
         The last top-level statement is return DetectionResult(...) — fallback is present.
+        Uses for-loop instead of list comprehension (comprehensions are rejected by check 6.6).
         """
         code = (
             "    surface = request.path.lower() + ' ' + request.body.lower()\n"
             "    indicators = ['path_traversal_indicator', 'sqli_indicator']\n"
-            "    matched = [ind for ind in indicators if ind in surface]\n"
+            "    matched = []\n"
+            "    for ind in indicators:\n"
+            "        if ind in surface:\n"
+            "            matched.append(ind)\n"
             "    if matched:\n"
             "        confidence = 0.5\n"
             "        if len(matched) > 1:\n"
@@ -3920,3 +3933,337 @@ class TestScoringGuidance:
         patch_result, err = pm.propose_mutation(offline_sample=True)
         assert err == ""
         assert patch_result is not None
+
+
+# ---------------------------------------------------------------------------
+# 20. No-comprehension guard — Run 7 regression prevention (check 6.6)
+# ---------------------------------------------------------------------------
+
+
+class TestNoComprehensionGuard:
+    """Regression tests for check 6.6: list/set/dict comprehensions and unsafe
+    generator expressions are rejected fail-closed at the propose stage.
+
+    Root cause (Run 7): LLM proposed replacement_code with a list comprehension
+    that passed propose-stage but was rejected by core.policy at apply-stage.
+    Check 6.6 closes that gap by calling core.policy.check_runtime_allocation_risks()
+    on the wrapped AST at propose time.
+    """
+
+    _VALID_FALLBACK = (
+        "    return DetectionResult(\n"
+        "        blocked=False,\n"
+        "        reason='no match',\n"
+        "        confidence=0.0,\n"
+        "        matched_signals=(),\n"
+        "    )\n"
+    )
+
+    # ------------------------------------------------------------------ #
+    # Reject cases: comprehensions
+    # ------------------------------------------------------------------ #
+
+    def test_rejects_list_comprehension_simple(self) -> None:
+        """List comprehension in replacement_code is rejected by check 6.6."""
+        code = (
+            "    matched = [t for t in ['sqli', 'xss'] if t in request.path]\n"
+            + self._VALID_FALLBACK
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "List comprehension must be rejected"
+        assert "runtime allocation risk" in err.lower() or "comprehension" in err.lower(), (
+            f"Error must mention runtime allocation risk or comprehension, got: {err!r}"
+        )
+
+    def test_rejects_list_comprehension_with_if_filter(self) -> None:
+        """List comprehension with filter clause is rejected."""
+        code = (
+            "    surface = request.path.lower()\n"
+            "    tokens = ['sqli_indicator', 'script_injection_indicator']\n"
+            "    found = [t for t in tokens if t in surface]\n"
+            + self._VALID_FALLBACK
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Filtered list comprehension must be rejected"
+        assert "runtime allocation risk" in err.lower() or "comprehension" in err.lower(), (
+            f"Error must mention allocation risk or comprehension, got: {err!r}"
+        )
+
+    def test_rejects_set_comprehension(self) -> None:
+        """Set comprehension in replacement_code is rejected by check 6.6."""
+        code = (
+            "    found = {t for t in ['sqli', 'xss'] if t in request.path}\n"
+            + self._VALID_FALLBACK
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Set comprehension must be rejected"
+        assert "runtime allocation risk" in err.lower() or "comprehension" in err.lower(), (
+            f"Error must mention allocation risk or comprehension, got: {err!r}"
+        )
+
+    def test_rejects_dict_comprehension(self) -> None:
+        """Dict comprehension in replacement_code is rejected by check 6.6."""
+        code = (
+            "    mapping = {t: 1 for t in ['sqli', 'xss']}\n"
+            + self._VALID_FALLBACK
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Dict comprehension must be rejected"
+        assert "runtime allocation risk" in err.lower() or "comprehension" in err.lower(), (
+            f"Error must mention allocation risk or comprehension, got: {err!r}"
+        )
+
+    def test_rejects_unsafe_generator_expression_in_any(self) -> None:
+        """Unsafe generator expression inside any() is rejected by check 6.6."""
+        code = (
+            "    surface = request.path.lower()\n"
+            "    tokens = ['sqli_indicator', 'xss_indicator']\n"
+            "    if any(t in surface for t in tokens):\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='indicator found',\n"
+            "            confidence=0.8,\n"
+            "            matched_signals=(),\n"
+            "        )\n"
+            + self._VALID_FALLBACK
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Unsafe generator expression in any() must be rejected"
+        assert "runtime allocation risk" in err.lower() or "generator" in err.lower(), (
+            f"Error must mention allocation risk or generator, got: {err!r}"
+        )
+
+    def test_rejects_standalone_generator_expression(self) -> None:
+        """Standalone generator expression (not in join()) is rejected."""
+        code = (
+            "    gen = (t for t in ['sqli', 'xss'])\n"
+            + self._VALID_FALLBACK
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Standalone generator expression must be rejected"
+        assert "runtime allocation risk" in err.lower() or "generator" in err.lower(), (
+            f"Error must mention allocation risk or generator, got: {err!r}"
+        )
+
+    def test_rejects_list_comprehension_in_return_context(self) -> None:
+        """List comprehension used inside a return argument is rejected."""
+        code = (
+            "    surface = request.path.lower()\n"
+            "    return DetectionResult(\n"
+            "        blocked=False,\n"
+            "        reason='no match',\n"
+            "        confidence=0.0,\n"
+            "        matched_signals=tuple([t for t in [] if t in surface]),\n"
+            "    )\n"
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "List comprehension inside return argument must be rejected"
+
+    # ------------------------------------------------------------------ #
+    # Accept cases: for-loop equivalent is accepted
+    # ------------------------------------------------------------------ #
+
+    def test_accepts_for_loop_instead_of_list_comprehension(self) -> None:
+        """Equivalent for-loop code (no comprehension) is accepted."""
+        code = (
+            "    surface = request.path.lower() + ' ' + request.body.lower()\n"
+            "    tokens = ['sqli_indicator', 'script_injection_indicator']\n"
+            "    matched = []\n"
+            "    for t in tokens:\n"
+            "        if t in surface:\n"
+            "            matched.append(t)\n"
+            "    if matched:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='indicator matched: ' + matched[0],\n"
+            "            confidence=0.7,\n"
+            "            matched_signals=tuple(matched),\n"
+            "        )\n"
+            + self._VALID_FALLBACK
+        )
+        err = pm._validate_replacement_code(code)
+        assert err == "", (
+            f"For-loop equivalent must be accepted (no comprehension), got: {err!r}"
+        )
+
+    def test_accepts_sample_mutation_no_comprehension(self) -> None:
+        """The built-in _SAMPLE_MUTATION uses no comprehensions and still passes."""
+        code = pm._SAMPLE_MUTATION["replacement_code"]
+        err = pm._validate_replacement_code(code)
+        assert err == "", (
+            f"Sample mutation must pass check 6.6 (no comprehensions), got: {err!r}"
+        )
+
+    # ------------------------------------------------------------------ #
+    # Prompt guidance tests
+    # ------------------------------------------------------------------ #
+
+    def test_system_prompt_forbids_list_comprehension(self) -> None:
+        """System prompt must explicitly state that list comprehensions are forbidden."""
+        system = pm._LLM_SYSTEM_PROMPT
+        # Accepts either the explicit phrase ("list comprehension") or the
+        # collective shorthand ("list/set/dict comprehensions") introduced in P2.
+        assert "list comprehension" in system.lower() or "list/set/dict" in system.lower(), (
+            "System prompt must mention list comprehension prohibition"
+        )
+
+    def test_system_prompt_forbids_set_comprehension(self) -> None:
+        """System prompt must explicitly mention set comprehension prohibition."""
+        system = pm._LLM_SYSTEM_PROMPT
+        # Accepts either the explicit phrase or the collective shorthand.
+        assert "set comprehension" in system.lower() or "list/set/dict" in system.lower(), (
+            "System prompt must mention set comprehension prohibition"
+        )
+
+    def test_system_prompt_forbids_dict_comprehension(self) -> None:
+        """System prompt must explicitly mention dict comprehension prohibition."""
+        system = pm._LLM_SYSTEM_PROMPT
+        assert "dict comprehension" in system.lower(), (
+            "System prompt must mention dict comprehension prohibition"
+        )
+
+    def test_system_prompt_forbids_generator_expression(self) -> None:
+        """System prompt must explicitly mention generator expression prohibition."""
+        system = pm._LLM_SYSTEM_PROMPT
+        assert "generator" in system.lower(), (
+            "System prompt must mention generator expression prohibition"
+        )
+
+    def test_system_prompt_recommends_for_loop(self) -> None:
+        """System prompt must recommend for-loop + append as the alternative."""
+        system = pm._LLM_SYSTEM_PROMPT
+        assert "for-loop" in system.lower() or "for loop" in system.lower() or "append" in system.lower(), (
+            "System prompt must recommend for-loop or append as the comprehension alternative"
+        )
+
+    def test_user_prompt_contains_no_comprehension_guidance(
+        self,
+        genome_live_enabled: dict,
+        test_detector_file: Path,
+        test_threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Assembled user prompt (scoring guidance section) mentions no-comprehension policy."""
+        monkeypatch.setattr(pm, "_THREATS_PATH", test_threats_file)
+        user_prompt = pm._build_user_prompt(genome_live_enabled, test_detector_file.read_text())
+        assert "comprehension" in user_prompt.lower() or "for-loop" in user_prompt.lower(), (
+            "User prompt must mention comprehension prohibition or for-loop guidance"
+        )
+
+    def test_prompt_headroom_after_guidance_added(
+        self,
+        genome_live_enabled: dict,
+        test_detector_file: Path,
+        test_threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """After adding no-comprehension guidance, prompt headroom must stay >= 200 chars
+        under max_prompt_chars with the test fixture genome."""
+        monkeypatch.setattr(pm, "_THREATS_PATH", test_threats_file)
+        user_prompt = pm._build_user_prompt(genome_live_enabled, test_detector_file.read_text())
+        full = pm._LLM_SYSTEM_PROMPT + "\n" + user_prompt
+        max_chars = int(genome_live_enabled["max_prompt_chars"])
+        headroom = max_chars - len(full)
+        assert headroom >= _MIN_PROMPT_HEADROOM_CHARS, (
+            f"Prompt {len(full)} chars leaves only {headroom} headroom under "
+            f"max_prompt_chars={max_chars}; require >= {_MIN_PROMPT_HEADROOM_CHARS}"
+        )
+
+    def test_prompt_headroom_with_real_genome(self) -> None:
+        """With real data/genome.json and core/detector.py, headroom stays >= 200 chars."""
+        genome_path = _PROJECT_ROOT / "data" / "genome.json"
+        detector_path = _PROJECT_ROOT / "core" / "detector.py"
+        if not genome_path.exists() or not detector_path.exists():
+            pytest.skip("data/genome.json or core/detector.py not found")
+        genome = json.loads(genome_path.read_text(encoding="utf-8"))
+        detector_source = detector_path.read_text(encoding="utf-8")
+        user_prompt = pm._build_user_prompt(genome, detector_source)
+        full = pm._LLM_SYSTEM_PROMPT + "\n" + user_prompt
+        max_chars = int(genome["max_prompt_chars"])
+        headroom = max_chars - len(full)
+        assert headroom >= _MIN_PROMPT_HEADROOM_CHARS, (
+            f"Real prompt {len(full)} chars leaves only {headroom} headroom under "
+            f"max_prompt_chars={max_chars}; require >= {_MIN_PROMPT_HEADROOM_CHARS}"
+        )
+
+    # ------------------------------------------------------------------ #
+    # DetectionResult shape invariant still holds
+    # ------------------------------------------------------------------ #
+
+    # ------------------------------------------------------------------ #
+    # ImportError fail-closed
+    # ------------------------------------------------------------------ #
+
+    def test_check66_import_error_fails_closed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When core.policy cannot be imported, check 6.6 must fail-closed (reject, not skip).
+
+        The check must return a non-empty error rather than silently passing the
+        candidate through to the apply-stage backstop.  Only the 'from core import
+        policy' call is intercepted; all other imports are unaffected.
+        """
+        # Valid code with no comprehensions — would pass check 6.6 under normal
+        # conditions, so any rejection is purely from the ImportError path.
+        code = (
+            "    surface = request.path.lower()\n"
+            "    if 'sqli_indicator' in surface:\n"
+            "        return DetectionResult(\n"
+            "            blocked=True,\n"
+            "            reason='sqli indicator matched',\n"
+            "            confidence=0.8,\n"
+            "            matched_signals=('sqli_indicator',),\n"
+            "        )\n"
+            + self._VALID_FALLBACK
+        )
+
+        # Capture the real __import__ before patching so unrelated imports work.
+        import builtins as _builtins
+
+        original_import = _builtins.__import__
+
+        def _mock_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            # Intercept only 'from core import policy'; pass everything else.
+            fromlist = args[2] if len(args) > 2 else kwargs.get("fromlist", ())
+            if name == "core" and "policy" in (fromlist or ()):
+                raise ImportError("Simulated: core.policy unavailable for testing")
+            return original_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=_mock_import):
+            err = pm._validate_replacement_code(code)
+
+        assert err != "", (
+            "ImportError in core.policy import must cause fail-closed rejection; "
+            "got empty string (check 6.6 must NOT silently skip)"
+        )
+        assert any(
+            phrase in err.lower()
+            for phrase in ("core.policy", "check 6.6", "fail-closed")
+        ), (
+            f"Error must mention core.policy / check 6.6 / fail-closed; got: {err!r}"
+        )
+
+    def test_detection_result_shape_still_validated_after_check66(self) -> None:
+        """Check 6.6 does not interfere with check 10/11 DetectionResult shape validation.
+
+        Code with a list comprehension AND wrong DetectionResult shape should be
+        rejected (by check 6.6 which fires first), not silently accepted.
+        """
+        code = (
+            "    found = [t for t in ['sqli', 'xss'] if t in request.path]\n"
+            "    return DetectionResult(True, 'match', 0.9, ())\n"  # positional args — check 10
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Code with list comprehension must be rejected"
+
+    def test_detection_result_shape_validated_when_no_comprehension(self) -> None:
+        """Without comprehensions, check 10 DetectionResult shape validation still fires."""
+        code = (
+            "    surface = request.path.lower()\n"
+            "    return DetectionResult(True, 'match', 0.9, ())\n"  # positional args
+        )
+        err = pm._validate_replacement_code(code)
+        assert err != "", "Wrong DetectionResult shape must still be rejected"
+        assert "argument shape" in err.lower() or "positional" in err.lower(), (
+            f"Check 10 must reject positional args, got: {err!r}"
+        )

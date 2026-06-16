@@ -287,6 +287,7 @@ STRICT RULES — YOU MUST FOLLOW ALL OF THEM:
 16. Do not include raw offensive payloads. Use only the neutralized
     symbolic indicator tokens defined in the test corpus.
 17. Avoid runtime allocation risk: non-constant repeat multiplier is rejected (e.g. 0.3 * count; use constant float 0.7).
+18. Do not use list/set/dict comprehensions or generator expressions in replacement_code. Use explicit for-loop + append.
 
 REPLACEMENT_CODE FORMAT CONTRACT:
 replacement_code is inserted as-is as the body of inspect_request().
@@ -321,18 +322,7 @@ FORBIDDEN:
 - Do NOT omit return DetectionResult(...) — a return statement is mandatory.
 - Do NOT end replacement_code without the top-level (4-space) fallback
   return DetectionResult(...) required above.
-- Do NOT use any return shape other than: return DetectionResult(...)
-  The following are ALL rejected:
-    return None
-    return result
-    return True / return False
-    return make_result()
-    return core.types.DetectionResult(...)  (qualified name — use bare DetectionResult)
-    return DetectionResult(True, "reason", 0.5, ())  (positional args — rejected)
-    return DetectionResult(blocked=True, reason="x")  (missing keywords — rejected)
-    return DetectionResult(blocked=True, reason="x", confidence=0.5,
-        matched_signals=(), extra=1)  (extra keyword — rejected)
-    return DetectionResult(**kwargs)  (**kwargs expansion — rejected)
+- Do NOT use any return shape other than: return DetectionResult(blocked=<bool>, reason=<str>, confidence=<float>, matched_signals=<tuple>) — keyword-only, all four names required, no extras, no positional args, no **kwargs.
 - Do NOT start any line at column 0 (no top-level / unindented code).
 - Do NOT use non-multiple-of-4 indentation (e.g. 6 spaces is rejected).
 - Do NOT include def inspect_request(...) or any def / async def statement.
@@ -711,6 +701,16 @@ def _validate_replacement_code(code: str) -> str:
        Covers 3 constant kinds × 4 runtime-derived kinds × 2 operand orders =
        up to 24 explicit shape combinations; does not claim full equivalence to
        core.policy.check_runtime_allocation_risks().
+    6.6 Comprehension and unsafe generator expression rejection.
+       Calls core.policy.check_runtime_allocation_risks() on the wrapped tree
+       to reject ast.ListComp, ast.SetComp, ast.DictComp, and unsafe
+       ast.GeneratorExp (any GeneratorExp not used as the sole argument to
+       str.join() over request.query.items() or request.headers.items()).
+       Re-uses core.policy to prevent policy drift between propose and apply
+       stages. Run 7 failure root cause: list comprehension in replacement_code
+       passed propose-stage but was rejected at apply-stage; this check closes
+       that gap by failing closed at propose time. ImportError from core.policy
+       also fails closed — the check must not be skipped silently.
     7. Semantic body validation (after successful AST parse):
        - replacement body (function body past _mutation_anchor) must not be empty.
        - replacement body must not contain only pass / comments.
@@ -864,6 +864,28 @@ def _validate_replacement_code(code: str) -> str:
                         "runtime allocation risk: repeat multiplier is non-constant "
                         "(cannot bound statically) — fail-closed"
                     )
+        # 6.6 Comprehension and unsafe generator expression rejection.
+        # Rejects ast.ListComp, ast.SetComp, ast.DictComp, and unsafe
+        # ast.GeneratorExp by calling core.policy.check_runtime_allocation_risks().
+        # Mirrors apply-stage policy so candidates with comprehensions are
+        # rejected at propose time before any patch is written (fail-closed).
+        # Re-using core.policy avoids policy drift between propose and apply stages.
+        # ImportError is also fail-closed: if core.policy is unavailable the safety
+        # check cannot run, so the candidate is rejected rather than silently allowed.
+        try:
+            from core import policy as _core_policy  # type: ignore[import]
+            _alloc_violations = _core_policy.check_runtime_allocation_risks(tree)
+            if _alloc_violations:
+                return (
+                    "replacement_code runtime allocation risk violation: "
+                    + _alloc_violations[0]
+                )
+        except ImportError as exc:
+            return (
+                "replacement_code runtime allocation risk violation: "
+                f"core.policy unavailable for check 6.6 ({type(exc).__name__}) — fail-closed"
+            )
+
         # 7. Semantic body validation.
         # Find _candidate_body in the parsed tree and inspect its body.
         # body[0] is always _mutation_anchor = None (the anchor statement).
@@ -1121,7 +1143,8 @@ def _build_scoring_guidance(genome: dict) -> str:
         "- Make a minimal additive edit; do NOT replace or narrow it. Keep code size and\n"
         "  changed lines small and logic deterministic; prefer branch-constant confidence\n"
         "  over a multiplier like 0.3*count.\n"
-        "- Lesson: recent candidates were REJECTED for scoring below best despite a valid patch."
+        "- Lesson: recent candidates were REJECTED for scoring below best despite a valid patch.\n"
+        "- NO-COMPREHENSION: list/set/dict comprehensions and generator expressions rejected; use for-loop + append."
     )
 
 
