@@ -33,6 +33,10 @@ _NEXT_ACTION_TEXT = {
         "Project Owner review of the propose/output-contract fix (PR #84)"
         " before any owner-approved paid-credit rerun"
     ),
+    "run7_apply_failed_list_comprehension_await_propose_side_no_comprehension_guard": (
+        "Add propose-side no-comprehension guidance or pre-screening before"
+        " another paid-credit rerun"
+    ),
 }
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"

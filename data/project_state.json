@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "state_id": "phase3_s4_materialize_reached_apply_blocked_g1_gap_closing",
+  "state_id": "phase3_run7_apply_failed_list_comprehension_runtime_allocation_risk",
   "current_phase": "phase_3",
   "phase_3_activation": "complete",
   "live_model_enabled": true,
@@ -9,23 +9,66 @@
   "primary_model": "gemini-3-flash-preview",
   "fallback_model": "gemini-3.1-flash-lite",
   "paid_credit_api_calls": {
-    "gemini_3_flash_preview_success_records": 4,
+    "gemini_3_flash_preview_success_records": 7,
     "api_success_meaning": "http_200_and_token_usage_recorded",
     "valid_mutation_patch_produced": true,
     "apply_reached": true,
-    "evaluate_reached": false,
-    "promote_reached": false
+    "evaluate_reached": true,
+    "promote_reached": false,
+    "adoption_gate_ever_passed": false
   },
   "promotion": {
     "promote_approved": false,
     "meaning": "promotion_not_approved",
     "does_not_mean": "api_call_unexecuted"
   },
-  "next_action": "merge_g1_repeat_multiplier_gap_closure_then_update_project_state_and_prepare_owner_approved_next_s4_rerun",
+  "next_action": "run7_apply_failed_list_comprehension_await_propose_side_no_comprehension_guard",
   "fresh_verification_policy": {
     "paid_credit_run_in_this_pr": "forbidden",
     "workflow_dispatch_in_this_pr": "forbidden",
     "gemini_api_call_in_this_pr": "forbidden",
     "no_api_tests_required": true
+  },
+  "run_5_triage": {
+    "classification": "evaluate_rejected",
+    "score": 494.48,
+    "previous_best": 729.34,
+    "passed_adoption_gate": false,
+    "evaluate_reached": true,
+    "promote_reached": false
+  },
+  "run_6_triage": {
+    "classification": "evaluate_rejected",
+    "score": 478.12,
+    "previous_best": 729.34,
+    "passed_adoption_gate": false,
+    "evaluate_reached": true,
+    "promote_reached": false
+  },
+  "propose_side_hardening": {
+    "status": "preserved_from_main",
+    "meaning": "propose-side baseline preservation hardening remains in force"
+  },
+  "run_7_triage": {
+    "github_actions_run_number": 54,
+    "github_actions_run_id": "unavailable_in_local_checkout",
+    "commit_sha": "unavailable_in_local_checkout",
+    "branch_ref": "unavailable_in_local_checkout",
+    "event_type": "unavailable_in_local_checkout",
+    "classification": "apply_failed_or_not_reached",
+    "ledger_timestamp": "2026-06-16T06:20:37.359083+00:00",
+    "model": "gemini-3-flash-preview",
+    "api_mode": "gemini_paid_credit",
+    "success_record_persisted": true,
+    "valid_mutation_patch_produced": true,
+    "apply_reached": true,
+    "apply_succeeded": false,
+    "evaluate_reached": false,
+    "passed_adoption_gate": false,
+    "promote_reached": false,
+    "is_tool_failure": false,
+    "failure_stage": "apply_ast_validation",
+    "failure_reason": "candidate failed AST validation: runtime allocation risk from list comprehension",
+    "evidence_source": "GitHub Actions UI/job logs plus main data/api_usage_ledger.json"
   }
 }

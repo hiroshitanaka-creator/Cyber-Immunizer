@@ -30,7 +30,7 @@ Future auditors (GPT / Claude / Codex) must interpret current state using this a
 1. **Machine evidence** — latest `main` HEAD, `data/api_usage_ledger.json`, `data/genome.json`, GitHub Actions / CI results.
 2. `data/project_state.json` — machine-readable current-state source.
 3. `docs/PROJECT_STATE.md` — this file, human-readable current-state source.
-4. **Derived summaries** — `README.md` status block, `CLAUDE.md`.
+4. **Derived summaries** — README status block, `CLAUDE.md`.
 
 Historical docs, old task reports, roadmap snapshots, old PR bodies, and old phase docs **must not** independently define current state.
 
@@ -41,21 +41,20 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Field | Value |
 |---|---|
 | Current phase | Phase 3 |
-| Phase 3 activation | Complete (PR #58–#62) |
-| live_model_enabled | true |
 | API mode | gemini_paid_credit |
-| Model provider | gemini |
 | Primary model | gemini-3-flash-preview |
-| Fallback model | gemini-3.1-flash-lite |
-| paid-credit API success records (primary model) | **4** |
-| Valid mutation patch produced | **Yes** (S4 run #47, 2026-06-11) |
-| apply reached | **Yes** — apply failed at G1 repeat-multiplier runtime allocation risk |
-| evaluate reached | **No** |
-| promote reached | **No** |
+| Primary-model paid-credit success records | **7** |
+| Run 5 | `evaluate_rejected`; score 494.48 <= previous_best 729.34 |
+| Run 6 | `evaluate_rejected`; score 478.12 <= previous_best 729.34 |
+| Run 7 | `apply_failed_or_not_reached`; apply-stage AST validation rejected list-comprehension runtime allocation risk |
+| Cumulative apply reached | **Yes** |
+| Cumulative evaluate reached | **Yes** — Runs 5 and 6 reached evaluate; Run 7 itself did not complete evaluate |
+| Adoption gate ever passed | **No** |
+| Promote reached | **No** |
 | promote_approved | false |
-| Propose/output-contract hardening | Implemented in PR #84; G1 repeat-multiplier gap closure in PR #91 (pending merge) |
-| state_id | `phase3_s4_materialize_reached_apply_blocked_g1_gap_closing` |
-| Next action | Merge PR #91 (G1 gap closure), then await Owner-approved next S4 rerun |
+| Propose-side hardening | Preserved from current main / PR #98; do not weaken policy |
+| state_id | `phase3_run7_apply_failed_list_comprehension_runtime_allocation_risk` |
+| Next action | Add propose-side no-comprehension guidance or pre-screening before another paid-credit rerun |
 
 ---
 
@@ -64,10 +63,8 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Source | What it proves |
 |---|---|
 | `data/genome.json` | `live_model_enabled=true`, `api_mode=gemini_paid_credit`, `model_provider=gemini`, `model_name=gemini-3-flash-preview`, `fallback_model_name=gemini-3.1-flash-lite` |
-| `data/api_usage_ledger.json` | **4** records with `provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true` (2026-06-03 / 2026-06-04 ×3, 2026-06-11 S4 run #47) |
-| `docs/audit_gate/PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md` | First 3 runs: no valid mutation patch (propose output-contract failures). S4 run #47: valid mutation_patch.json produced; apply reached and failed at G1 repeat-multiplier runtime allocation risk |
-| GitHub Actions (runs 26919888348 / 26922191264 / 26924388218) | First three runs concluded `failure` at finalize-propose-status; evaluate / promote jobs skipped |
-| GitHub Actions (S4 run #47, 2026-06-11) | Materialize reached; apply reached; apply failed (G1 repeat-multiplier); evaluate / promote not reached |
+| `data/api_usage_ledger.json` | Latest main has **7** successful primary-model paid-credit records, including Run 7 at `2026-06-16T06:20:37.359083+00:00` with `success=true`, `actual_input_tokens=3142`, `actual_output_tokens=408`, `actual_billable_response_tokens=408`, and `estimated_cost_usd=0.03891` |
+| GitHub Actions Run 7 (#54) | Propose Mutation succeeded; Persist API Usage Ledger succeeded; Apply and Evaluate Candidate failed during apply; Finalize Propose Status succeeded; Promote Candidate skipped |
 
 `data/project_state.json` mirrors these machine facts and must not contradict `data/genome.json` or `data/api_usage_ledger.json`.
 
@@ -75,76 +72,48 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 
 ## 3. Meaning of paid-credit API success
 
-`success=true` in `data/api_usage_ledger.json` records **API/token success only** — the Gemini API
-returned an HTTP 200 response and token usage was recorded. It does **not** mean a valid mutation
-patch was produced or that apply/evaluate/promote were reached.
+`success=true` in `data/api_usage_ledger.json` records **API/token success only** — the Gemini API returned an HTTP 200 response and token usage was recorded. It does **not** mean a valid mutation was applied, evaluated, adopted, or promoted.
 
-For the first 3 primary-model success records, `propose_mutation.py` rejected the
-returned `replacement_code` as syntactically invalid Python, so no `mutation_patch.json` was written.
-
-For the 4th record (S4 run #47, 2026-06-11), `propose_mutation.py` accepted the
-`replacement_code` and wrote a valid `mutation_patch.json`. `apply_mutation.py` was reached
-but failed at the G1 repeat-multiplier runtime allocation risk check (Step 7 of apply).
+Run 7 proves the API/propose/ledger path worked, but it is a fail-closed candidate-policy rejection: the candidate detector used a list comprehension, and authoritative AST policy rejected that runtime allocation risk during apply-stage validation.
 
 ---
 
-## 4. Meaning of promote_approved=false
+## 4. apply / evaluate / promote status
 
-| Claim | Correct? |
-|---|---|
-| `promote_approved=false` means promotion is not approved | ✅ Correct |
-| `promote_approved=false` means the Gemini API call was not executed | ❌ Incorrect |
-| `promote_approved=false` means the paid-credit run has not occurred | ❌ Incorrect |
+For Run 7:
 
-The 3 primary-model paid-credit API calls **were executed** and are recorded in the ledger. The
-promotion gate was never reached because no valid candidate patch was produced.
+* **apply** was reached and failed at AST validation.
+* **evaluate** did **not** complete for Run 7.
+* **adoption gate** was not reached for Run 7.
+* **promote** was skipped and is not available.
 
----
-
-## 5. Mutation patch production
-
-For the first 3 primary-model `success=true` records, **no valid mutation patch was produced**. The
-Gemini output failed `propose_mutation.py` validation (`replacement_code` was not valid Python
-syntax — a function definition with an empty body).
-
-For S4 run #47 (4th record, 2026-06-11): a valid `mutation_patch.json` **was produced**. The
-propose/output-contract hardening (PR #84) functioned correctly.
+Cumulative `evaluate_reached` remains true because prior runs 5 and 6 reached evaluate. `adoption_gate_ever_passed=false`, `promote_reached=false`, and `promote_approved=false` remain unchanged.
 
 ---
 
-## 6. apply / evaluate / promote status
+## 5. Next action
 
-For the first 3 runs: apply, evaluate, and promote were **not reached**.
+Before another paid-credit rerun, add propose-side guidance or pre-screening to prevent unsafe allocation-producing syntax from being emitted, including:
 
-For S4 run #47:
-* **apply** was **reached** — `apply_mutation.py` ran and failed at Step 7 (G1 repeat-multiplier
-  runtime allocation risk: `confidence` expression used `float * runtime_var`).
-* **evaluate** was **not reached** (apply failed; evaluate job skipped).
-* **promote** was **not reached** (never eligible).
+* list comprehensions;
+* set comprehensions;
+* dict comprehensions;
+* non-permitted generator expressions.
 
-There is no adoption-gate pass/fail result from any of the 4 paid-credit runs.
-`promote_approved` remains `false`.
+Do **not** weaken `core/policy.py`. Do **not** rerun until this prevention exists or the Project Owner explicitly decides otherwise.
 
 ---
 
-## 7. Next action
+## 6. Non-goals
 
-The **G1 repeat-multiplier gap** (apply-side `core/policy.py _check_repeat_mult` rejecting
-`float * runtime_var` patterns that propose-side did not pre-screen) is being closed in **PR #91**:
-propose-side `_validate_replacement_code` check 6.5 now rejects all 18 multiplication patterns
-(int/float/str × Name/Call/Attribute, both orders).
+This Run 7 state-sync does **not**:
 
-**No new paid-credit run has been executed.** The next step is for the **Project Owner
-to merge PR #91** and then approve the next S4 rerun. `promote_approved` remains `false`.
-
----
-
-## 8. Non-goals
-
-The SSOT work that introduced this file does **not**:
-
-* make any Gemini API call;
-* trigger any `workflow_dispatch`;
-* execute any paid-credit or paid-credit-preflight run;
-* promote any candidate or set `promote_approved=true`;
-* change `core/**`, `scripts/propose_mutation.py`, `.github/workflows/**`, model names, or budgets.
+* rerun any workflow;
+* trigger `workflow_dispatch`;
+* call the Gemini API;
+* manually edit `data/api_usage_ledger.json`;
+* weaken policy or validator logic;
+* change model names, budgets, workflow logic, detector logic, or promotion state;
+* claim candidate quality is proven;
+* claim adoption gate ran for Run 7;
+* claim promotion is available.
