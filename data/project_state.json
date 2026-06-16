@@ -10,18 +10,25 @@
   "fallback_model": "gemini-3.1-flash-lite",
   "paid_credit_api_calls": {
     "gemini_3_flash_preview_success_records": 4,
-    "api_success_meaning": "http_200_and_token_usage_recorded",
+    "api_success_meaning": "http_200_and_token_usage_recorded; success_count includes only success=true Gemini paid-credit ledger records and excludes failed records",
     "valid_mutation_patch_produced": true,
     "apply_reached": true,
     "evaluate_reached": false,
-    "promote_reached": false
+    "promote_reached": false,
+    "paid_credit_success_count": 5,
+    "latest_paid_credit_success_timestamp": "2026-06-11T17:02:43.808429+00:00",
+    "latest_paid_credit_success_model": "gemini-3-flash-preview",
+    "latest_paid_credit_success_triage_status": "apply_failed_evaluate_not_reached_adoption_gate_pending_unverified",
+    "latest_paid_credit_success_triage_basis": "docs/PROJECT_STATE.md records S4 run #47 produced a valid mutation_patch.json and reached apply, which failed at the G1 repeat-multiplier runtime allocation risk check; evaluate/promote were not reached and no adoption-gate pass/fail result exists.",
+    "known_untriaged_success_records": [],
+    "adoption_gate_ever_passed": false
   },
   "promotion": {
     "promote_approved": false,
     "meaning": "promotion_not_approved",
     "does_not_mean": "api_call_unexecuted"
   },
-  "next_action": "merge_g1_repeat_multiplier_gap_closure_then_update_project_state_and_prepare_owner_approved_next_s4_rerun",
+  "next_action": "triage_latest_paid_credit_success_before_any_owner_approved_paid_credit_rerun_or_promotion_decision",
   "fresh_verification_policy": {
     "paid_credit_run_in_this_pr": "forbidden",
     "workflow_dispatch_in_this_pr": "forbidden",

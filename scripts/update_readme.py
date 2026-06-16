@@ -33,6 +33,10 @@ _NEXT_ACTION_TEXT = {
         "Project Owner review of the propose/output-contract fix (PR #84)"
         " before any owner-approved paid-credit rerun"
     ),
+    "triage_latest_paid_credit_success_before_any_owner_approved_paid_credit_rerun_or_promotion_decision": (
+        "Triage latest paid-credit success before any owner-approved paid-credit"
+        " rerun or promotion decision"
+    ),
 }
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"
@@ -91,12 +95,21 @@ def _apply_project_state(
         return current_phase, next_focus, promote_note
 
     calls = state.get("paid_credit_api_calls")
+    latest_triage_status = None
+    if isinstance(calls, dict):
+        latest_triage_status = calls.get("latest_paid_credit_success_triage_status")
+
     patch_not_produced = (
         isinstance(calls, dict)
         and calls.get("valid_mutation_patch_produced") is False
     )
 
-    if patch_not_produced:
+    if latest_triage_status:
+        current_phase = (
+            "Phase 3 — paid-credit API success records exist;"
+            f" latest success triage: {latest_triage_status}"
+        )
+    elif patch_not_produced:
         current_phase = (
             "Phase 3 — paid-credit API success records exist;"
             " no valid mutation patch produced (propose/output-contract failure)"
@@ -110,12 +123,17 @@ def _apply_project_state(
     if (
         isinstance(promo, dict)
         and _parse_bool(promo.get("promote_approved"), default=False) is False
-        and patch_not_produced
     ):
-        promote_note = (
-            "false (promotion not approved —"
-            " API executed; no valid candidate patch produced)"
-        )
+        if latest_triage_status:
+            promote_note = (
+                "false (promotion not approved — latest paid-credit success triage "
+                f"is {latest_triage_status})"
+            )
+        elif patch_not_produced:
+            promote_note = (
+                "false (promotion not approved —"
+                " API executed; no valid candidate patch produced)"
+            )
 
     return current_phase, next_focus, promote_note
 
@@ -181,20 +199,21 @@ def _build_status_block() -> str:
     # --- Phase determination ---
     # Phase 3 when live_model_enabled=true; Phase 2 otherwise.
     if live_model_enabled:
-        # Check ledger for paid-credit attempts with the current primary model.
+        # Check ledger for Gemini paid-credit attempts across models.
         # Both success=True and success=False records count as "attempted" — a
         # failed run still reached the API and must not be shown as "Not yet executed".
-        # Only records with api_mode=="gemini_paid_credit" count; other modes
-        # (noop, offline-sample) do not constitute a paid-credit attempt.
-        primary_attempts: list[dict] = []
+        # Only records with provider=="gemini" and api_mode=="gemini_paid_credit"
+        # count; other modes (noop, offline-sample) do not constitute a paid-credit
+        # attempt.
+        paid_attempts: list[dict] = []
         if isinstance(ledger, list):
-            primary_attempts = [
+            paid_attempts = [
                 e for e in ledger
                 if isinstance(e, dict)
-                and e.get("model") == model_name
+                and e.get("provider", "gemini") == "gemini"
                 and e.get("api_mode") == "gemini_paid_credit"
             ]
-        if not primary_attempts:
+        if not paid_attempts:
             p3_run_status = "Not yet executed"
             current_phase = "Phase 3 — paid-credit path ready; first paid-credit run not yet executed"
             next_focus = (
@@ -203,9 +222,13 @@ def _build_status_block() -> str:
             )
             promote_note = "false (workflow gate — Project Owner approval required)"
         else:
-            n_total = len(primary_attempts)
-            n_success = sum(1 for e in primary_attempts if e.get("success") is True)
+            n_total = len(paid_attempts)
+            n_success = sum(1 for e in paid_attempts if e.get("success") is True)
             if n_success > 0:
+                if isinstance(project_state, dict):
+                    state_calls = project_state.get("paid_credit_api_calls")
+                    if isinstance(state_calls, dict):
+                        n_success = state_calls.get("paid_credit_success_count", n_success)
                 p3_run_status = f"Executed ({n_success} successful / {n_total} attempt(s))"
                 current_phase = (
                     "Phase 3 — paid-credit API call success records exist;"
@@ -240,6 +263,12 @@ def _build_status_block() -> str:
             f"| Gemini Primary Model | {model_name} |",
             f"| Gemini Fallback Model | {fallback_model_name} |",
             f"| promote_approved | {promote_note} |",
+            *(
+                [f"| Latest Paid-Credit Success | {project_state.get('paid_credit_api_calls', {}).get('latest_paid_credit_success_timestamp')} ({project_state.get('paid_credit_api_calls', {}).get('latest_paid_credit_success_model')}) |",
+                 f"| Latest Success Triage | {project_state.get('paid_credit_api_calls', {}).get('latest_paid_credit_success_triage_status')} |"]
+                if isinstance(project_state, dict) and isinstance(project_state.get('paid_credit_api_calls'), dict)
+                else []
+            ),
             f"| Next Focus | {next_focus} |",
         ]
     else:

@@ -47,7 +47,10 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Model provider | gemini |
 | Primary model | gemini-3-flash-preview |
 | Fallback model | gemini-3.1-flash-lite |
+| paid-credit API success records (all Gemini paid-credit models) | **5** |
 | paid-credit API success records (primary model) | **4** |
+| Latest paid-credit success timestamp | `2026-06-11T17:02:43.808429+00:00` |
+| Latest paid-credit success triage status | `apply_failed_evaluate_not_reached_adoption_gate_pending_unverified` |
 | Valid mutation patch produced | **Yes** (S4 run #47, 2026-06-11) |
 | apply reached | **Yes** — apply failed at G1 repeat-multiplier runtime allocation risk |
 | evaluate reached | **No** |
@@ -55,7 +58,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | promote_approved | false |
 | Propose/output-contract hardening | Implemented in PR #84; G1 repeat-multiplier gap closure in PR #91 (pending merge) |
 | state_id | `phase3_s4_materialize_reached_apply_blocked_g1_gap_closing` |
-| Next action | Merge PR #91 (G1 gap closure), then await Owner-approved next S4 rerun |
+| Next action | Triage latest paid-credit success before any owner-approved paid-credit rerun or promotion decision |
 
 ---
 
@@ -64,7 +67,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Source | What it proves |
 |---|---|
 | `data/genome.json` | `live_model_enabled=true`, `api_mode=gemini_paid_credit`, `model_provider=gemini`, `model_name=gemini-3-flash-preview`, `fallback_model_name=gemini-3.1-flash-lite` |
-| `data/api_usage_ledger.json` | **4** records with `provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true` (2026-06-03 / 2026-06-04 ×3, 2026-06-11 S4 run #47) |
+| `data/api_usage_ledger.json` | **5** records with `provider=gemini`, `api_mode=gemini_paid_credit`, and `success=true` across Gemini paid-credit models; **4** of those use `model=gemini-3-flash-preview` (fallback success on 2026-06-02; primary-model successes on 2026-06-03 / 2026-06-04 ×2 / 2026-06-11 S4 run #47) |
 | `docs/audit_gate/PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md` | First 3 runs: no valid mutation patch (propose output-contract failures). S4 run #47: valid mutation_patch.json produced; apply reached and failed at G1 repeat-multiplier runtime allocation risk |
 | GitHub Actions (runs 26919888348 / 26922191264 / 26924388218) | First three runs concluded `failure` at finalize-propose-status; evaluate / promote jobs skipped |
 | GitHub Actions (S4 run #47, 2026-06-11) | Materialize reached; apply reached; apply failed (G1 repeat-multiplier); evaluate / promote not reached |
@@ -96,7 +99,7 @@ but failed at the G1 repeat-multiplier runtime allocation risk check (Step 7 of 
 | `promote_approved=false` means the Gemini API call was not executed | ❌ Incorrect |
 | `promote_approved=false` means the paid-credit run has not occurred | ❌ Incorrect |
 
-The 3 primary-model paid-credit API calls **were executed** and are recorded in the ledger. The
+The primary-model paid-credit API calls **were executed** and are recorded in the ledger. The
 promotion gate was never reached because no valid candidate patch was produced.
 
 ---
@@ -122,20 +125,23 @@ For S4 run #47:
 * **evaluate** was **not reached** (apply failed; evaluate job skipped).
 * **promote** was **not reached** (never eligible).
 
-There is no adoption-gate pass/fail result from any of the 4 paid-credit runs.
+There is no adoption-gate pass/fail result from any of the 5 Gemini paid-credit successes.
 `promote_approved` remains `false`.
 
 ---
 
 ## 7. Next action
 
+The latest success triage status is `apply_failed_evaluate_not_reached_adoption_gate_pending_unverified`: apply reached and failed, evaluate/promote were not reached, and adoption-gate outcome remains pending/unverified.
+
 The **G1 repeat-multiplier gap** (apply-side `core/policy.py _check_repeat_mult` rejecting
 `float * runtime_var` patterns that propose-side did not pre-screen) is being closed in **PR #91**:
 propose-side `_validate_replacement_code` check 6.5 now rejects all 18 multiplication patterns
 (int/float/str × Name/Call/Attribute, both orders).
 
-**No new paid-credit run has been executed.** The next step is for the **Project Owner
-to merge PR #91** and then approve the next S4 rerun. `promote_approved` remains `false`.
+**No new paid-credit run has been executed in this SSOT reconciliation.** The next step is to keep
+the latest success triage explicit before any Owner-approved paid-credit rerun or promotion decision.
+`promote_approved` remains `false`.
 
 ---
 

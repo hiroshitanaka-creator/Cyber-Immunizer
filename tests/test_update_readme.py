@@ -1327,10 +1327,10 @@ class TestPhase3MandatoryFields:
             "Attempted but failed status must prompt to inspect ledger before rerun"
         )
 
-    def test_phase3_not_yet_executed_when_only_fallback_model_in_ledger(
+    def test_phase3_executed_when_only_fallback_model_succeeds(
         self, tmp_path: Path
     ) -> None:
-        """Ledger records for a different (fallback) model must not count as primary attempts."""
+        """Gemini paid-credit success count includes fallback-model success records."""
         _, block = _run_update_with_ledger(
             tmp_path,
             ledger_data=[{
@@ -1344,9 +1344,10 @@ class TestPhase3MandatoryFields:
                 "fallback_model_name": "gemini-3.1-flash-lite",
             },
         )
-        assert "Not yet executed" in block, (
-            "gemini-3.1-flash-lite success must not count as gemini-3-flash-preview attempt"
+        assert "Executed" in block, (
+            "gemini-3.1-flash-lite success must count as a Gemini paid-credit success"
         )
+        assert "1 successful / 1 attempt" in block
 
     def test_phase3_not_yet_executed_when_non_paid_credit_mode(
         self, tmp_path: Path

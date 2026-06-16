@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from scripts.project_state_sync import summarize_paid_credit_ledger
+
 _PROJECT_ROOT = Path(__file__).parent.parent
 _PROJECT_STATE_PATH = _PROJECT_ROOT / "data" / "project_state.json"
 _GENOME_PATH = _PROJECT_ROOT / "data" / "genome.json"
@@ -118,22 +120,75 @@ def test_project_state_matches_genome() -> None:
 def test_project_state_matches_ledger_success_count() -> None:
     state = _load(_PROJECT_STATE_PATH)
     ledger = _load(_LEDGER_PATH)
-    primary_model = state["primary_model"]
-    actual = sum(
+    summary = summarize_paid_credit_ledger(ledger)
+    calls = state["paid_credit_api_calls"]
+    assert summary.success_count == calls["paid_credit_success_count"], (
+        f"project_state declares {calls['paid_credit_success_count']} Gemini paid-credit "
+        f"success records but ledger has {summary.success_count}"
+    )
+    primary_actual = sum(
         1
         for e in ledger
         if isinstance(e, dict)
         and e.get("provider") == "gemini"
         and e.get("api_mode") == "gemini_paid_credit"
-        and e.get("model") == primary_model
+        and e.get("model") == state["primary_model"]
         and e.get("success") is True
     )
-    declared = state["paid_credit_api_calls"]["gemini_3_flash_preview_success_records"]
-    assert actual == declared, (
-        f"project_state declares {declared} primary-model success records "
-        f"but ledger has {actual}"
+    assert primary_actual == calls["gemini_3_flash_preview_success_records"]
+    assert summary.success_count == 5, (
+        "ledger must contain exactly 5 Gemini paid-credit success records across models"
     )
-    assert actual == 4, "ledger must contain exactly 4 primary-model paid-credit success records"
+    assert primary_actual == 4, (
+        "ledger must contain exactly 4 primary-model paid-credit success records"
+    )
+
+
+def test_project_state_tracks_latest_ledger_success_timestamp_and_triage() -> None:
+    state = _load(_PROJECT_STATE_PATH)
+    ledger = _load(_LEDGER_PATH)
+    summary = summarize_paid_credit_ledger(ledger)
+    calls = state["paid_credit_api_calls"]
+    assert calls["latest_paid_credit_success_timestamp"] == summary.latest_success_timestamp
+    assert calls["latest_paid_credit_success_model"] == summary.latest_success_model
+    assert calls["latest_paid_credit_success_triage_status"]
+    assert calls["latest_paid_credit_success_triage_basis"]
+
+
+def test_pending_triage_is_explicit_when_success_records_are_untriaged() -> None:
+    state = _load(_PROJECT_STATE_PATH)
+    calls = state["paid_credit_api_calls"]
+    untriaged = calls.get("known_untriaged_success_records", [])
+    readme_block = _status_block().lower()
+    state_text = json.dumps(state, sort_keys=True).lower()
+    if untriaged:
+        assert "pending" in readme_block or "pending" in state_text
+
+
+def test_readme_paid_credit_success_count_matches_project_state() -> None:
+    calls = _load(_PROJECT_STATE_PATH)["paid_credit_api_calls"]
+    block = _status_block()
+    expected = f"Executed ({calls['paid_credit_success_count']} successful"
+    assert expected in block
+    assert calls["latest_paid_credit_success_timestamp"] in block
+    assert calls["latest_paid_credit_success_triage_status"] in block
+
+
+def test_failed_api_records_do_not_increase_success_count() -> None:
+    ledger = list(_load(_LEDGER_PATH))
+    baseline = summarize_paid_credit_ledger(ledger)
+    failed_record = {
+        "timestamp": "2999-01-01T00:00:00+00:00",
+        "provider": "gemini",
+        "api_mode": "gemini_paid_credit",
+        "model": "gemini-3-flash-preview",
+        "success": False,
+        "error": "synthetic failure",
+    }
+    with_failed = summarize_paid_credit_ledger([*ledger, failed_record])
+    assert with_failed.attempt_count == baseline.attempt_count + 1
+    assert with_failed.success_count == baseline.success_count
+    assert with_failed.latest_success_timestamp == baseline.latest_success_timestamp
 
 
 # 5.
