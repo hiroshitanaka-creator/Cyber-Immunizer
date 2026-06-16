@@ -141,7 +141,7 @@ def test_project_state_matches_ledger_success_count() -> None:
         f"project_state declares {declared} primary-model success records "
         f"but ledger has {actual}"
     )
-    assert actual == 6, "ledger must contain exactly 6 primary-model paid-credit success records"
+    assert actual == 7, "ledger must contain exactly 7 primary-model paid-credit success records"
 
 
 # 5.

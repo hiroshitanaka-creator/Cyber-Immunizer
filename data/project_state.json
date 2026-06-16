@@ -9,7 +9,7 @@
   "primary_model": "gemini-3-flash-preview",
   "fallback_model": "gemini-3.1-flash-lite",
   "paid_credit_api_calls": {
-    "gemini_3_flash_preview_success_records": 6,
+    "gemini_3_flash_preview_success_records": 7,
     "api_success_meaning": "http_200_and_token_usage_recorded",
     "valid_mutation_patch_produced": true,
     "apply_reached": true,

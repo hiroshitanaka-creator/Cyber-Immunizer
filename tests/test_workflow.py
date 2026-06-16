@@ -1910,3 +1910,189 @@ class TestStepLevelSecretScopingRegressionGuards:
         assert "secrets.GEMINI_API_KEY" in propose_paid_credit_step, (
             "REGRESSION: secrets.GEMINI_API_KEY was removed from gemini-paid-credit step."
         )
+
+
+# ---------------------------------------------------------------------------
+# 17. Failure diagnostics: apply-report artifact and --report flags
+# ---------------------------------------------------------------------------
+
+
+class TestApplyReportArtifact:
+    """Verify apply-report artifact upload is present and uses if: always()."""
+
+    def test_apply_report_artifact_upload_exists(
+        self, evaluate_section: str
+    ) -> None:
+        """evaluate job must have an 'Upload apply report artifact' step."""
+        assert "apply-report" in evaluate_section, (
+            "evaluate job must upload an 'apply-report' artifact so diagnostic "
+            "information is preserved even when apply_mutation.py fails."
+        )
+
+    def test_apply_report_upload_uses_always(
+        self, evaluate_section: str
+    ) -> None:
+        """apply-report artifact upload must use if: always() or equivalent.
+
+        Without always(), the upload is skipped when apply_mutation.py exits
+        non-zero, defeating the purpose of writing the report.
+        """
+        # Find the apply-report upload step block
+        import re as _re
+        match = _re.search(
+            r"name:.*[Uu]pload apply report.*?(?=\n      - name:|\Z)",
+            evaluate_section,
+            _re.DOTALL,
+        )
+        assert match is not None, (
+            "Could not find 'Upload apply report' step in evaluate job. "
+            "This step is required to persist diagnostics when apply fails."
+        )
+        upload_block = match.group(0)
+        assert "always()" in upload_block, (
+            "'Upload apply report artifact' step must include if: always() "
+            "so it runs even when the apply step exits non-zero."
+        )
+
+    def test_apply_step_uses_report_flag(
+        self, evaluate_section: str
+    ) -> None:
+        """apply_mutation.py call in workflow must include --report flag."""
+        assert "--report" in evaluate_section, (
+            "scripts/apply_mutation.py must be invoked with --report in the evaluate job "
+            "so it writes a diagnostic JSON before exiting on failure."
+        )
+
+    def test_apply_report_path_is_cyber_immunizer(
+        self, evaluate_section: str
+    ) -> None:
+        """apply_mutation.py --report path must be under .cyber_immunizer/."""
+        assert "apply_report.json" in evaluate_section, (
+            "The --report path for apply_mutation.py must reference apply_report.json "
+            "so the artifact upload step can find the file."
+        )
+
+
+class TestEvaluateReportFlag:
+    """Verify evaluate_candidate.py is invoked with --report flag."""
+
+    def test_evaluate_step_uses_report_flag(
+        self, evaluate_section: str
+    ) -> None:
+        """evaluate_candidate.py must be called with --report in the workflow.
+
+        Explicit --report flag makes the output path unambiguous and allows
+        the artifact upload step to reliably find the file.
+        """
+        assert "fitness_report.json" in evaluate_section, (
+            "evaluate job must pass fitness_report.json as the --report path (or "
+            "use it as the default path) so artifacts can be uploaded reliably."
+        )
+
+
+class TestEvaluateSkipsWhenApplyFails:
+    """Verify evaluate step is gated on apply step success."""
+
+    def test_evaluate_step_has_apply_success_condition(
+        self, evaluate_section: str
+    ) -> None:
+        """The evaluate step must have a condition that prevents it running when apply fails.
+
+        This can be expressed as 'if: steps.apply.outcome == success' or similar.
+        Without this gate, a failed apply (partial candidate file) could trigger
+        an evaluation of an invalid or missing candidate.
+        """
+        import re as _re
+        # Look for an if: condition on the evaluate step that references apply outcome
+        has_apply_gate = (
+            "steps.apply.outcome" in evaluate_section
+            or "steps.apply.conclusion" in evaluate_section
+        )
+        assert has_apply_gate, (
+            "The evaluate step must be gated on the apply step outcome "
+            "(e.g., if: steps.apply.outcome == 'success') so it is skipped "
+            "when apply_mutation.py exits non-zero."
+        )
+
+
+class TestArtifactUploadIfNoFilesFound:
+    """Verify artifact uploads handle missing files gracefully."""
+
+    def test_candidate_detector_upload_handles_missing(
+        self, evaluate_section: str
+    ) -> None:
+        """candidate-detector upload must not fail fatally when file doesn't exist.
+
+        When apply fails, candidate_detector.py is not written.  The upload
+        step should use if-no-files-found: warn or ignore so it does not break CI.
+        """
+        # Check for if-no-files-found in the candidate-detector upload block
+        import re as _re
+        match = _re.search(
+            r"name:.*[Uu]pload candidate detector.*?(?=\n      - name:|\Z)",
+            evaluate_section,
+            _re.DOTALL,
+        )
+        assert match is not None, (
+            "Could not find 'Upload candidate detector artifact' step."
+        )
+        upload_block = match.group(0)
+        assert "if-no-files-found" in upload_block, (
+            "candidate-detector upload must use if-no-files-found: warn (or ignore) "
+            "so it does not fatally fail when apply_mutation.py did not produce "
+            "the candidate file."
+        )
+
+    def test_fitness_report_upload_handles_missing(
+        self, evaluate_section: str
+    ) -> None:
+        """fitness-report upload must not fail fatally when file doesn't exist.
+
+        When apply fails, evaluate_candidate.py does not run and fitness_report.json
+        is not written.  The upload step must handle the missing file gracefully.
+        """
+        import re as _re
+        match = _re.search(
+            r"name:.*[Uu]pload fitness report.*?(?=\n      - name:|\Z)",
+            evaluate_section,
+            _re.DOTALL,
+        )
+        assert match is not None, (
+            "Could not find 'Upload fitness report artifact' step."
+        )
+        upload_block = match.group(0)
+        assert "if-no-files-found" in upload_block, (
+            "fitness-report upload must use if-no-files-found: warn (or ignore) "
+            "so it does not fatally fail when evaluate_candidate.py did not run."
+        )
+
+
+class TestPromotionConditionsNotRelaxed:
+    """Regression guards: promotion gate conditions must not be relaxed."""
+
+    def test_promote_still_requires_passed_adoption_gate(
+        self, promote_section: str
+    ) -> None:
+        """Failure diagnostics must not relax the adoption gate requirement."""
+        assert "needs.evaluate.outputs.passed_adoption_gate == 'true'" in promote_section, (
+            "REGRESSION: passed_adoption_gate check removed from promote if condition. "
+            "The adoption gate must remain enforced."
+        )
+
+    def test_promote_still_requires_promote_approved(
+        self, promote_section: str
+    ) -> None:
+        """Failure diagnostics must not relax the promote_approved requirement."""
+        assert "github.event.inputs.promote_approved == 'true'" in promote_section, (
+            "REGRESSION: promote_approved check removed from promote if condition. "
+            "The Project Owner gate must remain enforced."
+        )
+
+    def test_promote_still_requires_workflow_dispatch(
+        self, promote_section: str
+    ) -> None:
+        """Failure diagnostics must not allow schedule runs to trigger promote."""
+        assert "github.event_name == 'workflow_dispatch'" in promote_section, (
+            "REGRESSION: workflow_dispatch check removed from promote if condition. "
+            "Schedule runs must never be able to trigger promotion."
+        )

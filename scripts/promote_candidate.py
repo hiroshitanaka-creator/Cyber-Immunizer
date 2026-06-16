@@ -300,8 +300,8 @@ def promote_candidate(
     # --- 3. Mandatory candidate_hash (not optional) ---
     report_hash = report.get("candidate_hash")
     if not report_hash:
-        # Also check nested fitness_report for hash
-        inner = report.get("fitness_report") or {}
+        # Also check nested fitness_report or metrics for hash
+        inner = report.get("fitness_report") or report.get("metrics") or {}
         report_hash = inner.get("candidate_hash")
     if not report_hash:
         return _refuse(
@@ -311,7 +311,9 @@ def promote_candidate(
         )
 
     # --- 4. Validate fitness_report schema ---
-    fitness = report.get("fitness_report") or report
+    # 'fitness_report' is the canonical key; 'metrics' is the Phase 2 alias.
+    # Fall back to the whole report only when neither inner key is present.
+    fitness = report.get("fitness_report") or report.get("metrics") or report
     schema_errors = _validate_fitness_schema(fitness)
     if schema_errors:
         return _refuse(
