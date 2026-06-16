@@ -27,6 +27,8 @@
     "generation": 2,
     "detector_hash": "69aebceeaebf6f808e9aca61be6d1d7023fd3036b872881df04889bdc46644a2",
     "score": 729.34,
+    "score_formula": "old_with_changed_lines_penalty",
+    "score_invariant": 939.34,
     "passed_adoption_gate": true,
     "rejection_reasons": [],
     "promoted_at": "2026-05-26T07:28:45.915954Z",

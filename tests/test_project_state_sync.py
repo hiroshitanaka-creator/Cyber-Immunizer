@@ -312,10 +312,10 @@ def test_project_state_doc_no_stale_3_calls_claim() -> None:
 
 
 # 19.
-def test_project_state_doc_shows_6_success_records() -> None:
+def test_project_state_doc_shows_7_success_records() -> None:
     text = _PROJECT_STATE_DOC.read_text(encoding="utf-8")
-    assert "**6**" in text, (
-        "docs/PROJECT_STATE.md must show 6 primary-model paid-credit success records"
+    assert "**7**" in text, (
+        "docs/PROJECT_STATE.md must show 7 primary-model paid-credit success records"
     )
 
 
@@ -333,22 +333,40 @@ def test_project_state_doc_mentions_runs_5_6_triage_complete() -> None:
 
 
 # 21.
-def test_state_id_is_propose_side_hardened() -> None:
+def test_state_id_is_fitness_gate_fix_deployed() -> None:
     state = _load(_PROJECT_STATE_PATH)
     assert state.get("state_id") == (
-        "phase3_propose_side_baseline_preservation_hardened_await_owner_approved_rerun"
+        "phase3_fitness_gate_comparability_fixed_best_score_939_34_await_rerun"
     ), (
         "state_id must be "
-        "'phase3_propose_side_baseline_preservation_hardened_await_owner_approved_rerun'"
+        "'phase3_fitness_gate_comparability_fixed_best_score_939_34_await_rerun'"
     )
 
 
 # 22.
-def test_next_action_is_owner_approved_rerun_review_after_hardening() -> None:
+def test_next_action_is_rerun_with_invariant_gate() -> None:
     state = _load(_PROJECT_STATE_PATH)
     assert state.get("next_action") == (
-        "propose_side_baseline_preservation_hardened_await_owner_approved_rerun_review"
+        "fitness_gate_comparability_fixed_await_owner_approved_rerun_generation_invariant_gate"
     ), (
         "next_action must be "
-        "'propose_side_baseline_preservation_hardened_await_owner_approved_rerun_review'"
+        "'fitness_gate_comparability_fixed_await_owner_approved_rerun_generation_invariant_gate'"
+    )
+
+
+# 23.
+def test_genome_best_score_matches_fitness_gate_fix() -> None:
+    genome = _load(_GENOME_PATH)
+    assert genome.get("best_score") == 939.34, (
+        f"genome.json best_score must be 939.34 after fitness gate fix, got {genome.get('best_score')}"
+    )
+
+
+# 24.
+def test_fitness_gate_fix_block_present() -> None:
+    state = _load(_PROJECT_STATE_PATH)
+    fix = state.get("fitness_gate_fix", {})
+    assert fix.get("new_best_score_generation_invariant") == 939.34, (
+        f"project_state fitness_gate_fix.new_best_score_generation_invariant must be 939.34, "
+        f"got {fix.get('new_best_score_generation_invariant')}"
     )

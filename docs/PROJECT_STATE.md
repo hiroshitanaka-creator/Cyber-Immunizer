@@ -47,7 +47,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Model provider | gemini |
 | Primary model | gemini-3-flash-preview |
 | Fallback model | gemini-3.1-flash-lite |
-| paid-credit API success records (primary model) | **6** |
+| paid-credit API success records (primary model) | **7** |
 | Valid mutation patch produced | **Yes** (S4 run #47 2026-06-11; runs 5 & 6 also produced valid patches) |
 | apply reached | **Yes** (runs 5 & 6 apply succeeded; S4 run #47 reached apply and failed at G1) |
 | evaluate reached | **Yes** (runs 5 & 6 reached evaluate — first verified evaluate-stage runs) |
@@ -58,8 +58,9 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | run 5 (2026-06-15, Actions run #52 / id 27582285679) | **artifact triage complete** → `evaluate_rejected` (score=494.48 ≤ previous_best=729.34) |
 | run 6 (2026-06-16, Actions run #53 / id 27586892217) | **artifact triage complete** → `evaluate_rejected` (score=478.12 ≤ previous_best=729.34) |
 | Propose-side baseline-preservation hardening | **Implemented** (Gemini propose prompt now requires preserving all five symbolic indicators, the full request inspection surface, and the non-blocking fallback) |
-| state_id | `phase3_propose_side_baseline_preservation_hardened_await_owner_approved_rerun` |
-| Next action | Project Owner review of the propose-side baseline-preservation hardening before any Owner-approved paid-credit rerun (machine facts unchanged: evaluate reached, adoption gate never passed, previous_best=729.34) |
+| Fitness gate comparability fix | **Implemented** (PR #105): `changed_lines` removed from gate score (now diagnostic-only in `score_components`); `genome.json best_score` updated 729.34 → 939.34 (generation-invariant); no-op candidate can no longer pass the gate |
+| state_id | `phase3_fitness_gate_comparability_fixed_best_score_939_34_await_rerun` |
+| Next action | Owner-approved paid-credit rerun against the generation-invariant gate (previous_best=939.34). Runs 5 & 6 rejection reason (≤729.34) was correct under the old formula; those scores (494.48, 478.12) would also fail under the new baseline (≤939.34). |
 
 ---
 
@@ -68,7 +69,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Source | What it proves |
 |---|---|
 | `data/genome.json` | `live_model_enabled=true`, `api_mode=gemini_paid_credit`, `model_provider=gemini`, `model_name=gemini-3-flash-preview`, `fallback_model_name=gemini-3.1-flash-lite` |
-| `data/api_usage_ledger.json` | **6** records with `provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true` (2026-06-03 / 2026-06-04 ×3 / 2026-06-11 S4 run #47 / **2026-06-15 run 5** / **2026-06-16 run 6**). Runs 5 & 6 triaged: both `evaluate_rejected`. |
+| `data/api_usage_ledger.json` | **7** records with `provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true` (2026-06-03 / 2026-06-04 ×3 / 2026-06-11 S4 run #47 / **2026-06-15 run 5** / **2026-06-16 run 6**). Runs 5 & 6 triaged: both `evaluate_rejected`. |
 | `docs/audit_gate/PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md` | First 3 runs: no valid mutation patch (propose output-contract failures). S4 run #47: valid mutation_patch.json produced; apply reached and failed at G1 repeat-multiplier runtime allocation risk |
 | GitHub Actions (runs 26919888348 / 26922191264 / 26924388218) | First three runs concluded `failure` at finalize-propose-status; evaluate / promote jobs skipped |
 | GitHub Actions (S4 run #47, 2026-06-11) | Materialize reached; apply reached; apply failed (G1 repeat-multiplier); evaluate / promote not reached |
@@ -191,7 +192,28 @@ after a candidate passes the adoption gate.
 
 ---
 
-## 8. Non-goals
+## 8. Fitness Gate Fix (PR #105)
+
+The adoption gate compares candidate scores against `genome.json::best_score`. The old score
+formula included a `changed_lines` penalty measured against the **current** `core/detector.py`,
+which advances with each promotion. This made scores non-comparable across generations: a no-op
+candidate (identical to the current detector) had `changed_lines=0` and scored 939.34, which
+exceeded the stored `best_score=729.34` (computed under Gen 1→Gen 2 with 21 changed lines =
+210-point penalty). This vulnerability was closed in PR #105.
+
+| Item | Old (pre-PR #105) | New (post-PR #105) |
+|---|---|---|
+| Score formula | `1000·tp − 2000·fp − 1500·fn − 50·exc − 0.02·chars − 10·changed_lines` | `1000·tp − 2000·fp − 1500·fn − 50·exc − 0.02·chars` |
+| `changed_lines` role | Gate score component | Diagnostic-only (`score_components.changed_lines_diagnostic`) |
+| `genome.json best_score` | 729.34 (old formula, Gen 1→Gen 2 diff) | **939.34** (generation-invariant) |
+| No-op candidate result | PASS (939.34 > 729.34) — **vulnerability** | FAIL (939.34 ≤ 939.34, strict `>` required) |
+
+Runs 5 & 6 rejection scores (494.48, 478.12) remain below 939.34, so those rejections are still
+correct under the new formula. The next Owner-approved rerun will evaluate against 939.34.
+
+---
+
+## 9. Non-goals
 
 The SSOT work that introduced this file does **not**:
 

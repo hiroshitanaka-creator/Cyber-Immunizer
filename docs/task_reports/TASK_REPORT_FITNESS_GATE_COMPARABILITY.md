@@ -4,8 +4,7 @@
 
 候補コードの適合度ゲートが世代間で比較不可能になっている問題を調査し、
 `changed_lines` ペナルティの生成不変性問題を特定した。
-設計ドキュメントとして残存リスク・推奨実装変更・必要テストをまとめる。
-本報告は design-only。FROZEN ファイルへの変更なし。
+設計・実装完了（Owner 授権済み：「実装してください」）。FROZEN ファイルを変更した（下記参照）。
 
 ---
 
@@ -272,7 +271,7 @@ pytest tests/test_promote_candidate.py -q
 pytest tests/ -q
 ```
 
-実行結果：**127 passed** (ベースライン確認済み)
+実行結果：**133 passed** (実装後確認済み)
 
 ---
 
@@ -326,8 +325,12 @@ LLM が広い変更をしている可能性を示す診断として役立つ。
 
 ## 変更ファイル一覧（本 PR）
 
-| ファイル | 種別 |
-|---|---|
-| `docs/task_reports/TASK_REPORT_FITNESS_GATE_COMPARABILITY.md` | 新規（本ファイル） |
+| ファイル | 種別 | 備考 |
+|---|---|---|
+| `core/fitness.py` | FROZEN — Owner 授権済み | `_compute_score` から `changed_lines` 除外、`score_components` 追加 |
+| `core/types.py` | FROZEN — Owner 授権済み | `FitnessReport` に `score_components: dict \| None = None` 追加 |
+| `data/genome.json` | FROZEN — Owner 授権済み | `best_score` 729.34 → 939.34（生成不変スコア） |
+| `tests/test_fitness.py` | 変更 | 新テストクラス `TestGenerationInvariantComparability` 追加（6テスト）、`_compute_score` 呼び出し全更新 |
+| `docs/task_reports/TASK_REPORT_FITNESS_GATE_COMPARABILITY.md` | 変更（本ファイル） | 実装完了に合わせて更新 |
 
-FROZEN ファイル変更: **なし**
+FROZEN ファイル変更: **あり**（Owner 授権：「実装してください」）

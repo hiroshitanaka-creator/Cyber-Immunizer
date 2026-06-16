@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "state_id": "phase3_propose_side_baseline_preservation_hardened_await_owner_approved_rerun",
+  "state_id": "phase3_fitness_gate_comparability_fixed_best_score_939_34_await_rerun",
   "current_phase": "phase_3",
   "phase_3_activation": "complete",
   "live_model_enabled": true,
@@ -54,7 +54,7 @@
   "propose_side_hardening": {
     "baseline_preservation_contract_added": true,
     "target": "scripts/propose_mutation.py::_build_scoring_guidance",
-    "meaning": "The Gemini propose prompt now states an explicit baseline-preservation contract: keep all five symbolic indicators (path_traversal_indicator, script_injection_indicator, sqli_indicator, command_delimiter_indicator, encoded_traversal_indicator), keep the full request inspection surface (method, path, query, headers, body), keep the final non-blocking blocked=False fallback return, and make a minimal additive edit that scores strictly above previous_best=729.34. Prompt-only/documentation change; no API call, no detector/policy/budget/model/ledger change.",
+    "meaning": "The Gemini propose prompt now states an explicit baseline-preservation contract: keep all five symbolic indicators (path_traversal_indicator, script_injection_indicator, sqli_indicator, command_delimiter_indicator, encoded_traversal_indicator), keep the full request inspection surface (method, path, query, headers, body), keep the final non-blocking blocked=False fallback return, and make a minimal additive edit that scores strictly above previous_best (currently 939.34 after PR #105 fitness gate fix; propose prompt reads best_score from genome.json dynamically). Prompt-only/documentation change; no API call, no detector/policy/budget/model/ledger change.",
     "does_not_mean": "candidate_quality_proven_or_paid_credit_rerun_executed"
   },
   "promotion": {
@@ -62,7 +62,16 @@
     "meaning": "promotion_not_approved",
     "does_not_mean": "api_call_unexecuted"
   },
-  "next_action": "propose_side_baseline_preservation_hardened_await_owner_approved_rerun_review",
+  "fitness_gate_fix": {
+    "pr": "105",
+    "merged": false,
+    "old_best_score_formula_with_changed_lines": 729.34,
+    "new_best_score_generation_invariant": 939.34,
+    "score_formula": "1000*tp - 2000*fp - 1500*fn - 50*exc - 0.02*chars",
+    "changed_lines_role": "diagnostic_only_in_score_components",
+    "meaning": "Score is now generation-invariant. A no-op candidate can no longer pass the gate."
+  },
+  "next_action": "fitness_gate_comparability_fixed_await_owner_approved_rerun_generation_invariant_gate",
   "fresh_verification_policy": {
     "paid_credit_run_in_this_pr": "forbidden",
     "workflow_dispatch_in_this_pr": "forbidden",
