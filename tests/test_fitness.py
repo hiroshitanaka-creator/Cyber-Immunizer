@@ -73,7 +73,7 @@ class TestBaselineDetector:
             "true_negative", "false_negative", "total_cases",
             "tp_rate", "fp_rate", "fn_rate", "avg_latency_ms",
             "code_chars", "changed_lines", "score", "passed_adoption_gate",
-            "rejection_reasons",
+            "rejection_reasons", "score_components",
         ):
             assert hasattr(report, field), f"FitnessReport missing field: {field}"
 
@@ -203,14 +203,13 @@ class TestScoreDeterminism:
         assert isinstance(report.avg_latency_ms, float), "avg_latency_ms must be float"
         assert report.avg_latency_ms >= 0.0, "avg_latency_ms must be non-negative"
 
-        # Verify score formula doesn't include latency by checking manually
+        # Verify score formula doesn't include latency or changed_lines
         expected_score = _compute_score(
             tp_rate=report.tp_rate,
             fp_rate=report.fp_rate,
             fn_rate=report.fn_rate,
             exception_count=report.exception_count,
             code_chars=report.code_chars,
-            changed_lines=report.changed_lines,
         )
         assert report.score == pytest.approx(expected_score), (
             f"Score should match formula without latency. "
@@ -226,38 +225,167 @@ class TestScoreDeterminism:
         assert hasattr(report, "avg_latency_ms"), "FitnessReport must have avg_latency_ms"
 
     def test_score_formula(self):
-        """Score formula produces expected value for known inputs (no latency param)."""
+        """Score formula produces expected value for known inputs (no latency/changed_lines)."""
         score = _compute_score(
             tp_rate=1.0,
             fp_rate=0.0,
             fn_rate=0.0,
             exception_count=0,
             code_chars=0,
-            changed_lines=0,
         )
         assert score == pytest.approx(1000.0), f"Expected 1000.0 got {score}"
 
     def test_score_penalises_fp(self):
-        no_fp = _compute_score(1.0, 0.0, 0.0, 0, 0, 0)
-        with_fp = _compute_score(1.0, 0.5, 0.0, 0, 0, 0)
+        no_fp = _compute_score(1.0, 0.0, 0.0, 0, 0)
+        with_fp = _compute_score(1.0, 0.5, 0.0, 0, 0)
         assert with_fp < no_fp
 
     def test_score_penalises_fn(self):
-        no_fn = _compute_score(1.0, 0.0, 0.0, 0, 0, 0)
-        with_fn = _compute_score(1.0, 0.0, 0.5, 0, 0, 0)
+        no_fn = _compute_score(1.0, 0.0, 0.0, 0, 0)
+        with_fn = _compute_score(1.0, 0.0, 0.5, 0, 0)
         assert with_fn < no_fn
 
     def test_score_penalises_exceptions(self):
-        no_exc = _compute_score(1.0, 0.0, 0.0, 0, 0, 0)
-        with_exc = _compute_score(1.0, 0.0, 0.0, 1, 0, 0)
+        no_exc = _compute_score(1.0, 0.0, 0.0, 0, 0)
+        with_exc = _compute_score(1.0, 0.0, 0.0, 1, 0)
         assert with_exc < no_exc
 
     def test_score_penalises_code_size(self):
-        small = _compute_score(1.0, 0.0, 0.0, 0, 100, 0)
-        large = _compute_score(1.0, 0.0, 0.0, 0, 10000, 0)
+        small = _compute_score(1.0, 0.0, 0.0, 0, 100)
+        large = _compute_score(1.0, 0.0, 0.0, 0, 10000)
         assert large < small
 
-    def test_score_penalises_changed_lines(self):
-        few = _compute_score(1.0, 0.0, 0.0, 0, 0, 1)
-        many = _compute_score(1.0, 0.0, 0.0, 0, 0, 100)
-        assert many < few
+    def test_changed_lines_is_diagnostic_in_score_components(self):
+        """changed_lines must appear in score_components but must NOT affect gate score."""
+        baseline = _PROJECT_ROOT / "core" / "detector.py"
+        report = evaluate(baseline, baseline_mode=True)
+        assert report.score_components is not None, "score_components must be present"
+        sc = report.score_components
+        assert "changed_lines_diagnostic" in sc, (
+            "score_components must include changed_lines_diagnostic"
+        )
+        # gate_score must equal sum of the five components (no changed_lines)
+        reconstructed = (
+            sc["tp_contribution"]
+            - sc["fp_penalty"]
+            - sc["fn_penalty"]
+            - sc["exception_penalty"]
+            - sc["code_size_penalty"]
+        )
+        assert sc["gate_score"] == pytest.approx(reconstructed), (
+            "gate_score must not include changed_lines_diagnostic"
+        )
+        assert sc["gate_score"] == pytest.approx(report.score), (
+            "score_components.gate_score must match report.score"
+        )
+
+
+class TestGenerationInvariantComparability:
+    """Verify that the adoption gate uses a generation-invariant score.
+
+    A no-op candidate (identical to the current core/detector.py) must NOT
+    pass the adoption gate.  This would happen with the old formula because
+    changed_lines=0 for a no-op gives it a score above the stored best_score
+    (which was computed with a non-zero changed_lines penalty relative to the
+    previous-generation detector).  The fix removes changed_lines from the
+    gate score entirely.
+    """
+
+    def test_noop_candidate_does_not_pass_gate(self):
+        """A no-op (identical to the current detector) must not pass the adoption gate."""
+        detector_path = _PROJECT_ROOT / "core" / "detector.py"
+        report = evaluate(detector_path, baseline_mode=False)
+        assert not report.passed_adoption_gate, (
+            f"no-op candidate must not pass adoption gate "
+            f"(score={report.score:.2f} must not exceed previous_best without improvement)"
+        )
+
+    def test_score_worse_candidate_does_not_pass_gate(self):
+        """A candidate with all-zero detection must not pass the gate."""
+        body = textwrap.dedent("""\
+            return DetectionResult(False, "allow all", 0.0, ())
+        """)
+        p = _write_candidate(body)
+        report = evaluate(p, baseline_mode=False)
+        assert not report.passed_adoption_gate, (
+            "all-allowing candidate must not pass adoption gate"
+        )
+        assert any(
+            "score" in r or "fn_rate" in r or "regression" in r
+            for r in report.rejection_reasons
+        ), f"Expected score/fn/regression rejection, got: {report.rejection_reasons}"
+
+    def test_strictly_better_candidate_can_pass_gate(self):
+        """A candidate that genuinely improves must be able to pass the gate.
+
+        Uses an isolated genome with best_score=-1e9 to guarantee the
+        baseline detector scores above previous_best.
+        """
+        import json
+        import shutil
+
+        detector_path = _PROJECT_ROOT / "core" / "detector.py"
+        real_genome = json.loads(
+            (_PROJECT_ROOT / "data" / "genome.json").read_text(encoding="utf-8")
+        )
+        real_genome["best_score"] = -1e9
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".json", delete=False, mode="w", encoding="utf-8"
+        ) as tf:
+            json.dump(real_genome, tf)
+            tmp_genome = Path(tf.name)
+
+        report = evaluate(detector_path, baseline_mode=False, genome_path=tmp_genome)
+        assert report.passed_adoption_gate, (
+            f"baseline detector should pass gate when previous_best=-1e9, "
+            f"score={report.score:.2f}, reasons={report.rejection_reasons}"
+        )
+
+    def test_score_components_present_on_full_evaluation(self):
+        """score_components must be populated (not None) on the main evaluation path."""
+        baseline = _PROJECT_ROOT / "core" / "detector.py"
+        report = evaluate(baseline, baseline_mode=True)
+        assert report.score_components is not None
+        for key in (
+            "tp_contribution", "fp_penalty", "fn_penalty",
+            "exception_penalty", "code_size_penalty",
+            "changed_lines_diagnostic", "gate_score",
+        ):
+            assert key in report.score_components, (
+                f"score_components missing key: {key!r}"
+            )
+
+    def test_score_components_none_on_policy_failure(self):
+        """score_components must be None when evaluation short-circuits on policy failure."""
+        bad_body = textwrap.dedent("""\
+            import os
+            return DetectionResult(False, "bad", 0.0, ())
+        """)
+        preamble = (
+            "import os\n"
+            "from core.types import Request, DetectionResult\n"
+        )
+        p = _write_candidate(bad_body, extra_preamble=preamble)
+        report = evaluate(p, baseline_mode=True)
+        assert not report.ast_policy_ok, "expected AST policy failure for 'import os'"
+        assert report.score_components is None, (
+            "score_components must be None when evaluation short-circuits"
+        )
+
+    def test_score_components_backward_compatible_existing_fields_present(self):
+        """Adding score_components must not remove any existing FitnessReport fields."""
+        baseline = _PROJECT_ROOT / "core" / "detector.py"
+        report = evaluate(baseline, baseline_mode=True)
+        legacy_fields = (
+            "syntax_ok", "ast_policy_ok", "contract_ok", "timed_out",
+            "exception_count", "true_positive", "false_positive",
+            "true_negative", "false_negative", "total_cases",
+            "tp_rate", "fp_rate", "fn_rate", "avg_latency_ms",
+            "code_chars", "changed_lines", "score",
+            "passed_adoption_gate", "rejection_reasons",
+        )
+        for field in legacy_fields:
+            assert hasattr(report, field), (
+                f"Existing FitnessReport field missing after score_components addition: {field!r}"
+            )

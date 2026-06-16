@@ -47,12 +47,17 @@ def _compute_score(
     fn_rate: float,
     exception_count: int,
     code_chars: int,
-    changed_lines: int,
 ) -> float:
-    """Deterministic fitness score.
+    """Generation-invariant deterministic fitness score.
 
-    avg_latency_ms is intentionally excluded so the score is identical
-    across repeated evaluations of the same candidate on the same data.
+    avg_latency_ms and changed_lines are intentionally excluded:
+    - avg_latency_ms varies across runs for the same candidate.
+    - changed_lines is measured against the current core/detector.py, which
+      advances with each promotion.  Including it makes scores non-comparable
+      across generations: a no-op candidate (identical to the current detector)
+      would score higher than the stored best_score by 10 * previous_changed_lines,
+      allowing it to pass the adoption gate without any real improvement.
+    Both are still measured and reported as diagnostic fields.
     """
     return (
         1000.0 * tp_rate
@@ -60,7 +65,6 @@ def _compute_score(
         - 1500.0 * fn_rate
         - 50.0 * exception_count
         - 0.02 * code_chars
-        - 10.0 * changed_lines
     )
 
 
@@ -325,15 +329,24 @@ def evaluate(
         source, Path(__file__).parent / "detector.py"
     )
 
-    # Deterministic score (latency excluded)
+    # Generation-invariant score (latency and changed_lines excluded)
     score = _compute_score(
         tp_rate=tp_rate,
         fp_rate=fp_rate,
         fn_rate=fn_rate,
         exception_count=exception_count,
         code_chars=code_chars,
-        changed_lines=changed_lines,
     )
+
+    score_components = {
+        "tp_contribution": 1000.0 * tp_rate,
+        "fp_penalty": 2000.0 * fp_rate,
+        "fn_penalty": 1500.0 * fn_rate,
+        "exception_penalty": 50.0 * exception_count,
+        "code_size_penalty": 0.02 * code_chars,
+        "changed_lines_diagnostic": 10.0 * changed_lines,
+        "gate_score": score,
+    }
 
     gate_passed, gate_reasons = _adoption_gate(
         syntax_ok=True,
@@ -372,6 +385,7 @@ def evaluate(
         score=score,
         passed_adoption_gate=gate_passed,
         rejection_reasons=tuple(gate_reasons),
+        score_components=score_components,
     )
 
 
@@ -400,6 +414,7 @@ def _report_to_dict(report: FitnessReport) -> dict:
         "score": report.score,
         "passed_adoption_gate": report.passed_adoption_gate,
         "rejection_reasons": list(report.rejection_reasons),
+        "score_components": report.score_components,
     }
 
 
