@@ -58,6 +58,21 @@ _SECRET_MARKERS: tuple[str, ...] = (
     "PRIVATE_KEY",
     "ACCESS_KEY",
 )
+_CODELIKE_MARKERS: tuple[str, ...] = (
+    "return ",
+    "def ",
+    "class ",
+    "import ",
+    "from ",
+    "detectionresult(",
+    "inspect_request",
+    "flagged=",
+    "reasons=",
+    "os.",
+    "subprocess",
+    "eval(",
+    "exec(",
+)
 _SANITIZE_MAX_STRING_LEN: int = 2000
 _SANITIZE_MAX_THREATS: int = 20
 
@@ -65,15 +80,19 @@ _SANITIZE_MAX_THREATS: int = 20
 def _sanitize_report_string(value: object, max_len: int = _SANITIZE_MAX_STRING_LEN) -> str:
     """Return a sanitized version of an LLM-derived string for report artifact output.
 
-    Returns "[REDACTED]" if value contains a secret marker (case-insensitive).
-    Truncates to max_len characters. Non-string values are coerced to str first.
+    Non-string values return "[invalid]" — no str() coercion that could leak dict/list contents.
+    Returns "[REDACTED]" if value contains a secret marker (case-insensitive) or
+    code-like / replacement-like content (e.g. Python keywords, detector API calls).
+    Truncates to max_len characters otherwise.
     """
     if not isinstance(value, str):
-        value = str(value)
+        return "[invalid]"
     upper = value.upper()
-    for marker in _SECRET_MARKERS:
-        if marker in upper:
-            return "[REDACTED]"
+    if any(marker in upper for marker in _SECRET_MARKERS):
+        return "[REDACTED]"
+    lowered = value.lower()
+    if any(marker.lower() in lowered for marker in _CODELIKE_MARKERS):
+        return "[REDACTED]"
     return value[:max_len]
 
 

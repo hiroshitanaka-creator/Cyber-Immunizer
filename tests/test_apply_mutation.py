@@ -32,6 +32,7 @@ from scripts.apply_mutation import (
     _sanitize_report_string,
     _sanitize_target_threats,
     _SECRET_MARKERS,
+    _CODELIKE_MARKERS,
     _SANITIZE_MAX_STRING_LEN,
     _SANITIZE_MAX_THREATS,
 )
@@ -572,15 +573,15 @@ class TestSanitizeReportString:
         result = _sanitize_report_string(long_val)
         assert len(result) == _SANITIZE_MAX_STRING_LEN
 
-    def test_non_string_coerced_to_str(self) -> None:
-        """Non-string values are coerced to str before sanitization."""
+    def test_non_string_returns_invalid(self) -> None:
+        """Non-string values return '[invalid]' — no str() coercion to avoid dict/list leakage."""
         result = _sanitize_report_string(42)
-        assert result == "42"
+        assert result == "[invalid]"
 
-    def test_none_coerced_to_str(self) -> None:
-        """None is coerced to the string 'None'."""
+    def test_none_returns_invalid(self) -> None:
+        """None returns '[invalid]', not the string 'None'."""
         result = _sanitize_report_string(None)
-        assert result == "None"
+        assert result == "[invalid]"
 
     def test_secret_marker_causes_redaction(self) -> None:
         """A string containing a secret marker returns '[REDACTED]'."""
@@ -602,6 +603,77 @@ class TestSanitizeReportString:
 
     def test_empty_string_returned_unchanged(self) -> None:
         assert _sanitize_report_string("") == ""
+
+
+class TestSanitizeReportStringCodeLike:
+    """_sanitize_report_string() redacts code-like and replacement-like content."""
+
+    def test_return_statement_redacted(self) -> None:
+        """'return DetectionResult(flagged=False, reasons=[])' must be [REDACTED]."""
+        val = "return DetectionResult(flagged=False, reasons=[])"
+        assert _sanitize_report_string(val) == "[REDACTED]"
+
+    def test_import_statement_redacted(self) -> None:
+        """'import os' must be [REDACTED]."""
+        assert _sanitize_report_string("import os") == "[REDACTED]"
+
+    def test_def_statement_redacted(self) -> None:
+        """'def inspect_request(request):' must be [REDACTED]."""
+        assert _sanitize_report_string("def inspect_request(request):") == "[REDACTED]"
+
+    def test_subprocess_call_redacted(self) -> None:
+        """'subprocess.run(...)' must be [REDACTED]."""
+        assert _sanitize_report_string("subprocess.run(['id'])") == "[REDACTED]"
+
+    def test_eval_call_redacted(self) -> None:
+        """'eval(...)' must be [REDACTED]."""
+        assert _sanitize_report_string("uses eval(code) to run it") == "[REDACTED]"
+
+    def test_exec_call_redacted(self) -> None:
+        """'exec(...)' must be [REDACTED]."""
+        assert _sanitize_report_string("exec(payload)") == "[REDACTED]"
+
+    def test_flagged_keyword_redacted(self) -> None:
+        """'flagged=' must be [REDACTED]."""
+        assert _sanitize_report_string("sets flagged=True") == "[REDACTED]"
+
+    def test_detectionresult_call_redacted(self) -> None:
+        """'DetectionResult(' must be [REDACTED]."""
+        assert _sanitize_report_string("wraps DetectionResult(blocked=True)") == "[REDACTED]"
+
+    def test_inspect_request_redacted(self) -> None:
+        """'inspect_request' must be [REDACTED]."""
+        assert _sanitize_report_string("modifies inspect_request to block") == "[REDACTED]"
+
+    def test_from_import_redacted(self) -> None:
+        """'from core.types import ...' must be [REDACTED]."""
+        assert _sanitize_report_string("from core.types import Request") == "[REDACTED]"
+
+    def test_codelike_case_insensitive(self) -> None:
+        """Code-like detection is case-insensitive."""
+        assert _sanitize_report_string("IMPORT os") == "[REDACTED]"
+        assert _sanitize_report_string("RETURN DetectionResult()") == "[REDACTED]"
+
+    def test_dict_value_returns_invalid_not_leaked(self) -> None:
+        """A dict value returns '[invalid]', not its str() representation."""
+        d = {"secret": "abc123"}
+        result = _sanitize_report_string(d)
+        assert result == "[invalid]"
+        assert "abc123" not in result
+        assert "secret" not in result
+
+    def test_list_value_returns_invalid_not_leaked(self) -> None:
+        """A list value returns '[invalid]', not its str() representation."""
+        lst = ["import os", "flagged=True"]
+        result = _sanitize_report_string(lst)
+        assert result == "[invalid]"
+        assert "import" not in result
+
+    def test_codelike_markers_tuple_is_non_empty(self) -> None:
+        """_CODELIKE_MARKERS must exist and contain expected entries."""
+        assert "return " in _CODELIKE_MARKERS
+        assert "import " in _CODELIKE_MARKERS
+        assert "subprocess" in _CODELIKE_MARKERS
 
 
 class TestSanitizeTargetThreats:
@@ -633,6 +705,36 @@ class TestSanitizeTargetThreats:
         long_item = "x" * (_SANITIZE_MAX_STRING_LEN + 100)
         result = _sanitize_target_threats([long_item])
         assert len(result[0]) == _SANITIZE_MAX_STRING_LEN
+
+    def test_dict_item_becomes_invalid(self) -> None:
+        """A dict item in target_threats must become '[invalid]', not str(dict)."""
+        threats = [{"key": "value"}, "path_traversal"]
+        result = _sanitize_target_threats(threats)
+        assert result[0] == "[invalid]"
+        assert "key" not in result[0]
+        assert "value" not in result[0]
+        assert result[1] == "path_traversal"
+
+    def test_list_item_becomes_invalid(self) -> None:
+        """A list item in target_threats must become '[invalid]', not str(list)."""
+        threats = [["import os", "exec()"], "sqli"]
+        result = _sanitize_target_threats(threats)
+        assert result[0] == "[invalid]"
+        assert "import" not in result[0]
+        assert result[1] == "sqli"
+
+    def test_dict_contents_not_in_result(self) -> None:
+        """Dict contents with secret-like values must not appear anywhere in result."""
+        threats = [{"api_key": "secret_value_xyz"}]
+        result = _sanitize_target_threats(threats)
+        assert "secret_value_xyz" not in str(result)
+        assert "api_key" not in str(result)
+
+    def test_codelike_threat_redacted(self) -> None:
+        """A threat item containing 'import os' must be [REDACTED]."""
+        threats = ["import os; os.system('id')"]
+        result = _sanitize_target_threats(threats)
+        assert result[0] == "[REDACTED]"
 
 
 class TestSanitizationAppliedInReport:
@@ -706,3 +808,80 @@ class TestSanitizationAppliedInReport:
 
         report = json.loads(report_path.read_text())
         assert len(report["target_threats"]) == _SANITIZE_MAX_THREATS
+
+    def test_rationale_with_exact_replacement_code_redacted(self, tmp_path: Path) -> None:
+        """mutation_rationale containing the exact replacement_code must not write it to report."""
+        exact_code = _VALID_PATCH["replacement_code"]
+        bad_patch = dict(_VALID_PATCH, mutation_rationale=exact_code)
+        fake_val = {"valid": True, "violations": []}
+        rc, report_path = _call_main_with_patched_root(
+            tmp_path, bad_patch, validate_result=fake_val
+        )
+
+        report = json.loads(report_path.read_text())
+        assert exact_code not in report_path.read_text(), (
+            "Exact replacement_code must not appear in apply_report.json via mutation_rationale"
+        )
+        assert report["mutation_rationale"] == "[REDACTED]"
+
+    def test_rationale_with_return_detectionresult_redacted(self, tmp_path: Path) -> None:
+        """mutation_rationale with 'return DetectionResult(...)' is [REDACTED] in report."""
+        bad_patch = dict(
+            _VALID_PATCH,
+            mutation_rationale="adds return DetectionResult(flagged=True, reasons=['xss'])",
+        )
+        fake_val = {"valid": True, "violations": []}
+        rc, report_path = _call_main_with_patched_root(
+            tmp_path, bad_patch, validate_result=fake_val
+        )
+
+        report = json.loads(report_path.read_text())
+        assert report["mutation_rationale"] == "[REDACTED]"
+
+    def test_target_threats_with_import_os_redacted(self, tmp_path: Path) -> None:
+        """target_threats item containing 'import os' is [REDACTED] in apply_report.json."""
+        bad_patch = dict(_VALID_PATCH, target_threats=["import os; os.system('id')"])
+        fake_val = {"valid": True, "violations": []}
+        rc, report_path = _call_main_with_patched_root(
+            tmp_path, bad_patch, validate_result=fake_val
+        )
+
+        report = json.loads(report_path.read_text())
+        assert report["target_threats"][0] == "[REDACTED]"
+        assert "os.system" not in report_path.read_text()
+
+    def test_target_threats_with_dict_does_not_leak(self, tmp_path: Path) -> None:
+        """target_threats containing a dict must not leak dict contents into report."""
+        bad_patch = dict(_VALID_PATCH, target_threats=[{"injected": "payload_xyz"}])
+        fake_val = {"valid": True, "violations": []}
+        rc, report_path = _call_main_with_patched_root(
+            tmp_path, bad_patch, validate_result=fake_val
+        )
+
+        report_text = report_path.read_text()
+        assert "payload_xyz" not in report_text
+        assert "injected" not in report_text
+
+    def test_replacement_code_sha256_preserved_after_hardening(self, tmp_path: Path) -> None:
+        """replacement_code_sha256 must still be present after sanitization hardening."""
+        fake_val = {"valid": True, "violations": []}
+        rc, report_path = _call_main_with_patched_root(
+            tmp_path, _VALID_PATCH, validate_result=fake_val
+        )
+
+        report = json.loads(report_path.read_text())
+        sha = report.get("replacement_code_sha256")
+        assert sha is not None
+        assert len(sha) == 64
+        assert all(c in "0123456789abcdef" for c in sha)
+
+    def test_raw_replacement_code_never_in_report(self, tmp_path: Path) -> None:
+        """replacement_code must never appear as a key or value in apply_report.json."""
+        fake_val = {"valid": True, "violations": []}
+        rc, report_path = _call_main_with_patched_root(
+            tmp_path, _VALID_PATCH, validate_result=fake_val
+        )
+
+        report = json.loads(report_path.read_text())
+        assert "replacement_code" not in report
+        assert _VALID_PATCH["replacement_code"] not in report_path.read_text()
