@@ -1300,6 +1300,63 @@ class TestPhase3MandatoryFields:
             "stale ledger-only current_phase must not appear when project_state exists"
         )
 
+    def test_phase3_project_state_evaluate_rejected_wording(
+        self, tmp_path: Path
+    ) -> None:
+        """project_state with evaluate_reached=true and adoption gate never passed
+        (runs 5 & 6 outcome) must drive the runs-5-6 current_phase, the Owner-decision
+        next_focus, and the 'no candidate has passed the adoption gate' promote note —
+        and must NOT fall back to the stale ledger-derived wording.
+        """
+        _, block = _run_update_with_ledger(
+            tmp_path,
+            ledger_data=[{
+                "model": "gemini-3-flash-preview",
+                "success": True,
+                "api_mode": "gemini_paid_credit",
+            }],
+            genome_overrides={
+                "live_model_enabled": True,
+                "model_name": "gemini-3-flash-preview",
+            },
+            project_state_data={
+                "paid_credit_api_calls": {
+                    "valid_mutation_patch_produced": True,
+                    "apply_reached": True,
+                    "evaluate_reached": True,
+                    "adoption_gate_ever_passed": False,
+                },
+                "promotion": {"promote_approved": False},
+                "next_action": (
+                    "runs_5_6_artifact_triage_complete_evaluate_rejected"
+                    "_await_owner_decision_on_propose_side_improvement"
+                ),
+            },
+        )
+        # Ledger-derived run count retained.
+        assert "Executed" in block, "run-count status must remain ledger-derived"
+        # project_state-driven current_phase for the evaluate-rejected state.
+        assert (
+            "runs 5 & 6 triaged: both reached evaluate, adoption gate rejected"
+            " (score regression)"
+        ) in block, "current_phase must reflect the runs-5-6 evaluate-rejected state"
+        # next_focus comes from the new _NEXT_ACTION_TEXT entry.
+        assert (
+            "Owner decision: runs 5 & 6 reached evaluate but regressed below best=729.34;"
+            " decide propose-side improvement before any rerun"
+        ) in block, "next_focus must come from the runs-5-6 project_state next_action"
+        # promote note for evaluate-reached-but-gate-never-passed.
+        assert "no candidate has passed the adoption gate" in block, (
+            "promote note must reflect that no candidate has passed the adoption gate"
+        )
+        # Stale fallback wording must be gone.
+        assert "Review existing paid-credit run results" not in block, (
+            "stale ledger-only next focus must not appear when project_state exists"
+        )
+        assert "post-run result review pending" not in block, (
+            "stale ledger-only current_phase must not appear when project_state exists"
+        )
+
     def test_phase3_attempted_but_failed_when_primary_only_fails(
         self, tmp_path: Path
     ) -> None:

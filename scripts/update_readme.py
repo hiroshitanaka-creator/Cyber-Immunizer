@@ -37,6 +37,10 @@ _NEXT_ACTION_TEXT = {
         "Owner-approved next S4 paid-credit rerun"
         " (G1 repeat-multiplier gap closed; PR #91 merged)"
     ),
+    "runs_5_6_artifact_triage_complete_evaluate_rejected_await_owner_decision_on_propose_side_improvement": (
+        "Owner decision: runs 5 & 6 reached evaluate but regressed below best=729.34;"
+        " decide propose-side improvement before any rerun"
+    ),
 }
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"
@@ -111,6 +115,10 @@ def _apply_project_state(
         isinstance(calls, dict)
         and calls.get("evaluate_reached") is True
     )
+    adoption_gate_ever_passed = (
+        isinstance(calls, dict)
+        and calls.get("adoption_gate_ever_passed") is True
+    )
 
     if patch_not_produced:
         current_phase = (
@@ -122,6 +130,11 @@ def _apply_project_state(
             "Phase 3 — valid mutation patch produced (S4 run #47);"
             " apply reached; G1 gap closed (PR #91 merged);"
             " Owner-approved next S4 rerun pending"
+        )
+    elif patch_produced and apply_reached and evaluate_reached and not adoption_gate_ever_passed:
+        current_phase = (
+            "Phase 3 — runs 5 & 6 triaged: both reached evaluate,"
+            " adoption gate rejected (score regression)"
         )
 
     next_action = state.get("next_action")
@@ -142,6 +155,11 @@ def _apply_project_state(
             promote_note = (
                 "false (promotion not approved —"
                 " apply failed at G1; evaluate/promote not reached)"
+            )
+        elif patch_produced and apply_reached and evaluate_reached and not adoption_gate_ever_passed:
+            promote_note = (
+                "false (promotion not approved —"
+                " no candidate has passed the adoption gate)"
             )
 
     return current_phase, next_focus, promote_note
