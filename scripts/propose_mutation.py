@@ -1079,9 +1079,12 @@ def _build_scoring_guidance(genome: dict) -> str:
 
     Teaches the model the deterministic adoption-gate score formula and the
     previous-best target so a proposed mutation aims to *beat* the current
-    detector rather than merely producing a structurally valid patch. Uses
-    only non-secret numeric genome settings; never includes secrets, env
-    vars, full repo text, raw payloads, or private vulnerability details.
+    detector rather than merely producing a structurally valid patch. Also
+    states a baseline-preservation contract (keep all five symbolic indicators,
+    the full request inspection surface, and the final non-blocking fallback)
+    so candidates extend rather than regress current coverage. Uses only
+    non-secret numeric genome settings; never includes secrets, env vars, full
+    repo text, raw payloads, or private vulnerability details.
 
     A missing or non-numeric genome field falls back to the literal text
     ``unknown`` rather than inventing a value (fail-safe — never fabricate).
@@ -1102,26 +1105,25 @@ def _build_scoring_guidance(genome: dict) -> str:
 
     return (
         "SCORING-AWARE GUIDANCE (read before proposing):\n"
-        f"- previous_best (current best detector score): {best_score}. A valid patch\n"
-        "  is NOT enough -- the candidate must score STRICTLY GREATER THAN\n"
-        "  previous_best or the deterministic adoption gate rejects it\n"
-        "  (score <= previous_best fails).\n"
-        "- Deterministic ranking score (avg_latency excluded):\n"
-        "      score = 1000*tp_rate - 2000*fp_rate - 1500*fn_rate\n"
-        "              - 50*exception_count - 0.02*code_chars - 10*changed_lines\n"
-        f"- Hard gates that must also pass: fp_rate <= max_fp_rate ({max_fp_rate});\n"
-        "  regression_pass_rate >= min_regression_pass_rate "
-        f"({min_regression_pass_rate});\n"
-        f"  avg_latency_ms <= max_avg_latency_ms ({max_avg_latency_ms}).\n"
-        "- To beat previous_best: preserve existing symbolic-indicator coverage\n"
-        "  (drop no indicator already matched); avoid false positives; avoid\n"
-        "  unnecessary changed lines (-10 each); keep code size small (-0.02 per\n"
-        "  char); keep logic deterministic and simple; prefer branch-based constant\n"
-        "  confidence thresholds (e.g. confidence = 0.7 in an if-branch) over\n"
-        "  multiplier expressions like 0.3 * count, which the safety policy rejects.\n"
-        "- Lesson: recent evaluate-stage candidates applied and evaluated cleanly\n"
-        "  but were REJECTED for scoring below the current best. Raise tp_rate\n"
-        "  and/or lower fp_rate while keeping the edit small."
+        f"- previous_best (current best detector score): {best_score}. A valid patch is\n"
+        "  NOT enough; the candidate must score STRICTLY GREATER THAN previous_best or the\n"
+        "  deterministic adoption gate rejects it.\n"
+        "- score = 1000*tp_rate - 2000*fp_rate - 1500*fn_rate - 50*exception_count\n"
+        "  - 0.02*code_chars - 10*changed_lines (avg_latency excluded).\n"
+        f"- Hard gates: fp_rate <= max_fp_rate ({max_fp_rate}); regression_pass_rate >=\n"
+        f"  min_regression_pass_rate ({min_regression_pass_rate}); avg_latency_ms <= "
+        f"max_avg_latency_ms ({max_avg_latency_ms}).\n"
+        "BASELINE-PRESERVATION CONTRACT (do NOT regress current coverage):\n"
+        "- Keep all five indicators: path_traversal_indicator, script_injection_indicator,\n"
+        "  sqli_indicator, command_delimiter_indicator, encoded_traversal_indicator.\n"
+        "- Keep the full surface: request.method, request.path, request.query,\n"
+        "  request.headers, request.body.\n"
+        "- Keep the final fallback DetectionResult(blocked=False, ...) so false positives\n"
+        "  stay low (low code size, few changed lines).\n"
+        "- Make a minimal additive edit; do NOT replace or narrow the detector. Keep logic\n"
+        "  deterministic; prefer branch constant confidence over a multiplier like 0.3*count.\n"
+        "- Lesson: recent candidates were REJECTED for scoring below best despite a valid\n"
+        "  patch. Raise tp_rate and/or lower false positives with a small edit."
     )
 
 

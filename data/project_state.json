@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "state_id": "phase3_paid_credit_runs_5_6_evaluate_rejected_score_regression",
+  "state_id": "phase3_propose_side_baseline_preservation_hardened_await_owner_approved_rerun",
   "current_phase": "phase_3",
   "phase_3_activation": "complete",
   "live_model_enabled": true,
@@ -51,12 +51,18 @@
     },
     "note": "apply_reached/evaluate_reached/adoption_gate_ever_passed/promote_reached are the best-known cumulative state across runs 1-6. Runs 5 (2026-06-15) and 6 (2026-06-16) both reached apply and evaluate but were rejected by the adoption gate because the candidate score regressed below previous_best=729.34. promote was never reached."
   },
+  "propose_side_hardening": {
+    "baseline_preservation_contract_added": true,
+    "target": "scripts/propose_mutation.py::_build_scoring_guidance",
+    "meaning": "The Gemini propose prompt now states an explicit baseline-preservation contract: keep all five symbolic indicators (path_traversal_indicator, script_injection_indicator, sqli_indicator, command_delimiter_indicator, encoded_traversal_indicator), keep the full request inspection surface (method, path, query, headers, body), keep the final non-blocking DetectionResult(blocked=False, ...) fallback, and make a minimal additive edit that scores strictly above previous_best=729.34. Prompt-only/documentation change; no API call, no detector/policy/budget/model/ledger change.",
+    "does_not_mean": "candidate_quality_proven_or_paid_credit_rerun_executed"
+  },
   "promotion": {
     "promote_approved": false,
     "meaning": "promotion_not_approved",
     "does_not_mean": "api_call_unexecuted"
   },
-  "next_action": "runs_5_6_artifact_triage_complete_evaluate_rejected_await_owner_decision_on_propose_side_improvement",
+  "next_action": "propose_side_baseline_preservation_hardened_await_owner_approved_rerun_review",
   "fresh_verification_policy": {
     "paid_credit_run_in_this_pr": "forbidden",
     "workflow_dispatch_in_this_pr": "forbidden",

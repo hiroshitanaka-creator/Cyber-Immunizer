@@ -41,6 +41,11 @@ _NEXT_ACTION_TEXT = {
         "Owner decision: runs 5 & 6 reached evaluate but regressed below best=729.34;"
         " decide propose-side improvement before any rerun"
     ),
+    "propose_side_baseline_preservation_hardened_await_owner_approved_rerun_review": (
+        "Propose-side baseline-preservation hardening implemented (Gemini prompt now"
+        " requires preserving all five indicators, the full request surface, and the"
+        " non-blocking fallback); awaiting Owner-approved paid-credit rerun review"
+    ),
 }
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"

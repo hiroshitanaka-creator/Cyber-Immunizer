@@ -3648,6 +3648,69 @@ class TestScoringGuidance:
         assert "reject" in guidance
         assert "valid patch" in guidance or "not enough" in guidance
 
+    # ----- Baseline-preservation contract -----
+
+    def test_guidance_preserves_all_five_symbolic_indicators(
+        self, genome_live_enabled: dict
+    ) -> None:
+        """The contract must name every current symbolic indicator so the model
+        is told not to drop any (dropping one regresses coverage / tp_rate)."""
+        guidance = pm._build_scoring_guidance(genome_live_enabled)
+        for indicator in (
+            "path_traversal_indicator",
+            "script_injection_indicator",
+            "sqli_indicator",
+            "command_delimiter_indicator",
+            "encoded_traversal_indicator",
+        ):
+            assert indicator in guidance, f"missing baseline indicator {indicator!r}"
+
+    def test_guidance_preserves_full_inspection_surface(
+        self, genome_live_enabled: dict
+    ) -> None:
+        """The contract must name every request field the detector inspects so
+        the model does not stop reading part of the surface."""
+        guidance = pm._build_scoring_guidance(genome_live_enabled)
+        for field in (
+            "request.method",
+            "request.path",
+            "request.query",
+            "request.headers",
+            "request.body",
+        ):
+            assert field in guidance, f"missing inspection-surface field {field!r}"
+
+    def test_guidance_preserves_non_blocking_fallback(
+        self, genome_live_enabled: dict
+    ) -> None:
+        """The contract must require keeping the final non-blocking fallback so
+        clean requests stay allowed and false positives stay low."""
+        guidance = pm._build_scoring_guidance(genome_live_enabled)
+        assert "DetectionResult(blocked=False" in guidance
+
+    def test_guidance_discourages_replacing_or_narrowing_detector(
+        self, genome_live_enabled: dict
+    ) -> None:
+        """The contract must tell the model to extend, not replace/narrow, the
+        detector — a minimal additive edit rather than a smaller rewrite."""
+        guidance = pm._build_scoring_guidance(genome_live_enabled).lower()
+        assert "minimal" in guidance
+        assert "narrow" in guidance
+        assert "do not replace" in guidance
+
+    def test_guidance_omits_no_baseline_indicator_under_empty_genome(self) -> None:
+        """Even with a missing genome (fail-safe 'unknown' values), the static
+        baseline-preservation contract is still emitted in full."""
+        guidance = pm._build_scoring_guidance({})
+        for indicator in (
+            "path_traversal_indicator",
+            "script_injection_indicator",
+            "sqli_indicator",
+            "command_delimiter_indicator",
+            "encoded_traversal_indicator",
+        ):
+            assert indicator in guidance
+
     def test_guidance_fail_safe_unknown_for_missing_fields(self) -> None:
         """Missing genome fields fall back to 'unknown' — never fabricated."""
         guidance = pm._build_scoring_guidance({})
@@ -3681,6 +3744,39 @@ class TestScoringGuidance:
         assert "max_fp_rate" in prompt
         assert "min_regression_pass_rate" in prompt
         assert "max_avg_latency_ms" in prompt
+
+    def test_user_prompt_contains_baseline_preservation_contract(
+        self,
+        genome_live_enabled: dict,
+        test_detector_file: Path,
+        test_threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The assembled user prompt carries the full baseline-preservation
+        contract: all five indicators, the full surface, and the fallback.
+
+        The fixture detector body is a minimal stub that does NOT itself mention
+        the five indicators or the five request fields, so their presence here
+        proves the contract — not the mutation region — supplies them."""
+        monkeypatch.setattr(pm, "_THREATS_PATH", test_threats_file)
+        prompt = pm._build_user_prompt(genome_live_enabled, test_detector_file.read_text())
+        for indicator in (
+            "path_traversal_indicator",
+            "script_injection_indicator",
+            "sqli_indicator",
+            "command_delimiter_indicator",
+            "encoded_traversal_indicator",
+        ):
+            assert indicator in prompt
+        for field in (
+            "request.method",
+            "request.path",
+            "request.query",
+            "request.headers",
+            "request.body",
+        ):
+            assert field in prompt
+        assert "DetectionResult(blocked=False" in prompt
 
     # ----- 2. Prompt remains safe -----
 
