@@ -3564,3 +3564,218 @@ class TestReplacementCodeIndentationContract:
             "_LLM_SYSTEM_PROMPT must still require that top-level return "
             "DetectionResult(...) starts at exactly 4 spaces."
         )
+
+
+# ---------------------------------------------------------------------------
+# 11. Scoring-aware prompt guidance (propose-stage quality improvement)
+# ---------------------------------------------------------------------------
+
+
+class TestScoringGuidance:
+    """The user prompt must teach the model the deterministic adoption-gate
+    score formula and the previous-best target so future candidates aim to
+    *beat* the current detector — not merely produce a valid patch.
+
+    All tests are pure string construction; no Gemini API call is made and no
+    GEMINI_API_KEY is required.
+    """
+
+    # ----- 1. Scoring guidance content -----
+
+    def test_guidance_includes_best_score(self, genome_live_enabled: dict) -> None:
+        """The guidance reports best_score from the genome (not invented)."""
+        genome = {**genome_live_enabled, "best_score": 729.34}
+        guidance = pm._build_scoring_guidance(genome)
+        assert "729.34" in guidance
+
+    def test_guidance_includes_score_formula_coefficients(
+        self, genome_live_enabled: dict
+    ) -> None:
+        """The deterministic score formula coefficients are all present."""
+        guidance = pm._build_scoring_guidance(genome_live_enabled)
+        for coeff in ("1000", "2000", "1500", "50", "0.02", "10"):
+            assert coeff in guidance, f"missing coefficient {coeff!r}"
+
+    def test_guidance_states_strict_improvement_requirement(
+        self, genome_live_enabled: dict
+    ) -> None:
+        """The guidance must say the candidate must beat previous_best strictly."""
+        guidance = pm._build_scoring_guidance(genome_live_enabled)
+        assert "STRICTLY GREATER" in guidance
+        assert "previous_best" in guidance
+
+    def test_guidance_includes_hard_gate_tokens(
+        self, genome_live_enabled: dict
+    ) -> None:
+        """max_fp_rate, min_regression_pass_rate, max_avg_latency_ms appear."""
+        guidance = pm._build_scoring_guidance(genome_live_enabled)
+        assert "max_fp_rate" in guidance
+        assert "min_regression_pass_rate" in guidance
+        assert "max_avg_latency_ms" in guidance
+
+    def test_guidance_includes_hard_gate_values(self) -> None:
+        """The genome's hard-gate values are surfaced verbatim."""
+        genome = {
+            "best_score": 729.34,
+            "max_fp_rate": 0.05,
+            "min_regression_pass_rate": 1.0,
+            "max_avg_latency_ms": 100.0,
+        }
+        guidance = pm._build_scoring_guidance(genome)
+        assert "0.05" in guidance
+        assert "1.0" in guidance
+        assert "100.0" in guidance
+
+    def test_guidance_includes_strategy_instructions(
+        self, genome_live_enabled: dict
+    ) -> None:
+        """Low-FP, low-changed-line, low-code-size, determinism, and
+        branch-vs-multiplier guidance are all present."""
+        guidance = pm._build_scoring_guidance(genome_live_enabled).lower()
+        assert "false positive" in guidance
+        assert "changed line" in guidance
+        assert "code size" in guidance
+        assert "deterministic" in guidance
+        assert "coverage" in guidance  # preserve existing indicator coverage
+        assert "multiplier" in guidance  # prefer branch constant over multiplier
+
+    def test_guidance_mentions_recent_regression_lesson(
+        self, genome_live_enabled: dict
+    ) -> None:
+        """The guidance notes that recent candidates were rejected for scoring
+        below the current best — a valid patch alone is insufficient."""
+        guidance = pm._build_scoring_guidance(genome_live_enabled).lower()
+        assert "reject" in guidance
+        assert "valid patch" in guidance or "not enough" in guidance
+
+    def test_guidance_fail_safe_unknown_for_missing_fields(self) -> None:
+        """Missing genome fields fall back to 'unknown' — never fabricated."""
+        guidance = pm._build_scoring_guidance({})
+        # No best_score / gate values to surface, so 'unknown' must appear and
+        # no concrete fabricated number from the real genome should leak in.
+        assert "unknown" in guidance
+        assert "729.34" not in guidance
+
+    def test_guidance_does_not_fabricate_for_bool_field(self) -> None:
+        """A bool value (subclass of int) must not be surfaced as a number."""
+        guidance = pm._build_scoring_guidance({"best_score": True})
+        assert "previous_best (current best detector score): unknown" in guidance
+
+    # ----- Integration: guidance is inserted into the user prompt -----
+
+    def test_user_prompt_contains_scoring_guidance(
+        self,
+        genome_live_enabled: dict,
+        test_detector_file: Path,
+        test_threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """_build_user_prompt embeds the scoring guidance block."""
+        monkeypatch.setattr(pm, "_THREATS_PATH", test_threats_file)
+        genome = {**genome_live_enabled, "best_score": 729.34}
+        prompt = pm._build_user_prompt(genome, test_detector_file.read_text())
+        assert "SCORING-AWARE GUIDANCE" in prompt
+        assert "729.34" in prompt
+        for coeff in ("1000", "2000", "1500", "50", "0.02", "10"):
+            assert coeff in prompt
+        assert "max_fp_rate" in prompt
+        assert "min_regression_pass_rate" in prompt
+        assert "max_avg_latency_ms" in prompt
+
+    # ----- 2. Prompt remains safe -----
+
+    def test_prompt_does_not_leak_secrets(
+        self,
+        genome_live_enabled: dict,
+        test_detector_file: Path,
+        test_threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The prompt (and scoring guidance) must not carry secret-like tokens
+        or full-repository / raw-corpus payloads."""
+        monkeypatch.setattr(pm, "_THREATS_PATH", test_threats_file)
+        monkeypatch.setenv("GEMINI_API_KEY", "super-secret-key-value")
+        prompt = pm._build_user_prompt(genome_live_enabled, test_detector_file.read_text())
+        lowered = prompt.lower()
+        for token in ("gemini_api_key", "github_token", "api_key", "password="):
+            assert token not in lowered
+        # The actual env secret value must not appear.
+        assert "super-secret-key-value" not in prompt
+        # The preflight secret scanner (used before any real send) passes.
+        full = pm._LLM_SYSTEM_PROMPT + "\n" + prompt
+        assert pm._preflight_secret_scan(full) == ""
+
+    def test_prompt_only_includes_neutralized_threat_ids(
+        self,
+        genome_live_enabled: dict,
+        test_detector_file: Path,
+        test_threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Only neutralized threat IDs and symbolic indicators are present;
+        no raw request-corpus payloads."""
+        monkeypatch.setattr(pm, "_THREATS_PATH", test_threats_file)
+        prompt = pm._build_user_prompt(genome_live_enabled, test_detector_file.read_text())
+        # Neutralized threat IDs are included...
+        assert "THREAT-2024-001" in prompt
+        assert "THREAT-2024-005" in prompt
+        # ...but non-id threat fields (e.g. category) are NOT forwarded.
+        assert "path-traversal" not in prompt
+        assert "encoded-traversal" not in prompt
+
+    # ----- 3. Prompt length stays under max_prompt_chars -----
+
+    def test_full_prompt_under_max_prompt_chars_with_real_genome(self) -> None:
+        """With the real production genome and detector, system+user prompt
+        stays strictly under genome.max_prompt_chars."""
+        genome = json.loads((_PROJECT_ROOT / "data" / "genome.json").read_text())
+        detector_source = (_PROJECT_ROOT / "core" / "detector.py").read_text()
+        user_prompt = pm._build_user_prompt(genome, detector_source)
+        full = pm._LLM_SYSTEM_PROMPT + "\n" + user_prompt
+        max_chars = int(genome["max_prompt_chars"])
+        assert len(full) < max_chars, (
+            f"full prompt {len(full)} chars >= max_prompt_chars {max_chars}"
+        )
+
+    def test_full_prompt_under_max_prompt_chars_with_fixture_genome(
+        self,
+        genome_live_enabled: dict,
+        test_detector_file: Path,
+        test_threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """With the test fixture genome, the prompt remains under max_prompt_chars."""
+        monkeypatch.setattr(pm, "_THREATS_PATH", test_threats_file)
+        user_prompt = pm._build_user_prompt(genome_live_enabled, test_detector_file.read_text())
+        full = pm._LLM_SYSTEM_PROMPT + "\n" + user_prompt
+        assert len(full) < int(genome_live_enabled["max_prompt_chars"])
+
+    # ----- 4. No-API behavior preserved -----
+
+    def test_noop_still_exits_0_after_guidance_added(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--noop still exits 0 and writes no patch (no API call)."""
+        patch_path = tmp_path / "mutation_patch.json"
+        monkeypatch.setattr(pm, "_OUT_DIR", tmp_path)
+        monkeypatch.setattr(pm, "_OUT_PATCH", patch_path)
+        assert pm.main(["--noop", "--json"]) == 0
+        assert not patch_path.exists()
+
+    def test_offline_sample_still_works_after_guidance_added(
+        self,
+        tmp_path: Path,
+        test_genome_file: Path,
+        test_detector_file: Path,
+        test_threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """--offline-sample still returns the built-in patch with no API call."""
+        monkeypatch.setattr(pm, "_GENOME_PATH", test_genome_file)
+        monkeypatch.setattr(pm, "_DETECTOR_PATH", test_detector_file)
+        monkeypatch.setattr(pm, "_THREATS_PATH", test_threats_file)
+        monkeypatch.setattr(pm, "_OUT_DIR", tmp_path)
+        monkeypatch.setattr(pm, "_OUT_PATCH", tmp_path / "mutation_patch.json")
+        patch_result, err = pm.propose_mutation(offline_sample=True)
+        assert err == ""
+        assert patch_result is not None

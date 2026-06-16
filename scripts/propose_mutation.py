@@ -390,9 +390,10 @@ Detector interface summary:
 Neutralized active threat IDs (safe identifiers only):
 {threat_ids}
 
-Propose a mutation that improves defensive coverage while maintaining
-low false positives. Use only neutralized symbolic indicators --
-never raw exploit strings. Return JSON only.
+{scoring_guidance}
+Propose a mutation that improves defensive coverage, keeps false positives low,
+and scores strictly higher than previous_best. Use only neutralized symbolic
+indicators -- never raw exploit strings. Return JSON only.
 """
 
 
@@ -1069,6 +1070,62 @@ def _validate_patch_schema(data: object) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Helper: build score-aware optimization guidance for the user prompt
+# ---------------------------------------------------------------------------
+
+
+def _build_scoring_guidance(genome: dict) -> str:
+    """Build score-aware guidance text for the Gemini user prompt.
+
+    Teaches the model the deterministic adoption-gate score formula and the
+    previous-best target so a proposed mutation aims to *beat* the current
+    detector rather than merely producing a structurally valid patch. Uses
+    only non-secret numeric genome settings; never includes secrets, env
+    vars, full repo text, raw payloads, or private vulnerability details.
+
+    A missing or non-numeric genome field falls back to the literal text
+    ``unknown`` rather than inventing a value (fail-safe — never fabricate).
+    """
+
+    def _num(key: str) -> str:
+        val = genome.get(key)
+        # bool is a subclass of int; exclude it so True/False never leak in as
+        # a numeric value. Only real int/float settings are surfaced verbatim.
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            return "unknown"
+        return f"{val}"
+
+    best_score = _num("best_score")
+    max_fp_rate = _num("max_fp_rate")
+    min_regression_pass_rate = _num("min_regression_pass_rate")
+    max_avg_latency_ms = _num("max_avg_latency_ms")
+
+    return (
+        "SCORING-AWARE GUIDANCE (read before proposing):\n"
+        f"- previous_best (current best detector score): {best_score}. A valid patch\n"
+        "  is NOT enough -- the candidate must score STRICTLY GREATER THAN\n"
+        "  previous_best or the deterministic adoption gate rejects it\n"
+        "  (score <= previous_best fails).\n"
+        "- Deterministic ranking score (avg_latency excluded):\n"
+        "      score = 1000*tp_rate - 2000*fp_rate - 1500*fn_rate\n"
+        "              - 50*exception_count - 0.02*code_chars - 10*changed_lines\n"
+        f"- Hard gates that must also pass: fp_rate <= max_fp_rate ({max_fp_rate});\n"
+        "  regression_pass_rate >= min_regression_pass_rate "
+        f"({min_regression_pass_rate});\n"
+        f"  avg_latency_ms <= max_avg_latency_ms ({max_avg_latency_ms}).\n"
+        "- To beat previous_best: preserve existing symbolic-indicator coverage\n"
+        "  (drop no indicator already matched); avoid false positives; avoid\n"
+        "  unnecessary changed lines (-10 each); keep code size small (-0.02 per\n"
+        "  char); keep logic deterministic and simple; prefer branch-based constant\n"
+        "  confidence thresholds (e.g. confidence = 0.7 in an if-branch) over\n"
+        "  multiplier expressions like 0.3 * count, which the safety policy rejects.\n"
+        "- Lesson: recent evaluate-stage candidates applied and evaluated cleanly\n"
+        "  but were REJECTED for scoring below the current best. Raise tp_rate\n"
+        "  and/or lower fp_rate while keeping the edit small."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Build user prompt (safe — never includes secrets or raw exploits)
 # ---------------------------------------------------------------------------
 
@@ -1101,6 +1158,7 @@ def _build_user_prompt(genome: dict, detector_source: str) -> str:
     return _LLM_USER_PROMPT_TEMPLATE.format(
         mutation_region=mutation_region or "(empty — no mutation region found)",
         threat_ids=json.dumps(threat_ids),
+        scoring_guidance=_build_scoring_guidance(genome),
     )
 
 
