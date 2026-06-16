@@ -33,6 +33,9 @@ _NEXT_ACTION_TEXT = {
         "Project Owner review of the propose/output-contract fix (PR #84)"
         " before any owner-approved paid-credit rerun"
     ),
+    "run7_apply_failed_list_comprehension_await_propose_side_no_comprehension_guard": (
+        "Add propose-side no-comprehension guidance/pre-screening before any rerun"
+    ),
 }
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"
@@ -95,6 +98,11 @@ def _apply_project_state(
         isinstance(calls, dict)
         and calls.get("valid_mutation_patch_produced") is False
     )
+    apply_failed = (
+        isinstance(calls, dict)
+        and calls.get("apply_reached") is True
+        and calls.get("evaluate_reached") is False
+    )
 
     if patch_not_produced:
         current_phase = (
@@ -107,6 +115,12 @@ def _apply_project_state(
         next_focus = _NEXT_ACTION_TEXT[next_action]
 
     promo = state.get("promotion")
+    if apply_failed:
+        current_phase = (
+            "Phase 3 — Run 7 fail-closed at apply;"
+            " AST policy rejected list-comprehension runtime allocation risk"
+        )
+
     if (
         isinstance(promo, dict)
         and _parse_bool(promo.get("promote_approved"), default=False) is False
@@ -115,6 +129,15 @@ def _apply_project_state(
         promote_note = (
             "false (promotion not approved —"
             " API executed; no valid candidate patch produced)"
+        )
+    elif (
+        isinstance(promo, dict)
+        and _parse_bool(promo.get("promote_approved"), default=False) is False
+        and apply_failed
+    ):
+        promote_note = (
+            "false (promotion not approved — Run 7 apply failed safely;"
+            " evaluate/adoption/promote not reached)"
         )
 
     return current_phase, next_focus, promote_note
@@ -234,6 +257,17 @@ def _build_status_block() -> str:
         current_phase, next_focus, promote_note = _apply_project_state(
             project_state, current_phase, next_focus, promote_note
         )
+        if isinstance(project_state, dict):
+            state_calls = project_state.get("paid_credit_api_calls")
+            if isinstance(state_calls, dict):
+                declared_success = state_calls.get("gemini_3_flash_preview_success_records")
+                if isinstance(declared_success, int):
+                    p3_run_status = (
+                        f"Executed ({declared_success} successful primary-model records;"
+                        " see state-sync notes for ledger authority)"
+                    )
+                if state_calls.get("adoption_gate_ever_passed") is False:
+                    adoption_status = "Not reached for Run 7 (apply failed safely)"
         phase_rows: list[str] = [
             f"| Phase 3 Activation | Complete (PR #58-#62) |",
             f"| Phase 3 Paid-Credit API Calls | {p3_run_status} |",

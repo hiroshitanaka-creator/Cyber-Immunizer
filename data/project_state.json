@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "state_id": "phase3_s4_materialize_reached_apply_blocked_g1_gap_closing",
+  "state_id": "phase3_run7_apply_failed_list_comprehension_runtime_allocation_risk",
   "current_phase": "phase_3",
   "phase_3_activation": "complete",
   "live_model_enabled": true,
@@ -9,19 +9,22 @@
   "primary_model": "gemini-3-flash-preview",
   "fallback_model": "gemini-3.1-flash-lite",
   "paid_credit_api_calls": {
-    "gemini_3_flash_preview_success_records": 4,
-    "api_success_meaning": "http_200_and_token_usage_recorded",
+    "gemini_3_flash_preview_success_records": 5,
+    "api_success_meaning": "http_200_and_token_usage_recorded; latest Run 7 record observed on main at 2026-06-16T06:20:37.359083+00:00",
     "valid_mutation_patch_produced": true,
     "apply_reached": true,
     "evaluate_reached": false,
-    "promote_reached": false
+    "promote_reached": false,
+    "run7_classification": "apply_failed_or_not_reached",
+    "run7_failure_reason": "AST validation rejected candidate due runtime allocation risk from a list comprehension; evaluate did not complete and promote was skipped",
+    "adoption_gate_ever_passed": false
   },
   "promotion": {
     "promote_approved": false,
     "meaning": "promotion_not_approved",
     "does_not_mean": "api_call_unexecuted"
   },
-  "next_action": "merge_g1_repeat_multiplier_gap_closure_then_update_project_state_and_prepare_owner_approved_next_s4_rerun",
+  "next_action": "run7_apply_failed_list_comprehension_await_propose_side_no_comprehension_guard",
   "fresh_verification_policy": {
     "paid_credit_run_in_this_pr": "forbidden",
     "workflow_dispatch_in_this_pr": "forbidden",
