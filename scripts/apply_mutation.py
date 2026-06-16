@@ -45,6 +45,44 @@ _REQUIRED_PATCH_FIELDS = (
 # Safe output root: candidate files may only be written under this directory.
 _DEFAULT_OUTPUT_ROOT = _PROJECT_ROOT / ".cyber_immunizer"
 
+# ---------------------------------------------------------------------------
+# Report sanitization — LLM-derived metadata safety
+# ---------------------------------------------------------------------------
+
+_SECRET_MARKERS: tuple[str, ...] = (
+    "API_KEY",
+    "SECRET",
+    "PASSWORD",
+    "TOKEN",
+    "CREDENTIAL",
+    "PRIVATE_KEY",
+    "ACCESS_KEY",
+)
+_SANITIZE_MAX_STRING_LEN: int = 2000
+_SANITIZE_MAX_THREATS: int = 20
+
+
+def _sanitize_report_string(value: object, max_len: int = _SANITIZE_MAX_STRING_LEN) -> str:
+    """Return a sanitized version of an LLM-derived string for report artifact output.
+
+    Returns "[REDACTED]" if value contains a secret marker (case-insensitive).
+    Truncates to max_len characters. Non-string values are coerced to str first.
+    """
+    if not isinstance(value, str):
+        value = str(value)
+    upper = value.upper()
+    for marker in _SECRET_MARKERS:
+        if marker in upper:
+            return "[REDACTED]"
+    return value[:max_len]
+
+
+def _sanitize_target_threats(threats: object) -> list[str]:
+    """Return a sanitized list of threat strings for report artifact output."""
+    if not isinstance(threats, list):
+        return []
+    return [_sanitize_report_string(item) for item in threats[:_SANITIZE_MAX_THREATS]]
+
 
 def _write_apply_report_atomic(report_path: Path, payload: dict) -> tuple[bool, str]:
     """Write apply report JSON atomically. Returns (ok, error_message).
@@ -418,6 +456,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  - {v}")
 
     if args.report:
+        san_rationale = _sanitize_report_string(result.get("mutation_rationale") or "")
+        san_threats = _sanitize_target_threats(result.get("target_threats") or [])
         report_payload = {
             "stage": "apply_mutation",
             "success": result["success"],
@@ -425,8 +465,8 @@ def main(argv: list[str] | None = None) -> int:
             "candidate_path": result.get("candidate_path"),
             "violations": result.get("violations", []),
             "error": result.get("error", ""),
-            "mutation_rationale": result.get("mutation_rationale"),
-            "target_threats": result.get("target_threats", []),
+            "mutation_rationale": san_rationale,
+            "target_threats": san_threats,
             "replacement_code_sha256": result.get("replacement_code_sha256"),
         }
         ok, report_err = _write_apply_report_atomic(Path(args.report), report_payload)

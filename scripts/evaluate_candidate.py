@@ -35,6 +35,7 @@ import json
 import subprocess
 import sys
 import os
+import tempfile
 from pathlib import Path
 
 # Ensure project root on sys.path
@@ -331,14 +332,19 @@ def evaluate_candidate(
 
 
 def _write_report(result: dict, candidate_hash: str | None, report_path: Path) -> None:
-    """Write structured fitness report JSON.
+    """Write structured fitness report JSON atomically.
 
     Outputs a normalised schema that always includes 'stage' and 'candidate_hash'.
-    The 'metrics' key carries the raw fitness subprocess output (or null on failure).
+    The 'fitness_report' key carries the raw fitness subprocess output (or null on
+    failure) under the canonical name that promote_candidate.py reads.  The 'metrics'
+    key is an alias kept for backward-compat with CI tooling.
     No secret env vars or raw payloads are included: the fitness subprocess runs with
     _safe_env() which strips all secrets, and only its JSON stdout is stored here.
+    Uses a temp-write + fsync + os.replace to avoid partial writes; raises OSError on
+    failure (fail-closed — the caller must not suppress this).
     """
     report_path.parent.mkdir(parents=True, exist_ok=True)
+    fitness = result.get("fitness_report")
     payload = {
         "stage": "evaluate_candidate",
         "success": result.get("success", False),
@@ -348,10 +354,29 @@ def _write_report(result: dict, candidate_hash: str | None, report_path: Path) -
         "candidate_hash": candidate_hash,
         "violations": result.get("violations", []),
         "error": result.get("error", ""),
-        "metrics": result.get("fitness_report"),
+        "fitness_report": fitness,
+        "metrics": fitness,
         "return_code": result.get("return_code"),
     }
-    report_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=report_path.parent,
+            prefix=f".{report_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            json.dump(payload, tmp, indent=2)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp_path, report_path)
+    except OSError:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+        raise
 
 
 # ---------------------------------------------------------------------------

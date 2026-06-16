@@ -29,6 +29,11 @@ from scripts.apply_mutation import (
     apply_mutation,
     main,
     _write_apply_report_atomic,
+    _sanitize_report_string,
+    _sanitize_target_threats,
+    _SECRET_MARKERS,
+    _SANITIZE_MAX_STRING_LEN,
+    _SANITIZE_MAX_THREATS,
 )
 
 # ---------------------------------------------------------------------------
@@ -547,3 +552,157 @@ class TestWriteApplyReportAtomic:
         _write_apply_report_atomic(report_path, {"v": 2})
         data = json.loads(report_path.read_text())
         assert data == {"v": 2}
+
+
+# ===========================================================================
+# H. Sanitization helpers
+# ===========================================================================
+
+
+class TestSanitizeReportString:
+    """_sanitize_report_string() redacts secret markers and truncates long strings."""
+
+    def test_clean_string_returned_unchanged(self) -> None:
+        """A benign string is returned as-is (up to max_len)."""
+        assert _sanitize_report_string("detects path traversal") == "detects path traversal"
+
+    def test_string_truncated_to_max_len(self) -> None:
+        """Strings longer than max_len are truncated."""
+        long_val = "x" * (_SANITIZE_MAX_STRING_LEN + 100)
+        result = _sanitize_report_string(long_val)
+        assert len(result) == _SANITIZE_MAX_STRING_LEN
+
+    def test_non_string_coerced_to_str(self) -> None:
+        """Non-string values are coerced to str before sanitization."""
+        result = _sanitize_report_string(42)
+        assert result == "42"
+
+    def test_none_coerced_to_str(self) -> None:
+        """None is coerced to the string 'None'."""
+        result = _sanitize_report_string(None)
+        assert result == "None"
+
+    def test_secret_marker_causes_redaction(self) -> None:
+        """A string containing a secret marker returns '[REDACTED]'."""
+        for marker in _SECRET_MARKERS:
+            val = f"the GEMINI_{marker} is abc123"
+            result = _sanitize_report_string(val)
+            assert result == "[REDACTED]", f"marker {marker!r} must trigger redaction"
+
+    def test_secret_marker_case_insensitive(self) -> None:
+        """Marker detection is case-insensitive."""
+        assert _sanitize_report_string("my api_key is here") == "[REDACTED]"
+        assert _sanitize_report_string("MY API_KEY IS HERE") == "[REDACTED]"
+        assert _sanitize_report_string("My Api_Key Is Here") == "[REDACTED]"
+
+    def test_custom_max_len_respected(self) -> None:
+        """Custom max_len parameter overrides the default."""
+        result = _sanitize_report_string("hello world", max_len=5)
+        assert result == "hello"
+
+    def test_empty_string_returned_unchanged(self) -> None:
+        assert _sanitize_report_string("") == ""
+
+
+class TestSanitizeTargetThreats:
+    """_sanitize_target_threats() sanitizes each item and limits list length."""
+
+    def test_clean_list_returned_as_is(self) -> None:
+        threats = ["path_traversal", "sqli", "xss"]
+        result = _sanitize_target_threats(threats)
+        assert result == threats
+
+    def test_non_list_returns_empty(self) -> None:
+        assert _sanitize_target_threats("not a list") == []
+        assert _sanitize_target_threats(None) == []
+        assert _sanitize_target_threats(42) == []
+
+    def test_list_truncated_to_max_threats(self) -> None:
+        threats = [f"threat_{i}" for i in range(_SANITIZE_MAX_THREATS + 5)]
+        result = _sanitize_target_threats(threats)
+        assert len(result) == _SANITIZE_MAX_THREATS
+
+    def test_secret_marker_in_item_causes_redaction(self) -> None:
+        threats = ["path_traversal", "api_key exfiltration", "xss"]
+        result = _sanitize_target_threats(threats)
+        assert result[0] == "path_traversal"
+        assert result[1] == "[REDACTED]"
+        assert result[2] == "xss"
+
+    def test_long_item_truncated(self) -> None:
+        long_item = "x" * (_SANITIZE_MAX_STRING_LEN + 100)
+        result = _sanitize_target_threats([long_item])
+        assert len(result[0]) == _SANITIZE_MAX_STRING_LEN
+
+
+class TestSanitizationAppliedInReport:
+    """Sanitization must be applied to mutation_rationale and target_threats in the report."""
+
+    def test_secret_in_rationale_is_redacted_in_report(self, tmp_path: Path) -> None:
+        """mutation_rationale containing a secret marker must be redacted in apply_report.json."""
+        bad_patch = dict(
+            _VALID_PATCH,
+            mutation_rationale="uses GEMINI_API_KEY to enhance detection",
+        )
+        fake_val = {"valid": True, "violations": []}
+        rc, report_path = _call_main_with_patched_root(
+            tmp_path, bad_patch, validate_result=fake_val
+        )
+
+        assert report_path.exists()
+        report = json.loads(report_path.read_text())
+        assert report["mutation_rationale"] == "[REDACTED]", (
+            "mutation_rationale containing a secret marker must be redacted"
+        )
+        assert "GEMINI_API_KEY" not in report_path.read_text()
+
+    def test_secret_in_target_threat_is_redacted_in_report(self, tmp_path: Path) -> None:
+        """A target_threat item containing a secret marker must be redacted."""
+        bad_patch = dict(
+            _VALID_PATCH,
+            target_threats=["path_traversal", "token exfiltration via response"],
+        )
+        fake_val = {"valid": True, "violations": []}
+        rc, report_path = _call_main_with_patched_root(
+            tmp_path, bad_patch, validate_result=fake_val
+        )
+
+        report = json.loads(report_path.read_text())
+        threats = report["target_threats"]
+        assert threats[0] == "path_traversal"
+        assert threats[1] == "[REDACTED]", "Threat item containing 'token' must be redacted"
+
+    def test_clean_rationale_preserved_in_report(self, tmp_path: Path) -> None:
+        """A clean mutation_rationale is preserved unchanged in apply_report.json."""
+        clean_patch = dict(_VALID_PATCH, mutation_rationale="improve path traversal detection")
+        fake_val = {"valid": True, "violations": []}
+        rc, report_path = _call_main_with_patched_root(
+            tmp_path, clean_patch, validate_result=fake_val
+        )
+
+        report = json.loads(report_path.read_text())
+        assert report["mutation_rationale"] == "improve path traversal detection"
+
+    def test_long_rationale_truncated_in_report(self, tmp_path: Path) -> None:
+        """A mutation_rationale exceeding max_len is truncated in apply_report.json."""
+        long_rationale = "x" * (_SANITIZE_MAX_STRING_LEN + 500)
+        long_patch = dict(_VALID_PATCH, mutation_rationale=long_rationale)
+        fake_val = {"valid": True, "violations": []}
+        rc, report_path = _call_main_with_patched_root(
+            tmp_path, long_patch, validate_result=fake_val
+        )
+
+        report = json.loads(report_path.read_text())
+        assert len(report["mutation_rationale"]) == _SANITIZE_MAX_STRING_LEN
+
+    def test_oversized_target_threats_truncated_in_report(self, tmp_path: Path) -> None:
+        """A target_threats list exceeding max items is truncated in apply_report.json."""
+        many_threats = [f"threat_{i}" for i in range(_SANITIZE_MAX_THREATS + 5)]
+        long_patch = dict(_VALID_PATCH, target_threats=many_threats)
+        fake_val = {"valid": True, "violations": []}
+        rc, report_path = _call_main_with_patched_root(
+            tmp_path, long_patch, validate_result=fake_val
+        )
+
+        report = json.loads(report_path.read_text())
+        assert len(report["target_threats"]) == _SANITIZE_MAX_THREATS
