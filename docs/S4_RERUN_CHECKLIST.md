@@ -1,11 +1,11 @@
-# S4 Paid-Credit Rerun Checklist (Post-PR #91)
+# S4 Paid-Credit Rerun Checklist (Post-PR #98 / Run 7 Readiness)
 
 <!--
 AI_DOC_META
 status: ACTIVE
-scope: Human-facing checklist for Project Owner to execute the next Owner-approved S4 paid-credit rerun after PR #91 (G1 gap closure) is merged.
+scope: Human-facing checklist for Project Owner to review readiness for the next Owner-approved paid-credit rerun (Run 7) after PR #98 (propose-side baseline-preservation hardening) is merged.
 use_for:
-  - guiding the Project Owner through pre-run approval, artifact verification, and post-run triage
+  - guiding the Project Owner through pre-run approval, artifact verification, and post-run triage for the next Owner-approved paid-credit rerun after PR #98
 do_not_use_for:
   - autonomous execution — every rerun requires explicit Project Owner approval
   - changing model names, budgets, API mode, or promotion settings
@@ -16,10 +16,18 @@ related:
 AI_DOC_META_END
 -->
 
-> **Current state (as of PR #91 merge):**
-> Phase 3 active — valid mutation patch was produced in S4 run #47; apply reached but failed at
-> G1 repeat-multiplier check (now closed by PR #91). Evaluate and promote have not been reached.
-> `promote_approved = false`. Next step: Owner-approved S4 rerun.
+> **Current state (as of PR #98 merge):**
+> Phase 3 active — runs 5 and 6 reached apply and evaluate, but both were rejected by
+> the adoption gate because candidate scores regressed below `previous_best=729.34`
+> (run 5: 494.48; run 6: 478.12). PR #98 merged propose-side baseline-preservation
+> hardening so Gemini guidance now requires preserving all five symbolic indicators,
+> the full request surface, and the `blocked=False` fallback while aiming strictly
+> above `previous_best`. `promote_approved=false`. Next step: Project Owner review
+> before any Owner-approved paid-credit rerun.
+>
+> **Note:** PR #98 does **not** prove candidate quality. It only hardens the propose
+> prompt before the next paid-credit test. Promotion remains unavailable until a
+> candidate passes the adoption gate and the Project Owner explicitly approves promotion.
 
 ---
 
@@ -28,23 +36,34 @@ AI_DOC_META_END
 - [ ] **Project Owner has explicitly approved this rerun** in writing (GitHub comment, issue, or
   direct message). No rerun is permitted without this approval.
 - [ ] Confirm `data/project_state.json` shows `promotion.promote_approved=false`.
-- [ ] When triggering `workflow_dispatch`, set input `promote_approved=false` for the first
-  post-PR91 rerun. Setting `promote_approved=true` on a first rerun after a gap closure is
-  **not recommended** unless the Project Owner explicitly approves promotion.
-- [ ] Confirm `data/project_state.json` shows
-  `"state_id": "phase3_s4_g1_gap_closed_pending_owner_approved_next_s4_rerun"`.
-- [ ] Confirm no uncommitted changes to `core/**`, `scripts/**`, `.github/**`, or `data/**`
-  exist on the target branch.
+- [ ] Confirm `data/project_state.json` shows:
+  - `"state_id": "phase3_propose_side_baseline_preservation_hardened_await_owner_approved_rerun"`
+  - `"next_action": "propose_side_baseline_preservation_hardened_await_owner_approved_rerun_review"`
+- [ ] Confirm latest `main` includes PR #98 merge
+  (merge commit `bbc3b2bab8c0bda80daf316fb735e8456ecc5354`).
+- [ ] When triggering `workflow_dispatch`, set input `promote_approved=false` for the next
+  post-PR98 rerun (Run 7). Setting `promote_approved=true` on a rerun after a propose-side
+  prompt change is **not recommended** unless the Project Owner explicitly approves promotion.
+- [ ] Confirm no uncommitted or unrelated changes to `core/**`, `scripts/**`, `.github/**`, or
+  `data/**` exist on the target branch.
 
 ---
 
 ## Trigger Parameters
 
+This section governs the **next Owner-approved paid-credit rerun after PR #98** (referred to as
+**Run 7**).
+
 | Parameter | Required Value | Notes |
 |---|---|---|
 | workflow_dispatch mode | `gemini-paid-credit` | Do not use `noop` or `offline-sample` for a paid run |
-| promote_approved | `false` (recommended for first rerun) | Owner must explicitly set `true` to enable promotion |
+| promote_approved | `false` (recommended for Run 7) | Owner must explicitly set `true` to enable promotion |
 | Branch | `main` only | `gemini-paid-credit` is rejected outside `main` by the workflow guard (lines 113–119 of `immunization_loop.yml`) |
+
+> **PR #98 does not prove candidate quality.** It only hardens the propose prompt before the
+> next paid-credit test. Promotion remains unavailable until a candidate passes the adoption
+> gate and the Project Owner explicitly approves promotion. Keep `promote_approved=false` as the
+> recommended value for Run 7 unless the Project Owner explicitly approves promotion.
 
 > **Never display, log, or record the `GEMINI_API_KEY` value.** It is a GitHub Actions secret
 > and must not appear in any artifact, comment, or task report.
