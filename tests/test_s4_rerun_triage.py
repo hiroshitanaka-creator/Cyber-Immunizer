@@ -696,6 +696,59 @@ def test_extract_fitness_payload_non_bool_gate_returns_none() -> None:
 # New tests — _safe_text unit tests
 # ===========================================================================
 
+# ===========================================================================
+# New tests — invalid UTF-8 artifact robustness
+# ===========================================================================
+
+# Test 38
+def test_invalid_utf8_fitness_report_is_tool_failure(tmp_path: Path) -> None:
+    """fitness_report.json with invalid UTF-8 bytes → tool_failure (fail-closed)."""
+    _write(tmp_path, "mutation_patch.json", _MINIMAL_MUTATION_PATCH)
+    _write_text(tmp_path, "candidate_detector.py", "def is_attack(req): return False\n")
+    (tmp_path / "fitness_report.json").write_bytes(b"\xff\xfe invalid utf-8 content")
+
+    result = _triage(tmp_path)
+
+    assert result["decision"]["classification"] == "tool_failure"
+
+
+# Test 39
+def test_invalid_utf8_mutation_patch_is_propose_failed(tmp_path: Path) -> None:
+    """mutation_patch.json with invalid UTF-8 bytes → propose_failed."""
+    (tmp_path / "mutation_patch.json").write_bytes(b"\xff\xfe invalid utf-8 content")
+
+    result = _triage(tmp_path)
+
+    assert result["decision"]["classification"] == "propose_failed"
+    # A warning about the unreadable file must be present
+    assert any(
+        "utf" in w.lower() or "invalid" in w.lower() or "cannot read" in w.lower()
+        for w in result["warnings"]
+    )
+
+
+# Test 40
+def test_invalid_utf8_candidate_detector_no_crash(tmp_path: Path) -> None:
+    """candidate_detector.py with invalid UTF-8 bytes must not crash the triage tool."""
+    _write(tmp_path, "mutation_patch.json", _MINIMAL_MUTATION_PATCH)
+    (tmp_path / "candidate_detector.py").write_bytes(b"\xff\xfe invalid utf-8 content")
+
+    result = _triage(tmp_path)
+
+    # Tool must not crash and must return a valid classification
+    assert result["decision"]["classification"] in {
+        "apply_failed_or_not_reached",
+        "evaluate_rejected",
+        "promote_eligible",
+        "tool_failure",
+        "propose_failed",
+    }
+
+
+# ===========================================================================
+# _safe_text unit tests
+# ===========================================================================
+
 # Test 35
 def test_safe_text_passes_through_clean_string() -> None:
     assert _safe_text("score too low") == "score too low"

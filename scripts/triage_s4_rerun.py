@@ -155,6 +155,8 @@ def _load_json_safe(path: Path) -> tuple[dict | list | None, str | None]:
         return None, f"file not found: {path.name}"
     try:
         text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return None, f"{path.name} contains invalid UTF-8 encoding"
     except OSError as exc:
         return None, f"cannot read {path.name}: {type(exc).__name__}"
 
@@ -179,7 +181,7 @@ def _scan_for_secrets(path: Path | None, filename: str, warnings: list[str]) -> 
         return
     try:
         text = path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return
     if _contains_secret(text):
         warnings.append(

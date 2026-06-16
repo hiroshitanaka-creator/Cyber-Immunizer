@@ -102,8 +102,9 @@ classify the outcome and determine the next action.
 | `promote_approved=false` means the Gemini API call was not executed | ❌ Incorrect |
 | `promote_approved=false` means the paid-credit run has not occurred | ❌ Incorrect |
 
-The 3 primary-model paid-credit API calls **were executed** and are recorded in the ledger. The
-promotion gate was never reached because no valid candidate patch was produced.
+The primary-model paid-credit API calls **have been executed** and are recorded in the ledger
+(5 success records). The promotion gate was never reached in verified runs 1–4 because no valid
+candidate patch was produced; run 5 (2026-06-15) outcome is pending artifact triage.
 
 ---
 
