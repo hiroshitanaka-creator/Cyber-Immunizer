@@ -47,15 +47,16 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Model provider | gemini |
 | Primary model | gemini-3-flash-preview |
 | Fallback model | gemini-3.1-flash-lite |
-| paid-credit API success records (primary model) | **4** |
-| Valid mutation patch produced | **Yes** (S4 run #47, 2026-06-11) |
-| apply reached | **Yes** — apply failed at G1 repeat-multiplier runtime allocation risk |
-| evaluate reached | **No** |
+| paid-credit API success records (primary model) | **5** |
+| Valid mutation patch produced | **Yes** (S4 run #47, 2026-06-11) — run 5 outcome pending triage |
+| apply reached | **Yes** (confirmed for runs 1–4) — run 5 outcome pending artifact triage |
+| evaluate reached | **No** (confirmed for runs 1–4) — run 5 outcome pending artifact triage |
 | promote reached | **No** |
 | promote_approved | false |
 | Propose/output-contract hardening | Implemented in PR #84; G1 repeat-multiplier gap closure in PR #91 (merged) |
-| state_id | `phase3_s4_g1_gap_closed_pending_owner_approved_next_s4_rerun` |
-| Next action | Owner-approved next S4 paid-credit rerun (G1 gap closed; PR #91 merged) |
+| run 5 (2026-06-15) | API success recorded; apply/evaluate/promote outcome — artifact triage pending |
+| state_id | `phase3_paid_credit_record_5_recorded_pending_artifact_triage` |
+| Next action | Triage latest paid-credit run artifacts using `scripts/triage_s4_rerun.py`; update apply/evaluate/promote state |
 
 ---
 
@@ -64,7 +65,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Source | What it proves |
 |---|---|
 | `data/genome.json` | `live_model_enabled=true`, `api_mode=gemini_paid_credit`, `model_provider=gemini`, `model_name=gemini-3-flash-preview`, `fallback_model_name=gemini-3.1-flash-lite` |
-| `data/api_usage_ledger.json` | **4** records with `provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true` (2026-06-03 / 2026-06-04 ×3, 2026-06-11 S4 run #47) |
+| `data/api_usage_ledger.json` | **5** records with `provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true` (2026-06-03 / 2026-06-04 ×3 / 2026-06-11 S4 run #47 / **2026-06-15 run 5**). Run 5 apply/evaluate/promote outcome not yet triaged. |
 | `docs/audit_gate/PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md` | First 3 runs: no valid mutation patch (propose output-contract failures). S4 run #47: valid mutation_patch.json produced; apply reached and failed at G1 repeat-multiplier runtime allocation risk |
 | GitHub Actions (runs 26919888348 / 26922191264 / 26924388218) | First three runs concluded `failure` at finalize-propose-status; evaluate / promote jobs skipped |
 | GitHub Actions (S4 run #47, 2026-06-11) | Materialize reached; apply reached; apply failed (G1 repeat-multiplier); evaluate / promote not reached |
@@ -86,6 +87,11 @@ For the 4th record (S4 run #47, 2026-06-11), `propose_mutation.py` accepted the
 `replacement_code` and wrote a valid `mutation_patch.json`. `apply_mutation.py` was reached
 but failed at the G1 repeat-multiplier runtime allocation risk check (Step 7 of apply).
 
+For the 5th record (run 5, 2026-06-15), the API call succeeded (`success=true`). The
+apply/evaluate/promote outcome of this run has **not yet been determined**. Use
+`scripts/triage_s4_rerun.py --artifacts-dir <DIR>` against the downloaded artifacts to
+classify the outcome and determine the next action.
+
 ---
 
 ## 4. Meaning of promote_approved=false
@@ -96,8 +102,9 @@ but failed at the G1 repeat-multiplier runtime allocation risk check (Step 7 of 
 | `promote_approved=false` means the Gemini API call was not executed | ❌ Incorrect |
 | `promote_approved=false` means the paid-credit run has not occurred | ❌ Incorrect |
 
-The 3 primary-model paid-credit API calls **were executed** and are recorded in the ledger. The
-promotion gate was never reached because no valid candidate patch was produced.
+The primary-model paid-credit API calls **have been executed** and are recorded in the ledger
+(5 success records). The promotion gate was never reached in verified runs 1–4 because no valid
+candidate patch was produced; run 5 (2026-06-15) outcome is pending artifact triage.
 
 ---
 
@@ -122,20 +129,29 @@ For S4 run #47:
 * **evaluate** was **not reached** (apply failed; evaluate job skipped).
 * **promote** was **not reached** (never eligible).
 
-There is no adoption-gate pass/fail result from any of the 4 paid-credit runs.
+There is no adoption-gate pass/fail result from runs 1–4.
 `promote_approved` remains `false`.
+
+For run 5 (2026-06-15): apply/evaluate/promote outcome is **pending artifact triage**.
+Do not assume any stage was reached until the triage tool confirms it from the downloaded artifacts.
 
 ---
 
 ## 7. Next action
 
-**PR #91 is merged.** The G1 repeat-multiplier gap (apply-side `core/policy.py _check_repeat_mult`
-rejecting `float * runtime_var` patterns that propose-side did not pre-screen) has been closed:
-propose-side `_validate_replacement_code` check 6.5 now rejects all 18 multiplication patterns
-(int/float/str × Name/Call/Attribute, both orders).
+**Run 5 (2026-06-15) has been executed.** A 5th `success=true` record for
+`gemini-3-flash-preview` was added to `data/api_usage_ledger.json` at 2026-06-15T23:07:00Z.
+**PR #91 (G1 gap closure) is merged.** The G1 repeat-multiplier gap has been closed.
 
-The next step is for the **Project Owner to approve and execute the next S4 paid-credit rerun**.
-No new paid-credit run has been executed since S4 run #47. `promote_approved` remains `false`.
+The current next action is:
+
+> **Triage the run 5 artifacts** using `scripts/triage_s4_rerun.py --artifacts-dir <DIR>`.
+> Download the artifacts (`mutation-patch`, `api-usage-ledger`, `candidate-detector`,
+> `fitness-report`) from the GitHub Actions run, run the triage tool, and update
+> `data/project_state.json` apply/evaluate/promote fields based on the triage result.
+
+`promote_approved` remains `false` until the Project Owner explicitly approves promotion
+after reviewing the triage output and fitness report.
 
 ---
 

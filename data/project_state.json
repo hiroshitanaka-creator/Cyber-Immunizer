@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "state_id": "phase3_s4_g1_gap_closed_pending_owner_approved_next_s4_rerun",
+  "state_id": "phase3_paid_credit_record_5_recorded_pending_artifact_triage",
   "current_phase": "phase_3",
   "phase_3_activation": "complete",
   "live_model_enabled": true,
@@ -9,20 +9,22 @@
   "primary_model": "gemini-3-flash-preview",
   "fallback_model": "gemini-3.1-flash-lite",
   "paid_credit_api_calls": {
-    "gemini_3_flash_preview_success_records": 4,
+    "gemini_3_flash_preview_success_records": 5,
     "api_success_meaning": "http_200_and_token_usage_recorded",
     "valid_mutation_patch_produced": true,
     "apply_reached": true,
     "evaluate_reached": false,
     "promote_reached": false,
-    "g1_gap_closure_pr91": "merged"
+    "g1_gap_closure_pr91": "merged",
+    "run_5_artifact_triage_status": "pending",
+    "note": "valid_mutation_patch_produced/apply_reached/evaluate_reached/promote_reached reflect runs 1-4 best-known state; run 5 (2026-06-15) outcome pending artifact triage"
   },
   "promotion": {
     "promote_approved": false,
     "meaning": "promotion_not_approved",
     "does_not_mean": "api_call_unexecuted"
   },
-  "next_action": "prepare_owner_approved_next_s4_rerun_post_g1_gap_closure",
+  "next_action": "triage_latest_paid_credit_run_artifacts_and_update_apply_evaluate_promote_state",
   "fresh_verification_policy": {
     "paid_credit_run_in_this_pr": "forbidden",
     "workflow_dispatch_in_this_pr": "forbidden",

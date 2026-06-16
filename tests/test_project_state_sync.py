@@ -40,6 +40,10 @@ _FORBIDDEN_STALE = [
     # not appear in active current-state sources once PR #91 is merged.
     "PR #91 (pending merge)",
     "to merge PR #91",
+    # Post-run-5: these strings imply only 3 calls or no calls were executed
+    # and must not appear in active current-state sources.
+    "初回 paid-credit run 待機中",
+    "The 3 primary-model paid-credit API calls",
 ]
 
 # Active current-state surfaces that must never carry a stale claim.
@@ -137,7 +141,7 @@ def test_project_state_matches_ledger_success_count() -> None:
         f"project_state declares {declared} primary-model success records "
         f"but ledger has {actual}"
     )
-    assert actual == 4, "ledger must contain exactly 4 primary-model paid-credit success records"
+    assert actual == 5, "ledger must contain exactly 5 primary-model paid-credit success records"
 
 
 # 5.
@@ -246,10 +250,12 @@ def test_evaluate_and_promote_not_reached() -> None:
     state = _load(_PROJECT_STATE_PATH)
     calls = state.get("paid_credit_api_calls", {})
     assert calls.get("evaluate_reached") is False, (
-        "evaluate was not reached in any paid-credit run; evaluate_reached must be false"
+        "evaluate was not reached in verified runs 1–4; run 5 is pending artifact triage; "
+        "evaluate_reached must be false"
     )
     assert calls.get("promote_reached") is False, (
-        "promote was not reached in any paid-credit run; promote_reached must be false"
+        "promote was not reached in verified runs 1–4; run 5 is pending artifact triage; "
+        "promote_reached must be false"
     )
 
 
@@ -270,6 +276,68 @@ def test_next_action_is_post_pr91_rerun_preparation() -> None:
         "next_action must not reference the pre-PR91-merge G1 gap closure "
         "(PR #91 is merged)"
     )
-    assert "s4_rerun" in next_action or "owner_approved" in next_action, (
-        "next_action must reference the owner-approved next S4 rerun"
+    # After run 5 (2026-06-15), next_action may reference triage/artifact review
+    # (no longer just the pending S4 rerun, since that run has now occurred).
+    assert (
+        "s4_rerun" in next_action
+        or "owner_approved" in next_action
+        or "triage" in next_action
+        or "artifact" in next_action
+    ), (
+        "next_action must reference the current state: "
+        "either the pending rerun or artifact triage after the 5th run"
+    )
+
+
+# 17.
+def test_readme_roadmap_no_stale_first_run_pending() -> None:
+    text = _README_PATH.read_text(encoding="utf-8")
+    assert "初回 paid-credit run 待機中" not in text, (
+        "README roadmap must not claim 'initial paid-credit run pending' — "
+        "5 paid-credit success records have been recorded"
+    )
+
+
+# 18.
+def test_project_state_doc_no_stale_3_calls_claim() -> None:
+    text = _PROJECT_STATE_DOC.read_text(encoding="utf-8")
+    assert "The 3 primary-model paid-credit API calls" not in text, (
+        "docs/PROJECT_STATE.md must not claim only 3 primary-model calls were executed "
+        "(5 success records are now recorded)"
+    )
+
+
+# 19.
+def test_project_state_doc_shows_5_success_records() -> None:
+    text = _PROJECT_STATE_DOC.read_text(encoding="utf-8")
+    assert "**5**" in text, (
+        "docs/PROJECT_STATE.md must show 5 primary-model paid-credit success records"
+    )
+
+
+# 20.
+def test_project_state_doc_mentions_run5_triage_pending() -> None:
+    text = _PROJECT_STATE_DOC.read_text(encoding="utf-8")
+    assert "run 5" in text, "docs/PROJECT_STATE.md must mention run 5"
+    assert "artifact triage" in text or "triage pending" in text, (
+        "docs/PROJECT_STATE.md must indicate run 5 artifact triage is pending"
+    )
+
+
+# 21.
+def test_state_id_is_record_5_pending_triage() -> None:
+    state = _load(_PROJECT_STATE_PATH)
+    assert state.get("state_id") == "phase3_paid_credit_record_5_recorded_pending_artifact_triage", (
+        "state_id must be 'phase3_paid_credit_record_5_recorded_pending_artifact_triage'"
+    )
+
+
+# 22.
+def test_next_action_is_triage_artifacts() -> None:
+    state = _load(_PROJECT_STATE_PATH)
+    assert state.get("next_action") == (
+        "triage_latest_paid_credit_run_artifacts_and_update_apply_evaluate_promote_state"
+    ), (
+        "next_action must be "
+        "'triage_latest_paid_credit_run_artifacts_and_update_apply_evaluate_promote_state'"
     )
