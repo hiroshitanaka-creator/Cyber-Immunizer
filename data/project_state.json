@@ -54,7 +54,7 @@
   "propose_side_hardening": {
     "baseline_preservation_contract_added": true,
     "target": "scripts/propose_mutation.py::_build_scoring_guidance",
-    "meaning": "The Gemini propose prompt now states an explicit baseline-preservation contract: keep all five symbolic indicators (path_traversal_indicator, script_injection_indicator, sqli_indicator, command_delimiter_indicator, encoded_traversal_indicator), keep the full request inspection surface (method, path, query, headers, body), keep the final non-blocking DetectionResult(blocked=False, ...) fallback, and make a minimal additive edit that scores strictly above previous_best=729.34. Prompt-only/documentation change; no API call, no detector/policy/budget/model/ledger change.",
+    "meaning": "The Gemini propose prompt now states an explicit baseline-preservation contract: keep all five symbolic indicators (path_traversal_indicator, script_injection_indicator, sqli_indicator, command_delimiter_indicator, encoded_traversal_indicator), keep the full request inspection surface (method, path, query, headers, body), keep the final non-blocking blocked=False fallback return, and make a minimal additive edit that scores strictly above previous_best=729.34. Prompt-only/documentation change; no API call, no detector/policy/budget/model/ledger change.",
     "does_not_mean": "candidate_quality_proven_or_paid_credit_rerun_executed"
   },
   "promotion": {

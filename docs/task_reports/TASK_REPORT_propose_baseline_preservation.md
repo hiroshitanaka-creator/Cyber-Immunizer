@@ -1,8 +1,8 @@
 # タスク完了報告 — Gemini propose baseline-preservation hardening
 
-> PR 未採番のため、ファイル名はブランチ
-> `claude/gemini-propose-baseline-preservation-olkwxe` に対応。PR 採番後に
-> `TASK_REPORT_PR<番号>.md` へリネーム可。
+> 対象 PR: **PR #98**（branch `claude/gemini-propose-baseline-preservation-olkwxe`）。
+> ファイル名はブランチ対応のまま据え置き（`TASK_REPORT_PR98.md` へのリネームは任意）。
+> PR #98 の Codex P2 2件（prompt headroom / invalid ellipsis）への follow-up 修正を反映済み。
 
 ## 概要
 runs 5/6 は evaluate 到達後に candidate score が `previous_best=729.34` を下回って
@@ -19,17 +19,18 @@ ledger/promotion 変更は一切なし。
   scoring guidance がマージ済み。Source Evidence と一致）
 - 実装コミット: `5e418be`
 
-## 変更ファイル一覧（8件）
+## 変更ファイル一覧（9件）
 | ファイル | 区分 | 変更 |
 |---|---|---|
-| `scripts/propose_mutation.py` | ALLOWED | `_build_scoring_guidance` に baseline 維持契約を追記、既存 guidance を圧縮、docstring 更新 |
-| `tests/test_gemini_integration.py` | ALLOWED | `TestScoringGuidance` に純粋テスト6件追加 |
-| `data/project_state.json` | ALLOWED | `state_id` / `next_action` 更新、`propose_side_hardening` ブロック追加 |
-| `docs/PROJECT_STATE.md` | ALLOWED | §1 表・§7 を新状態に同期 |
+| `scripts/propose_mutation.py` | ALLOWED | `_build_scoring_guidance` に baseline 維持契約を追記、guidance を圧縮（P2-1 余白確保）、無効な省略形コンストラクタを除去（P2-2）、docstring 更新 |
+| `tests/test_gemini_integration.py` | ALLOWED | `TestScoringGuidance` に純粋テスト追加（baseline / 余白下限 / 省略形不在） |
+| `data/project_state.json` | ALLOWED | `state_id` / `next_action` 更新、`propose_side_hardening` ブロック追加、省略形文言を自然文へ同期 |
+| `docs/PROJECT_STATE.md` | ALLOWED | §1 表・§7 を新状態に同期、省略形文言を自然文へ同期 |
 | `scripts/update_readme.py` | ALLOWED | 新 `next_action` の `_NEXT_ACTION_TEXT` マッピング追加 |
 | `tests/test_update_readme.py` | ALLOWED | 新マッピングのレンダリングテスト1件追加 |
 | `README.md` | ALLOWED（生成のみ） | status block の Next Focus + timestamp のみ |
 | `tests/test_project_state_sync.py` | スコープ外（下記「残存事項」#1） | drift-guard #21/#22 を新 authorized 値へ同期 |
+| `docs/task_reports/TASK_REPORT_propose_baseline_preservation.md` | ALLOWED | 本完了報告（PR #98 メタデータ・P2 修正内容を反映） |
 
 ## 主な変更内容
 - Gemini user prompt が以下の baseline を維持するよう明示:
@@ -37,11 +38,11 @@ ledger/promotion 変更は一切なし。
     `sqli_indicator` / `command_delimiter_indicator` / `encoded_traversal_indicator`
   - inspection surface: `request.method` / `request.path` / `request.query` /
     `request.headers` / `request.body`
-  - 最終フォールバック `DetectionResult(blocked=False, ...)`
+  - 最終の非ブロック `blocked=False` フォールバック返却（無効な省略形コンストラクタは使わない）
   - 低 false positive・小さい changed-line / code-size フットプリント
   - detector を置換・縮小せず、最小 additive 編集で `previous_best` を厳密に超える
-- 既存 scoring guidance を圧縮し、`system+user` プロンプトを **11,972 / 12,000 文字**
-  （余白28）に収めた。
+- scoring guidance をさらに圧縮し、`system+user` プロンプトを **11,775 / 12,000 文字**
+  （余白225、最低保証 200 以上）に収めた（PR #98 P2-1 対応）。
 - 状態同期: `next_action` =
   `propose_side_baseline_preservation_hardened_await_owner_approved_rerun_review`、
   `state_id` = `phase3_propose_side_baseline_preservation_hardened_await_owner_approved_rerun`。
@@ -50,14 +51,14 @@ ledger/promotion 変更は一切なし。
 ## Definition of Done 検証結果
 | コマンド | 結果 |
 |---|---|
-| `python -m pytest tests/test_gemini_integration.py` | 286 passed |
+| `python -m pytest tests/test_gemini_integration.py` | 287 passed |
 | `python -m pytest tests/test_update_readme.py` | 116 passed |
 | `python -m pytest tests/test_project_state_sync.py` | 22 passed |
-| `python -m pytest`（全体） | 2023 passed |
+| `python -m pytest`（全体） | 2024 passed |
 | `python scripts/propose_mutation.py --noop --json` | exit 0（patch 未作成） |
 | `python scripts/propose_mutation.py --offline-sample --json` | exit 0 |
 | `python scripts/update_readme.py` | status block のみ更新 |
-| full prompt < `max_prompt_chars` | 11,972 < 12,000（余白28）、secret scan クリーン |
+| full prompt headroom (>=200) | 11,775 <= 12,000-200（余白225）、secret scan クリーン |
 
 - No Gemini API call performed.
 - No workflow_dispatch performed.
@@ -77,6 +78,7 @@ ledger/promotion 変更は一切なし。
 2. **本 MD ファイルの作成**: 本タスクプロンプトは `docs/task_reports/**` を FROZEN・
    `新規ファイル作成: 禁止` と指定していたが、Project Owner の明示指示
    （2026-06-16 05:16 UTC「md ファイルは作成してください」）により作成した。
-3. **プロンプト余白28文字**: `data/genome.json`（編集禁止）の `max_prompt_chars=12000` が
-   ほぼ埋まっており、将来 system/user プロンプトを増やす変更は予算超過に注意。
+3. **プロンプト余白（解消済み）**: 初版は余白28文字だったが、PR #98 P2-1 対応で guidance を
+   圧縮し余白225文字（最低保証200以上をテストで強制）に拡大。`data/genome.json`（編集禁止）の
+   `max_prompt_chars=12000` は不変。
 4. paid-credit rerun の実施可否は Project Owner 専権でスコープ外。

@@ -174,7 +174,7 @@ emits an explicit **baseline-preservation contract** in the Gemini user prompt: 
 symbolic indicators (`path_traversal_indicator`, `script_injection_indicator`, `sqli_indicator`,
 `command_delimiter_indicator`, `encoded_traversal_indicator`), keep the full request inspection
 surface (`request.method`, `request.path`, `request.query`, `request.headers`, `request.body`),
-keep the final non-blocking `DetectionResult(blocked=False, ...)` fallback, and make a minimal
+keep the final non-blocking `blocked=False` fallback return, and make a minimal
 additive edit that scores strictly above `previous_best=729.34`. This is a prompt/documentation
 change only — no Gemini API call, no `workflow_dispatch`, and no detector / policy / budget /
 model-name / ledger / promotion change was made.

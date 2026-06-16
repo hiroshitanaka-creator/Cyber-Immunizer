@@ -26,6 +26,14 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 import scripts.propose_mutation as pm  # noqa: E402
 
+# Minimum operational headroom required between the assembled production prompt
+# and genome.max_prompt_chars. The paid-credit preflight length gate sees the
+# full system+user prompt (which includes the live mutation region and active
+# threat IDs); a near-zero margin means a promoted minimal detector change or a
+# slightly longer threat-id set can push the *next* cycle over the limit before
+# Gemini is ever called. Guard an explicit margin, not just "< max" (PR #98 P2-1).
+_MIN_PROMPT_HEADROOM_CHARS = 200
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -3684,9 +3692,20 @@ class TestScoringGuidance:
         self, genome_live_enabled: dict
     ) -> None:
         """The contract must require keeping the final non-blocking fallback so
-        clean requests stay allowed and false positives stay low."""
+        clean requests stay allowed and false positives stay low.
+
+        It must do so with prose (e.g. 'blocked=False fallback'), NOT an
+        ellipsis-style constructor like ``DetectionResult(blocked=False, ...)``,
+        which the replacement-code validator rejects (placeholder ellipsis is
+        forbidden; every DetectionResult call needs all four keyword args).
+        """
         guidance = pm._build_scoring_guidance(genome_live_enabled)
-        assert "DetectionResult(blocked=False" in guidance
+        lowered = guidance.lower()
+        assert "blocked=false" in lowered
+        assert "fallback" in lowered
+        # The invalid abbreviated constructor must never be taught.
+        assert "DetectionResult(blocked=False, ...)" not in guidance
+        assert "DetectionResult(blocked=False" not in guidance
 
     def test_guidance_discourages_replacing_or_narrowing_detector(
         self, genome_live_enabled: dict
@@ -3776,7 +3795,26 @@ class TestScoringGuidance:
             "request.body",
         ):
             assert field in prompt
-        assert "DetectionResult(blocked=False" in prompt
+        # Fallback preservation is expressed in prose, not an invalid constructor.
+        assert "blocked=False fallback" in prompt
+        assert "DetectionResult(blocked=False, ...)" not in prompt
+
+    def test_user_prompt_has_no_invalid_ellipsis_constructor(
+        self,
+        genome_live_enabled: dict,
+        test_detector_file: Path,
+        test_threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The assembled Gemini-facing prompt must not teach the abbreviated
+        ``DetectionResult(blocked=False, ...)`` shape: the validator forbids
+        placeholder ellipsis and requires all four keyword arguments, so copying
+        it into replacement_code would reject the patch before apply (PR #98
+        Codex P2-2)."""
+        monkeypatch.setattr(pm, "_THREATS_PATH", test_threats_file)
+        prompt = pm._build_user_prompt(genome_live_enabled, test_detector_file.read_text())
+        assert "DetectionResult(blocked=False, ...)" not in prompt
+        assert "..." not in pm._build_scoring_guidance(genome_live_enabled)
 
     # ----- 2. Prompt remains safe -----
 
@@ -3821,16 +3859,23 @@ class TestScoringGuidance:
 
     # ----- 3. Prompt length stays under max_prompt_chars -----
 
-    def test_full_prompt_under_max_prompt_chars_with_real_genome(self) -> None:
-        """With the real production genome and detector, system+user prompt
-        stays strictly under genome.max_prompt_chars."""
+    def test_full_prompt_has_explicit_headroom_with_real_genome(self) -> None:
+        """With the real production genome and detector, the system+user prompt
+        must leave at least _MIN_PROMPT_HEADROOM_CHARS spare under
+        genome.max_prompt_chars — not merely fit under it (PR #98 P2-1).
+
+        This guards the autonomous loop against failing the paid-credit preflight
+        length gate after a small detector growth or a slightly longer threat-id
+        set in a later cycle."""
         genome = json.loads((_PROJECT_ROOT / "data" / "genome.json").read_text())
         detector_source = (_PROJECT_ROOT / "core" / "detector.py").read_text()
         user_prompt = pm._build_user_prompt(genome, detector_source)
         full = pm._LLM_SYSTEM_PROMPT + "\n" + user_prompt
         max_chars = int(genome["max_prompt_chars"])
-        assert len(full) < max_chars, (
-            f"full prompt {len(full)} chars >= max_prompt_chars {max_chars}"
+        headroom = max_chars - len(full)
+        assert headroom >= _MIN_PROMPT_HEADROOM_CHARS, (
+            f"full prompt {len(full)} chars leaves only {headroom} headroom under "
+            f"max_prompt_chars {max_chars}; require >= {_MIN_PROMPT_HEADROOM_CHARS}"
         )
 
     def test_full_prompt_under_max_prompt_chars_with_fixture_genome(
