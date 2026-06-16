@@ -1357,6 +1357,53 @@ class TestPhase3MandatoryFields:
             "stale ledger-only current_phase must not appear when project_state exists"
         )
 
+    def test_phase3_propose_side_hardened_next_action_wording(
+        self, tmp_path: Path
+    ) -> None:
+        """After propose-side baseline-preservation hardening, project_state's
+        new next_action must drive the corresponding next_focus wording via the
+        _NEXT_ACTION_TEXT mapping (the machine facts — evaluate reached, gate
+        never passed — are unchanged, so current_phase still reflects runs 5/6)."""
+        _, block = _run_update_with_ledger(
+            tmp_path,
+            ledger_data=[{
+                "model": "gemini-3-flash-preview",
+                "success": True,
+                "api_mode": "gemini_paid_credit",
+            }],
+            genome_overrides={
+                "live_model_enabled": True,
+                "model_name": "gemini-3-flash-preview",
+            },
+            project_state_data={
+                "paid_credit_api_calls": {
+                    "valid_mutation_patch_produced": True,
+                    "apply_reached": True,
+                    "evaluate_reached": True,
+                    "adoption_gate_ever_passed": False,
+                },
+                "promotion": {"promote_approved": False},
+                "next_action": (
+                    "propose_side_baseline_preservation_hardened"
+                    "_await_owner_approved_rerun_review"
+                ),
+            },
+        )
+        # current_phase still reflects the runs-5-6 evaluate-rejected machine state.
+        assert (
+            "runs 5 & 6 triaged: both reached evaluate, adoption gate rejected"
+            " (score regression)"
+        ) in block, "current_phase must still reflect the runs-5-6 machine state"
+        # next_focus comes from the new _NEXT_ACTION_TEXT entry.
+        assert (
+            "Propose-side baseline-preservation hardening implemented"
+        ) in block, "next_focus must come from the propose-side-hardened next_action"
+        assert "awaiting Owner-approved paid-credit rerun review" in block
+        # Stale prior next_focus wording must be gone.
+        assert "decide propose-side improvement before any rerun" not in block, (
+            "stale runs-5-6 'decide propose-side improvement' next_focus must not appear"
+        )
+
     def test_phase3_attempted_but_failed_when_primary_only_fails(
         self, tmp_path: Path
     ) -> None:

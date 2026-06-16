@@ -333,19 +333,22 @@ def test_project_state_doc_mentions_runs_5_6_triage_complete() -> None:
 
 
 # 21.
-def test_state_id_is_runs_5_6_evaluate_rejected() -> None:
+def test_state_id_is_propose_side_hardened() -> None:
     state = _load(_PROJECT_STATE_PATH)
-    assert state.get("state_id") == "phase3_paid_credit_runs_5_6_evaluate_rejected_score_regression", (
-        "state_id must be 'phase3_paid_credit_runs_5_6_evaluate_rejected_score_regression'"
+    assert state.get("state_id") == (
+        "phase3_propose_side_baseline_preservation_hardened_await_owner_approved_rerun"
+    ), (
+        "state_id must be "
+        "'phase3_propose_side_baseline_preservation_hardened_await_owner_approved_rerun'"
     )
 
 
 # 22.
-def test_next_action_is_owner_decision_after_triage() -> None:
+def test_next_action_is_owner_approved_rerun_review_after_hardening() -> None:
     state = _load(_PROJECT_STATE_PATH)
     assert state.get("next_action") == (
-        "runs_5_6_artifact_triage_complete_evaluate_rejected_await_owner_decision_on_propose_side_improvement"
+        "propose_side_baseline_preservation_hardened_await_owner_approved_rerun_review"
     ), (
         "next_action must be "
-        "'runs_5_6_artifact_triage_complete_evaluate_rejected_await_owner_decision_on_propose_side_improvement'"
+        "'propose_side_baseline_preservation_hardened_await_owner_approved_rerun_review'"
     )

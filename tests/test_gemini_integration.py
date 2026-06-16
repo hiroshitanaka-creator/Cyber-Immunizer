@@ -26,6 +26,14 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 import scripts.propose_mutation as pm  # noqa: E402
 
+# Minimum operational headroom required between the assembled production prompt
+# and genome.max_prompt_chars. The paid-credit preflight length gate sees the
+# full system+user prompt (which includes the live mutation region and active
+# threat IDs); a near-zero margin means a promoted minimal detector change or a
+# slightly longer threat-id set can push the *next* cycle over the limit before
+# Gemini is ever called. Guard an explicit margin, not just "< max" (PR #98 P2-1).
+_MIN_PROMPT_HEADROOM_CHARS = 200
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -3648,6 +3656,80 @@ class TestScoringGuidance:
         assert "reject" in guidance
         assert "valid patch" in guidance or "not enough" in guidance
 
+    # ----- Baseline-preservation contract -----
+
+    def test_guidance_preserves_all_five_symbolic_indicators(
+        self, genome_live_enabled: dict
+    ) -> None:
+        """The contract must name every current symbolic indicator so the model
+        is told not to drop any (dropping one regresses coverage / tp_rate)."""
+        guidance = pm._build_scoring_guidance(genome_live_enabled)
+        for indicator in (
+            "path_traversal_indicator",
+            "script_injection_indicator",
+            "sqli_indicator",
+            "command_delimiter_indicator",
+            "encoded_traversal_indicator",
+        ):
+            assert indicator in guidance, f"missing baseline indicator {indicator!r}"
+
+    def test_guidance_preserves_full_inspection_surface(
+        self, genome_live_enabled: dict
+    ) -> None:
+        """The contract must name every request field the detector inspects so
+        the model does not stop reading part of the surface."""
+        guidance = pm._build_scoring_guidance(genome_live_enabled)
+        for field in (
+            "request.method",
+            "request.path",
+            "request.query",
+            "request.headers",
+            "request.body",
+        ):
+            assert field in guidance, f"missing inspection-surface field {field!r}"
+
+    def test_guidance_preserves_non_blocking_fallback(
+        self, genome_live_enabled: dict
+    ) -> None:
+        """The contract must require keeping the final non-blocking fallback so
+        clean requests stay allowed and false positives stay low.
+
+        It must do so with prose (e.g. 'blocked=False fallback'), NOT an
+        ellipsis-style constructor like ``DetectionResult(blocked=False, ...)``,
+        which the replacement-code validator rejects (placeholder ellipsis is
+        forbidden; every DetectionResult call needs all four keyword args).
+        """
+        guidance = pm._build_scoring_guidance(genome_live_enabled)
+        lowered = guidance.lower()
+        assert "blocked=false" in lowered
+        assert "fallback" in lowered
+        # The invalid abbreviated constructor must never be taught.
+        assert "DetectionResult(blocked=False, ...)" not in guidance
+        assert "DetectionResult(blocked=False" not in guidance
+
+    def test_guidance_discourages_replacing_or_narrowing_detector(
+        self, genome_live_enabled: dict
+    ) -> None:
+        """The contract must tell the model to extend, not replace/narrow, the
+        detector — a minimal additive edit rather than a smaller rewrite."""
+        guidance = pm._build_scoring_guidance(genome_live_enabled).lower()
+        assert "minimal" in guidance
+        assert "narrow" in guidance
+        assert "do not replace" in guidance
+
+    def test_guidance_omits_no_baseline_indicator_under_empty_genome(self) -> None:
+        """Even with a missing genome (fail-safe 'unknown' values), the static
+        baseline-preservation contract is still emitted in full."""
+        guidance = pm._build_scoring_guidance({})
+        for indicator in (
+            "path_traversal_indicator",
+            "script_injection_indicator",
+            "sqli_indicator",
+            "command_delimiter_indicator",
+            "encoded_traversal_indicator",
+        ):
+            assert indicator in guidance
+
     def test_guidance_fail_safe_unknown_for_missing_fields(self) -> None:
         """Missing genome fields fall back to 'unknown' — never fabricated."""
         guidance = pm._build_scoring_guidance({})
@@ -3681,6 +3763,58 @@ class TestScoringGuidance:
         assert "max_fp_rate" in prompt
         assert "min_regression_pass_rate" in prompt
         assert "max_avg_latency_ms" in prompt
+
+    def test_user_prompt_contains_baseline_preservation_contract(
+        self,
+        genome_live_enabled: dict,
+        test_detector_file: Path,
+        test_threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The assembled user prompt carries the full baseline-preservation
+        contract: all five indicators, the full surface, and the fallback.
+
+        The fixture detector body is a minimal stub that does NOT itself mention
+        the five indicators or the five request fields, so their presence here
+        proves the contract — not the mutation region — supplies them."""
+        monkeypatch.setattr(pm, "_THREATS_PATH", test_threats_file)
+        prompt = pm._build_user_prompt(genome_live_enabled, test_detector_file.read_text())
+        for indicator in (
+            "path_traversal_indicator",
+            "script_injection_indicator",
+            "sqli_indicator",
+            "command_delimiter_indicator",
+            "encoded_traversal_indicator",
+        ):
+            assert indicator in prompt
+        for field in (
+            "request.method",
+            "request.path",
+            "request.query",
+            "request.headers",
+            "request.body",
+        ):
+            assert field in prompt
+        # Fallback preservation is expressed in prose, not an invalid constructor.
+        assert "blocked=False fallback" in prompt
+        assert "DetectionResult(blocked=False, ...)" not in prompt
+
+    def test_user_prompt_has_no_invalid_ellipsis_constructor(
+        self,
+        genome_live_enabled: dict,
+        test_detector_file: Path,
+        test_threats_file: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The assembled Gemini-facing prompt must not teach the abbreviated
+        ``DetectionResult(blocked=False, ...)`` shape: the validator forbids
+        placeholder ellipsis and requires all four keyword arguments, so copying
+        it into replacement_code would reject the patch before apply (PR #98
+        Codex P2-2)."""
+        monkeypatch.setattr(pm, "_THREATS_PATH", test_threats_file)
+        prompt = pm._build_user_prompt(genome_live_enabled, test_detector_file.read_text())
+        assert "DetectionResult(blocked=False, ...)" not in prompt
+        assert "..." not in pm._build_scoring_guidance(genome_live_enabled)
 
     # ----- 2. Prompt remains safe -----
 
@@ -3725,16 +3859,23 @@ class TestScoringGuidance:
 
     # ----- 3. Prompt length stays under max_prompt_chars -----
 
-    def test_full_prompt_under_max_prompt_chars_with_real_genome(self) -> None:
-        """With the real production genome and detector, system+user prompt
-        stays strictly under genome.max_prompt_chars."""
+    def test_full_prompt_has_explicit_headroom_with_real_genome(self) -> None:
+        """With the real production genome and detector, the system+user prompt
+        must leave at least _MIN_PROMPT_HEADROOM_CHARS spare under
+        genome.max_prompt_chars — not merely fit under it (PR #98 P2-1).
+
+        This guards the autonomous loop against failing the paid-credit preflight
+        length gate after a small detector growth or a slightly longer threat-id
+        set in a later cycle."""
         genome = json.loads((_PROJECT_ROOT / "data" / "genome.json").read_text())
         detector_source = (_PROJECT_ROOT / "core" / "detector.py").read_text()
         user_prompt = pm._build_user_prompt(genome, detector_source)
         full = pm._LLM_SYSTEM_PROMPT + "\n" + user_prompt
         max_chars = int(genome["max_prompt_chars"])
-        assert len(full) < max_chars, (
-            f"full prompt {len(full)} chars >= max_prompt_chars {max_chars}"
+        headroom = max_chars - len(full)
+        assert headroom >= _MIN_PROMPT_HEADROOM_CHARS, (
+            f"full prompt {len(full)} chars leaves only {headroom} headroom under "
+            f"max_prompt_chars {max_chars}; require >= {_MIN_PROMPT_HEADROOM_CHARS}"
         )
 
     def test_full_prompt_under_max_prompt_chars_with_fixture_genome(

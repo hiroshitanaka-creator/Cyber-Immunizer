@@ -57,8 +57,9 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Propose/output-contract hardening | Implemented in PR #84; G1 repeat-multiplier gap closure in PR #91 (merged) |
 | run 5 (2026-06-15, Actions run #52 / id 27582285679) | **artifact triage complete** → `evaluate_rejected` (score=494.48 ≤ previous_best=729.34) |
 | run 6 (2026-06-16, Actions run #53 / id 27586892217) | **artifact triage complete** → `evaluate_rejected` (score=478.12 ≤ previous_best=729.34) |
-| state_id | `phase3_paid_credit_runs_5_6_evaluate_rejected_score_regression` |
-| Next action | Project Owner decision: both evaluate-stage candidates regressed below the generation-2 best score (729.34); decide propose-side improvement before any Owner-approved rerun |
+| Propose-side baseline-preservation hardening | **Implemented** (Gemini propose prompt now requires preserving all five symbolic indicators, the full request inspection surface, and the non-blocking fallback) |
+| state_id | `phase3_propose_side_baseline_preservation_hardened_await_owner_approved_rerun` |
+| Next action | Project Owner review of the propose-side baseline-preservation hardening before any Owner-approved paid-credit rerun (machine facts unchanged: evaluate reached, adoption gate never passed, previous_best=729.34) |
 
 ---
 
@@ -168,13 +169,22 @@ The pipeline now reaches the **evaluate** stage and the adoption gate is functio
 correctly **rejected** both candidates because their fitness scores (494.48 and 478.12)
 regressed below the generation-2 best score (729.34).
 
+The propose-side prompt has now been hardened. `scripts/propose_mutation.py::_build_scoring_guidance`
+emits an explicit **baseline-preservation contract** in the Gemini user prompt: keep all five
+symbolic indicators (`path_traversal_indicator`, `script_injection_indicator`, `sqli_indicator`,
+`command_delimiter_indicator`, `encoded_traversal_indicator`), keep the full request inspection
+surface (`request.method`, `request.path`, `request.query`, `request.headers`, `request.body`),
+keep the final non-blocking `blocked=False` fallback return, and make a minimal
+additive edit that scores strictly above `previous_best=729.34`. This is a prompt/documentation
+change only — no Gemini API call, no `workflow_dispatch`, and no detector / policy / budget /
+model-name / ledger / promotion change was made.
+
 The current next action is:
 
-> **Project Owner decision.** The propose→apply→evaluate path is healthy, but the model's
-> mutations are not improving on the existing detector. Decide whether to adjust the
-> propose-side prompt/strategy (so candidates target a score above previous_best=729.34)
-> before requesting any new Owner-approved paid-credit rerun. No promotion is possible until a
-> candidate passes the adoption gate.
+> **Project Owner review.** The propose-side baseline-preservation hardening is implemented and
+> covered by pure unit tests (no API call). Decide whether to request a new Owner-approved
+> paid-credit rerun to test whether the strengthened prompt yields a candidate that beats
+> `previous_best=729.34`. No promotion is possible until a candidate passes the adoption gate.
 
 `promote_approved` remains `false` until the Project Owner explicitly approves promotion
 after a candidate passes the adoption gate.

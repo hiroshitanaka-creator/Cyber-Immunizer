@@ -887,7 +887,7 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | Gemini Primary Model | gemini-3-flash-preview |
 | Gemini Fallback Model | gemini-3.1-flash-lite |
 | promote_approved | false (promotion not approved — no candidate has passed the adoption gate) |
-| Next Focus | Owner decision: runs 5 & 6 reached evaluate but regressed below best=729.34; decide propose-side improvement before any rerun |
+| Next Focus | Propose-side baseline-preservation hardening implemented (Gemini prompt now requires preserving all five indicators, the full request surface, and the non-blocking fallback); awaiting Owner-approved paid-credit rerun review |
 | live_model_enabled | true |
 | API Mode | gemini_paid_credit |
 | Model Provider | gemini |
@@ -913,6 +913,6 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | Fitness Report | Not available — run baseline fitness to populate TP/FP/TN/FN |
 | Adoption Gate | ✅ Passed (generation 2) |
 | Active Threat IDs | `THREAT-2024-001` `THREAT-2024-002` `THREAT-2024-003` `THREAT-2024-004` `THREAT-2024-005` |
-| Status Block Updated | 2026-06-16 04:04 UTC |
+| Status Block Updated | 2026-06-16 05:13 UTC |
 
 <!-- CYBER_IMMUNIZER_STATUS_END -->
