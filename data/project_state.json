@@ -49,7 +49,7 @@
       "promote_reached": false,
       "evidence_source": "github_actions_job_logs (blob artifact download blocked by network egress policy)"
     },
-    "note": "apply_reached/evaluate_reached/adoption_gate_ever_passed/promote_reached are the best-known cumulative state across runs 1-6. Runs 5 (2026-06-15) and 6 (2026-06-16) both reached apply and evaluate but were rejected by the adoption gate because the candidate score regressed below previous_best=729.34. promote was never reached."
+    "note": "apply_reached/evaluate_reached/adoption_gate_ever_passed/promote_reached are the best-known cumulative state across runs 1-6 (the triaged runs). data/api_usage_ledger.json records 7 primary-model success records; only runs 5 (2026-06-15) and 6 (2026-06-16) are triaged in this state file as evaluate-stage rejected runs. The 7th success record (2026-06-16T06:20:37+00:00) is API/token success only and has not been triaged. promote was never reached."
   },
   "propose_side_hardening": {
     "baseline_preservation_contract_added": true,
