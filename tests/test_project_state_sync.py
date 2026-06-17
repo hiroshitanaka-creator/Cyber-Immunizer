@@ -333,22 +333,22 @@ def test_project_state_doc_mentions_runs_5_6_triage_complete() -> None:
 
 
 # 21.
-def test_state_id_is_propose_side_hardened() -> None:
+def test_state_id_is_generation_invariant_score_migrated() -> None:
     state = _load(_PROJECT_STATE_PATH)
     assert state.get("state_id") == (
-        "phase3_propose_side_baseline_preservation_hardened_await_owner_approved_rerun"
+        "phase3_generation_invariant_score_migrated_await_owner_approved_rerun"
     ), (
         "state_id must be "
-        "'phase3_propose_side_baseline_preservation_hardened_await_owner_approved_rerun'"
+        "'phase3_generation_invariant_score_migrated_await_owner_approved_rerun'"
     )
 
 
 # 22.
-def test_next_action_is_owner_approved_rerun_review_after_hardening() -> None:
+def test_next_action_is_generation_invariant_score_migrated_review() -> None:
     state = _load(_PROJECT_STATE_PATH)
     assert state.get("next_action") == (
-        "propose_side_baseline_preservation_hardened_await_owner_approved_rerun_review"
+        "generation_invariant_score_migrated_await_owner_approved_rerun_review"
     ), (
         "next_action must be "
-        "'propose_side_baseline_preservation_hardened_await_owner_approved_rerun_review'"
+        "'generation_invariant_score_migrated_await_owner_approved_rerun_review'"
     )

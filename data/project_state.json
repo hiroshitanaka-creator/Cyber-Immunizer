@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "state_id": "phase3_propose_side_baseline_preservation_hardened_await_owner_approved_rerun",
+  "state_id": "phase3_generation_invariant_score_migrated_await_owner_approved_rerun",
   "current_phase": "phase_3",
   "phase_3_activation": "complete",
   "live_model_enabled": true,
@@ -49,20 +49,32 @@
       "promote_reached": false,
       "evidence_source": "github_actions_job_logs (blob artifact download blocked by network egress policy)"
     },
-    "note": "apply_reached/evaluate_reached/adoption_gate_ever_passed/promote_reached are the best-known cumulative state across runs 1-6 (the triaged runs). data/api_usage_ledger.json records 7 primary-model success records; only runs 5 (2026-06-15) and 6 (2026-06-16) are triaged in this state file as evaluate-stage rejected runs. The 7th success record (2026-06-16T06:20:37+00:00) is API/token success only and has not been triaged. promote was never reached."
+    "note": "apply_reached/evaluate_reached/adoption_gate_ever_passed/promote_reached are the best-known cumulative state across runs 1-6 (the triaged runs). data/api_usage_ledger.json records 7 primary-model success records; only runs 5 (2026-06-15) and 6 (2026-06-16) are triaged in this state file as evaluate-stage rejected runs. The 7th success record (2026-06-16T06:20:37+00:00) is API/token success only and has not been triaged. promote was never reached. Runs 5 and 6 historical scores (494.48 and 478.12) were computed under the old formula that included changed_lines; they remain historical records only and are not used as the adoption-gate baseline."
   },
   "propose_side_hardening": {
     "baseline_preservation_contract_added": true,
     "target": "scripts/propose_mutation.py::_build_scoring_guidance",
-    "meaning": "The Gemini propose prompt now states an explicit baseline-preservation contract: keep all five symbolic indicators (path_traversal_indicator, script_injection_indicator, sqli_indicator, command_delimiter_indicator, encoded_traversal_indicator), keep the full request inspection surface (method, path, query, headers, body), keep the final non-blocking blocked=False fallback return, and make a minimal additive edit that scores strictly above previous_best=729.34. Prompt-only/documentation change; no API call, no detector/policy/budget/model/ledger change.",
+    "meaning": "The Gemini propose prompt now states an explicit baseline-preservation contract: keep all five symbolic indicators (path_traversal_indicator, script_injection_indicator, sqli_indicator, command_delimiter_indicator, encoded_traversal_indicator), keep the full request inspection surface (method, path, query, headers, body), keep the final non-blocking blocked=False fallback return, and make a minimal additive edit that scores strictly above previous_best. Prompt-only/documentation change; no API call, no detector/policy/budget/model/ledger change.",
     "does_not_mean": "candidate_quality_proven_or_paid_credit_rerun_executed"
+  },
+  "score_schema_migration": {
+    "migration_type": "generation_invariant_score_formula",
+    "changed_lines_removed_from_score": true,
+    "changed_lines_remains_diagnostic": true,
+    "old_best_score": 729.34,
+    "new_best_score": 939.34,
+    "new_best_score_meaning": "Recomputed for current core/detector.py under the generation-invariant formula (changed_lines excluded). This is a score-schema migration only, not a promotion.",
+    "does_not_mean": "promotion_or_new_candidate_evaluated",
+    "promotion_approved": false,
+    "runs_5_6_historical_note": "Runs 5 and 6 scores (494.48 and 478.12) are historical records under the old formula. They remain classified as evaluate_rejected under their recorded historical gate. The new formula does not retroactively change their classification.",
+    "run_7_note": "The 7th primary-model success record remains API/token success only and untriaged. This migration does not infer apply, evaluate, adoption, or promote from run 7."
   },
   "promotion": {
     "promote_approved": false,
     "meaning": "promotion_not_approved",
     "does_not_mean": "api_call_unexecuted"
   },
-  "next_action": "propose_side_baseline_preservation_hardened_await_owner_approved_rerun_review",
+  "next_action": "generation_invariant_score_migrated_await_owner_approved_rerun_review",
   "fresh_verification_policy": {
     "paid_credit_run_in_this_pr": "forbidden",
     "workflow_dispatch_in_this_pr": "forbidden",

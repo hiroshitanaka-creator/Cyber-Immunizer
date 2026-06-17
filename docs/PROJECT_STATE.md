@@ -53,15 +53,16 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Valid mutation patch produced | **Yes** (S4 run #47 2026-06-11; runs 5 & 6 also produced valid patches) |
 | apply reached | **Yes** (runs 5 & 6 apply succeeded; S4 run #47 reached apply and failed at G1) |
 | evaluate reached | **Yes** (runs 5 & 6 reached evaluate — first verified evaluate-stage runs) |
-| adoption gate passed | **No** (runs 5 & 6 rejected: candidate score regressed below previous_best=729.34) |
+| adoption gate passed | **No** (runs 5 & 6 rejected: candidate score regressed below previous_best=729.34 under old formula; adoption gate never passed) |
 | promote reached | **No** |
 | promote_approved | false |
 | Propose/output-contract hardening | Implemented in PR #84; G1 repeat-multiplier gap closure in PR #91 (merged) |
-| run 5 (2026-06-15, Actions run #52 / id 27582285679) | **artifact triage complete** → `evaluate_rejected` (score=494.48 ≤ previous_best=729.34) |
-| run 6 (2026-06-16, Actions run #53 / id 27586892217) | **artifact triage complete** → `evaluate_rejected` (score=478.12 ≤ previous_best=729.34) |
+| run 5 (2026-06-15, Actions run #52 / id 27582285679) | **artifact triage complete** → `evaluate_rejected` (score=494.48 ≤ previous_best=729.34 under old formula — historical record) |
+| run 6 (2026-06-16, Actions run #53 / id 27586892217) | **artifact triage complete** → `evaluate_rejected` (score=478.12 ≤ previous_best=729.34 under old formula — historical record) |
 | Propose-side baseline-preservation hardening | **Implemented** (Gemini propose prompt now requires preserving all five symbolic indicators, the full request inspection surface, and the non-blocking fallback) |
-| state_id | `phase3_propose_side_baseline_preservation_hardened_await_owner_approved_rerun` |
-| Next action | Project Owner review of the propose-side baseline-preservation hardening before any Owner-approved paid-credit rerun (machine facts unchanged: evaluate reached, adoption gate never passed, previous_best=729.34) |
+| Score-schema migration | **Implemented** — `changed_lines` removed from score formula (generation-invariant scoring). `best_score` migrated from 729.34 (old formula, generation-era baseline) to **939.34** (current detector under new formula). This is a score-schema migration only, not a promotion. |
+| state_id | `phase3_generation_invariant_score_migrated_await_owner_approved_rerun` |
+| Next action | Project Owner review of the generation-invariant score migration (no API call, no promotion, no run 7 triage inferred). Decide whether to request Owner-approved paid-credit rerun against new `previous_best=939.34`. |
 
 ---
 
@@ -69,7 +70,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 
 | Source | What it proves |
 |---|---|
-| `data/genome.json` | `live_model_enabled=true`, `api_mode=gemini_paid_credit`, `model_provider=gemini`, `model_name=gemini-3-flash-preview`, `fallback_model_name=gemini-3.1-flash-lite` |
+| `data/genome.json` | `live_model_enabled=true`, `api_mode=gemini_paid_credit`, `model_provider=gemini`, `model_name=gemini-3-flash-preview`, `fallback_model_name=gemini-3.1-flash-lite`, `best_score=939.34` (migrated to generation-invariant formula) |
 | `data/api_usage_ledger.json` | **7** records with `provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true` (2026-06-03 / 2026-06-04 ×3 / 2026-06-11 S4 run #47 / **2026-06-15 run 5** / **2026-06-16 run 6** / **2026-06-16 (7th, untriaged)**). Runs 5 & 6 are triaged: both `evaluate_rejected`. The 7th primary-model success is an API/token success record only unless separately triaged; do not infer apply/evaluate/promote from ledger success alone. |
 | `docs/audit_gate/PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md` | First 3 runs: no valid mutation patch (propose output-contract failures). S4 run #47: valid mutation_patch.json produced; apply reached and failed at G1 repeat-multiplier runtime allocation risk |
 | GitHub Actions (runs 26919888348 / 26922191264 / 26924388218) | First three runs concluded `failure` at finalize-propose-status; evaluate / promote jobs skipped |
@@ -188,10 +189,13 @@ model-name / ledger / promotion change was made.
 
 The current next action is:
 
-> **Project Owner review.** The propose-side baseline-preservation hardening is implemented and
-> covered by pure unit tests (no API call). Decide whether to request a new Owner-approved
-> paid-credit rerun to test whether the strengthened prompt yields a candidate that beats
-> `previous_best=729.34`. No promotion is possible until a candidate passes the adoption gate.
+> **Project Owner review.** The adoption-gate score formula has been migrated to
+> generation-invariant scoring (`changed_lines` removed from score; `changed_lines` remains a
+> diagnostic field). `data/genome.json::best_score` migrated from 729.34 to **939.34** —
+> this is a score-schema migration only, not a promotion. The propose-side
+> baseline-preservation hardening remains in place. Decide whether to request a new
+> Owner-approved paid-credit rerun against the new `previous_best=939.34`. No promotion
+> is possible until a candidate passes the adoption gate.
 
 `promote_approved` remains `false` until the Project Owner explicitly approves promotion
 after a candidate passes the adoption gate.
@@ -223,5 +227,6 @@ current runtime behavior and must not be interpreted as implemented current stat
   new gates, new metrics, or memory model behavior.
 
 Current-state interpretation remains governed by machine evidence, `data/project_state.json`,
-and this file (`docs/PROJECT_STATE.md`). The current fitness/adoption gate is unchanged.
-The promotion rules are unchanged. The current runtime behavior is unchanged.
+and this file (`docs/PROJECT_STATE.md`). The adoption-gate score formula has been migrated
+to generation-invariant scoring (`changed_lines` removed from score; see Score-schema migration
+row in section 1). The promotion rules are unchanged. No candidate has been promoted.
