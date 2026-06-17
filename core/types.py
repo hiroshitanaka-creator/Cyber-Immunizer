@@ -64,9 +64,14 @@ class TestCase:
 class FitnessReport:
     """Full fitness report for a candidate detector.
 
-    Score is computed from TP/FP/FN rates, exception count, code size, and
-    changed lines — NOT from avg_latency_ms.  Latency is reported separately
-    and enforced as a hard gate (see genome.json max_avg_latency_ms).
+    Score is computed from TP/FP/FN rates, exception count, and code size —
+    NOT from avg_latency_ms or changed_lines.
+    - avg_latency_ms: reported and enforced as a hard gate; excluded from score
+      so the score is bitwise-identical across repeated evaluations.
+    - changed_lines: reported as a diagnostic field; excluded from score so the
+      score is generation-invariant (a no-op candidate cannot pass by having
+      changed_lines=0 when genome.json::best_score was set under a larger diff).
+    score_components is optional; it is None for early-exit (policy-fail) reports.
     """
 
     syntax_ok: bool
@@ -87,8 +92,10 @@ class FitnessReport:
     avg_latency_ms: float  # reported; enforced as gate, not in score
 
     code_chars: int
-    changed_lines: int
+    changed_lines: int  # diagnostic only; not used in score
 
-    score: float  # deterministic across repeated runs for same candidate + data
+    score: float  # generation-invariant; deterministic across repeated runs
     passed_adoption_gate: bool
     rejection_reasons: tuple[str, ...]
+
+    score_components: dict | None = None  # None for early-exit reports

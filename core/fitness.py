@@ -15,6 +15,14 @@ avg_latency_ms is EXCLUDED from the ranking score to ensure the score is
 identical across repeated runs for the same candidate and same test data.
 Latency is still measured and reported; it is enforced as a hard adoption gate
 via genome.json::max_avg_latency_ms.
+
+GENERATION INVARIANCE
+=====================
+changed_lines is EXCLUDED from the ranking score so that the score is
+comparable across generations.  A candidate identical to the current detector
+has changed_lines=0 and therefore cannot gain a score advantage from the
+absence of a diff penalty.  changed_lines is still computed and reported as
+a diagnostic field.
 """
 from __future__ import annotations
 
@@ -47,12 +55,15 @@ def _compute_score(
     fn_rate: float,
     exception_count: int,
     code_chars: int,
-    changed_lines: int,
 ) -> float:
-    """Deterministic fitness score.
+    """Deterministic, generation-invariant fitness score.
 
-    avg_latency_ms is intentionally excluded so the score is identical
-    across repeated evaluations of the same candidate on the same data.
+    avg_latency_ms and changed_lines are intentionally excluded:
+    - avg_latency_ms: excluded so the score is bitwise-identical across
+      repeated evaluations of the same candidate on the same test data.
+    - changed_lines: excluded so the score is comparable across generations
+      (a no-op candidate cannot gain an advantage by having changed_lines=0).
+    Both are still reported; latency is enforced as a hard adoption gate.
     """
     return (
         1000.0 * tp_rate
@@ -60,7 +71,6 @@ def _compute_score(
         - 1500.0 * fn_rate
         - 50.0 * exception_count
         - 0.02 * code_chars
-        - 10.0 * changed_lines
     )
 
 
@@ -325,15 +335,24 @@ def evaluate(
         source, Path(__file__).parent / "detector.py"
     )
 
-    # Deterministic score (latency excluded)
+    # Deterministic, generation-invariant score (latency and changed_lines excluded)
     score = _compute_score(
         tp_rate=tp_rate,
         fp_rate=fp_rate,
         fn_rate=fn_rate,
         exception_count=exception_count,
         code_chars=code_chars,
-        changed_lines=changed_lines,
     )
+
+    score_components = {
+        "tp_contribution": 1000.0 * tp_rate,
+        "fp_penalty": 2000.0 * fp_rate,
+        "fn_penalty": 1500.0 * fn_rate,
+        "exception_penalty": 50.0 * exception_count,
+        "code_size_penalty": 0.02 * code_chars,
+        "changed_lines_diagnostic": 10.0 * changed_lines,
+        "gate_score": score,
+    }
 
     gate_passed, gate_reasons = _adoption_gate(
         syntax_ok=True,
@@ -372,6 +391,7 @@ def evaluate(
         score=score,
         passed_adoption_gate=gate_passed,
         rejection_reasons=tuple(gate_reasons),
+        score_components=score_components,
     )
 
 
@@ -400,6 +420,7 @@ def _report_to_dict(report: FitnessReport) -> dict:
         "score": report.score,
         "passed_adoption_gate": report.passed_adoption_gate,
         "rejection_reasons": list(report.rejection_reasons),
+        "score_components": report.score_components,
     }
 
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import textwrap
 import tempfile
 from pathlib import Path
@@ -203,17 +204,16 @@ class TestScoreDeterminism:
         assert isinstance(report.avg_latency_ms, float), "avg_latency_ms must be float"
         assert report.avg_latency_ms >= 0.0, "avg_latency_ms must be non-negative"
 
-        # Verify score formula doesn't include latency by checking manually
+        # Verify score formula doesn't include latency or changed_lines
         expected_score = _compute_score(
             tp_rate=report.tp_rate,
             fp_rate=report.fp_rate,
             fn_rate=report.fn_rate,
             exception_count=report.exception_count,
             code_chars=report.code_chars,
-            changed_lines=report.changed_lines,
         )
         assert report.score == pytest.approx(expected_score), (
-            f"Score should match formula without latency. "
+            f"Score should match formula without latency or changed_lines. "
             f"Expected {expected_score}, got {report.score}"
         )
 
@@ -226,38 +226,182 @@ class TestScoreDeterminism:
         assert hasattr(report, "avg_latency_ms"), "FitnessReport must have avg_latency_ms"
 
     def test_score_formula(self):
-        """Score formula produces expected value for known inputs (no latency param)."""
+        """Score formula produces expected value for known inputs (no latency or changed_lines)."""
         score = _compute_score(
             tp_rate=1.0,
             fp_rate=0.0,
             fn_rate=0.0,
             exception_count=0,
             code_chars=0,
-            changed_lines=0,
         )
         assert score == pytest.approx(1000.0), f"Expected 1000.0 got {score}"
 
     def test_score_penalises_fp(self):
-        no_fp = _compute_score(1.0, 0.0, 0.0, 0, 0, 0)
-        with_fp = _compute_score(1.0, 0.5, 0.0, 0, 0, 0)
+        no_fp = _compute_score(1.0, 0.0, 0.0, 0, 0)
+        with_fp = _compute_score(1.0, 0.5, 0.0, 0, 0)
         assert with_fp < no_fp
 
     def test_score_penalises_fn(self):
-        no_fn = _compute_score(1.0, 0.0, 0.0, 0, 0, 0)
-        with_fn = _compute_score(1.0, 0.0, 0.5, 0, 0, 0)
+        no_fn = _compute_score(1.0, 0.0, 0.0, 0, 0)
+        with_fn = _compute_score(1.0, 0.0, 0.5, 0, 0)
         assert with_fn < no_fn
 
     def test_score_penalises_exceptions(self):
-        no_exc = _compute_score(1.0, 0.0, 0.0, 0, 0, 0)
-        with_exc = _compute_score(1.0, 0.0, 0.0, 1, 0, 0)
+        no_exc = _compute_score(1.0, 0.0, 0.0, 0, 0)
+        with_exc = _compute_score(1.0, 0.0, 0.0, 1, 0)
         assert with_exc < no_exc
 
     def test_score_penalises_code_size(self):
-        small = _compute_score(1.0, 0.0, 0.0, 0, 100, 0)
-        large = _compute_score(1.0, 0.0, 0.0, 0, 10000, 0)
+        small = _compute_score(1.0, 0.0, 0.0, 0, 100)
+        large = _compute_score(1.0, 0.0, 0.0, 0, 10000)
         assert large < small
 
-    def test_score_penalises_changed_lines(self):
-        few = _compute_score(1.0, 0.0, 0.0, 0, 0, 1)
-        many = _compute_score(1.0, 0.0, 0.0, 0, 0, 100)
-        assert many < few
+
+class TestNoOpAdoptionGate:
+    """A candidate identical to core/detector.py must fail the adoption gate."""
+
+    def test_noop_fails_adoption_gate(self):
+        """No-op candidate (same as current detector) must not pass the gate.
+
+        This test demonstrates the generation-invariant fix: under the old
+        formula, the no-op scored 939.34 > genome.json::best_score=729.34 and
+        passed.  After the fix, best_score is migrated to 939.34 so the no-op
+        scores 939.34 <= 939.34 and is rejected.
+        """
+        baseline = _PROJECT_ROOT / "core" / "detector.py"
+        # Copy to a temporary path so evaluate() treats it as a candidate.
+        with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as f:
+            f.write(baseline.read_text(encoding="utf-8"))
+            candidate_path = Path(f.name)
+        try:
+            # Use the repository genome.json (post-migration best_score=939.34).
+            genome_path = _PROJECT_ROOT / "data" / "genome.json"
+            report = evaluate(candidate_path, baseline_mode=False, genome_path=genome_path)
+            assert report.changed_lines == 0, (
+                f"No-op candidate must have changed_lines=0, got {report.changed_lines}"
+            )
+            assert not report.passed_adoption_gate, (
+                f"No-op candidate must fail the adoption gate. "
+                f"score={report.score}, rejection_reasons={report.rejection_reasons}"
+            )
+            reasons_text = " ".join(report.rejection_reasons).lower()
+            assert "previous_best" in reasons_text or "score" in reasons_text, (
+                f"Rejection must reference score comparison, got: {report.rejection_reasons}"
+            )
+        finally:
+            candidate_path.unlink(missing_ok=True)
+
+    def test_noop_changed_lines_is_zero(self):
+        """Evaluating core/detector.py as a candidate must give changed_lines=0."""
+        baseline = _PROJECT_ROOT / "core" / "detector.py"
+        report = evaluate(baseline, baseline_mode=True)
+        assert report.changed_lines == 0
+
+
+class TestChangedLinesDiagnosticOnly:
+    """changed_lines must be present in reports but must not affect score."""
+
+    def test_changed_lines_in_report(self):
+        """FitnessReport must still expose changed_lines as a diagnostic field."""
+        baseline = _PROJECT_ROOT / "core" / "detector.py"
+        report = evaluate(baseline, baseline_mode=True)
+        assert hasattr(report, "changed_lines"), "FitnessReport must have changed_lines"
+        assert isinstance(report.changed_lines, int)
+
+    def test_score_independent_of_changed_lines(self):
+        """_compute_score must not accept a changed_lines parameter."""
+        import inspect
+        sig = inspect.signature(_compute_score)
+        assert "changed_lines" not in sig.parameters, (
+            "_compute_score must not have a changed_lines parameter "
+            "(changed_lines is diagnostic-only)"
+        )
+
+    def test_score_components_includes_changed_lines_diagnostic(self):
+        """score_components must report changed_lines_diagnostic separately from gate_score."""
+        baseline = _PROJECT_ROOT / "core" / "detector.py"
+        report = evaluate(baseline, baseline_mode=True)
+        assert report.score_components is not None, (
+            "Full evaluation must populate score_components"
+        )
+        assert "changed_lines_diagnostic" in report.score_components, (
+            "score_components must include changed_lines_diagnostic"
+        )
+        assert "gate_score" in report.score_components, (
+            "score_components must include gate_score"
+        )
+        assert report.score_components["gate_score"] == pytest.approx(report.score), (
+            "score_components['gate_score'] must equal report.score"
+        )
+
+    def test_score_components_none_for_early_exit(self):
+        """Early-exit (policy-fail) reports must have score_components=None."""
+        # A file with bad syntax triggers early exit.
+        with tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w") as f:
+            f.write("def this is not valid python\n")
+            bad_path = Path(f.name)
+        try:
+            report = evaluate(bad_path, baseline_mode=True)
+            assert not report.ast_policy_ok or not report.syntax_ok
+            assert report.score_components is None, (
+                "Early-exit FitnessReport must have score_components=None"
+            )
+        finally:
+            bad_path.unlink(missing_ok=True)
+
+
+class TestLowerBaselinePass:
+    """A genuinely better candidate must still pass when previous_best is lower."""
+
+    def test_passes_when_previous_best_is_lower(self):
+        """Current detector must pass the gate if best_score is set below its score."""
+        baseline = _PROJECT_ROOT / "core" / "detector.py"
+        # Build a temp genome with best_score intentionally below 939.34.
+        genome_path = _PROJECT_ROOT / "data" / "genome.json"
+        genome = json.loads(genome_path.read_text(encoding="utf-8"))
+        low_genome = {**genome, "best_score": 900.0}
+        with tempfile.NamedTemporaryFile(
+            suffix=".json", delete=False, mode="w", encoding="utf-8"
+        ) as f:
+            json.dump(low_genome, f)
+            tmp_genome = Path(f.name)
+        try:
+            report = evaluate(baseline, baseline_mode=False, genome_path=tmp_genome)
+            assert report.passed_adoption_gate, (
+                f"Detector must pass when previous_best=900.0 < score={report.score}. "
+                f"Rejections: {report.rejection_reasons}"
+            )
+        finally:
+            tmp_genome.unlink(missing_ok=True)
+
+
+class TestReportBackwardCompatibility:
+    """All existing report fields must remain present and correctly typed."""
+
+    def test_all_report_fields_present(self):
+        baseline = _PROJECT_ROOT / "core" / "detector.py"
+        report = evaluate(baseline, baseline_mode=True)
+        required_fields = (
+            "syntax_ok", "ast_policy_ok", "contract_ok", "timed_out",
+            "exception_count", "true_positive", "false_positive",
+            "true_negative", "false_negative", "total_cases",
+            "tp_rate", "fp_rate", "fn_rate", "avg_latency_ms",
+            "code_chars", "changed_lines", "score",
+            "passed_adoption_gate", "rejection_reasons",
+            "score_components",
+        )
+        for field in required_fields:
+            assert hasattr(report, field), f"FitnessReport missing field: {field}"
+
+    def test_score_components_shape(self):
+        baseline = _PROJECT_ROOT / "core" / "detector.py"
+        report = evaluate(baseline, baseline_mode=True)
+        sc = report.score_components
+        assert sc is not None
+        for key in (
+            "tp_contribution", "fp_penalty", "fn_penalty",
+            "exception_penalty", "code_size_penalty",
+            "changed_lines_diagnostic", "gate_score",
+        ):
+            assert key in sc, f"score_components missing key: {key}"
+            assert isinstance(sc[key], float), f"score_components[{key!r}] must be float"
