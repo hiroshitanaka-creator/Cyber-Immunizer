@@ -955,14 +955,76 @@ class TestCommitPromotedChangesShellQuoting:
         )
 
 
-class TestPromotePushRetryHardening:
-    """Verify the promote job uses the hardened main push retry path."""
+class TestPromoteFailFastHardening:
+    """Verify the promote job uses fail-fast design (no rebase after evaluation)."""
+
+    def test_promote_job_requires_main_ref(self, promote_section: str) -> None:
+        """Promote job if condition must include github.ref == 'refs/heads/main'.
+
+        This prevents non-main workflow_dispatch runs from ever triggering
+        promotion, even if all other conditions are met.
+        """
+        assert "github.ref == 'refs/heads/main'" in promote_section, (
+            "promote job if condition must include "
+            "github.ref == 'refs/heads/main' to block non-main dispatches."
+        )
 
     def test_promote_checkout_uses_main_ref(self, promote_section: str) -> None:
         """Promote must check out main before committing promoted changes."""
         assert "ref: main" in promote_section, (
-            "Promote checkout must include 'ref: main' so the retry rebase "
-            "does not replay unrelated branch commits."
+            "Promote checkout must include 'ref: main' so the job operates "
+            "on the canonical main branch."
+        )
+
+    def test_promote_checkout_uses_fetch_depth_0(self, promote_section: str) -> None:
+        """Promote checkout must use fetch-depth: 0 for ancestor verification."""
+        assert "fetch-depth: 0" in promote_section, (
+            "Promote checkout must include 'fetch-depth: 0' so git merge-base "
+            "ancestor checks can access full history."
+        )
+
+    def test_promote_verifies_evaluated_sha_is_ancestor(
+        self, promote_section: str
+    ) -> None:
+        """Promote must verify evaluated SHA is an ancestor of current HEAD.
+
+        Without this check, a candidate evaluated against an older main tree
+        could be promoted to a different current main tree.
+        """
+        assert "merge-base --is-ancestor" in promote_section, (
+            "Promote must use 'git merge-base --is-ancestor' to verify that "
+            "the evaluated SHA is an ancestor of the current HEAD before promoting."
+        )
+
+    def test_promote_uses_github_sha_for_evaluated_sha(
+        self, promote_section: str
+    ) -> None:
+        """Promote drift check must use github.sha as the evaluated SHA."""
+        assert 'github.sha' in promote_section, (
+            "Promote drift check must reference github.sha as the evaluated SHA "
+            "to detect whether main has moved since evaluation."
+        )
+
+    def test_promote_allows_only_ledger_drift(self, promote_section: str) -> None:
+        """Promote drift check must allow only data/api_usage_ledger.json drift.
+
+        Non-ledger file changes after evaluation mean the candidate was not
+        evaluated against current main and must not be promoted.
+        """
+        assert "api_usage_ledger" in promote_section or "api_usage_ledger.json" not in promote_section.split("Verify main drift")[0], (
+            "Promote drift check must permit only data/api_usage_ledger.json "
+            "as an allowed file change after evaluation."
+        )
+        assert "api_usage_ledger\\.json" in promote_section or "api_usage_ledger.json" in promote_section, (
+            "Promote drift check must reference api_usage_ledger.json as the "
+            "sole allowed file change after evaluation."
+        )
+
+    def test_promote_rejects_non_ledger_drift(self, promote_section: str) -> None:
+        """Promote must fail clearly when non-ledger paths changed after evaluation."""
+        assert "disallowed_changed" in promote_section or "Refusing to promote stale candidate" in promote_section, (
+            "Promote must detect and reject non-ledger file changes after "
+            "evaluation ('stale candidate' or 'disallowed_changed' sentinel)."
         )
 
     def test_promote_commit_step_pushes_head_to_main(
@@ -973,25 +1035,47 @@ class TestPromotePushRetryHardening:
             "Promote commit step must use 'git push origin HEAD:main'."
         )
 
-    def test_promote_commit_step_rebases_after_push_failure(
+    def test_promote_does_not_use_git_rebase_origin_main(
         self, promote_section: str
     ) -> None:
-        """Promote push retry must fetch and rebase after a push race."""
-        assert "git fetch origin main" in promote_section, (
-            "Promote commit step must fetch origin main before retrying a "
-            "failed push."
-        )
-        assert "git rebase origin/main" in promote_section, (
-            "Promote commit step must rebase onto origin/main before retrying "
-            "a failed push."
+        """Promote must NOT use git rebase origin/main.
+
+        Rebasing an already-evaluated promotion commit onto a newer main
+        replays changes without rerunning evaluation — the stored fitness
+        report is no longer valid for the rebased tree.
+        """
+        assert "git rebase origin/main" not in promote_section, (
+            "Promote must NOT use 'git rebase origin/main'. Rebasing an "
+            "already-evaluated promotion commit invalidates the fitness report. "
+            "Use fail-fast push instead."
         )
 
-    def test_promote_commit_step_uses_five_attempts(
+    def test_promote_does_not_use_rebase_retry_loop(
         self, promote_section: str
     ) -> None:
-        """Promote push retry must remain bounded."""
-        assert "max_attempts=5" in promote_section, (
-            "Promote commit step must set max_attempts=5."
+        """Promote must NOT use a rebase retry loop for the promotion commit.
+
+        A retry-after-rebase loop can replay an already-evaluated candidate
+        onto a newer main without rerunning evaluation.  Promote must fail
+        fast if push fails, requiring a fresh owner-approved workflow run.
+        """
+        assert "max_attempts=5" not in promote_section, (
+            "Promote must NOT use 'max_attempts=5' for a rebase retry loop. "
+            "Use fail-fast single push; the persist-ledger job may still use retries."
+        )
+
+    def test_promote_fails_fast_on_push_failure(self, promote_section: str) -> None:
+        """Promote must fail fast if push fails, not silently retry.
+
+        If main moved after promotion was prepared, the candidate must not
+        be rebased and re-pushed without rerunning evaluation.
+        """
+        assert (
+            "Refusing to rebase an already-evaluated candidate" in promote_section
+            or "Run a fresh owner-approved workflow_dispatch" in promote_section
+        ), (
+            "Promote must emit a clear error and exit 1 when push fails, "
+            "refusing to rebase an already-evaluated candidate."
         )
 
     def test_workflow_never_uses_force_push(self, workflow_content: str) -> None:

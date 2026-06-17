@@ -489,6 +489,7 @@ jobs:
     needs: [propose, persist-ledger, evaluate]
     if: >
       always() &&
+      github.ref == 'refs/heads/main' &&
       github.event_name == 'workflow_dispatch' &&
       github.event.inputs.promote_approved == 'true' &&
       needs.evaluate.outputs.passed_adoption_gate == 'true' &&
@@ -509,6 +510,7 @@ jobs:
           # GITHUB_TOKEN provides write permission for this job.
           # It has no access to GEMINI_API_KEY or other model credentials.
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -532,6 +534,24 @@ jobs:
         with:
           name: fitness-report
           path: .cyber_immunizer/
+
+      - name: Verify main drift since evaluation
+        run: |
+          EVALUATED_SHA="${{ github.sha }}"
+          if ! git merge-base --is-ancestor "$EVALUATED_SHA" HEAD; then
+            echo "::error::Current main is not a descendant of evaluated SHA ${EVALUATED_SHA}. Refusing to promote candidate."
+            echo "::error::Run a fresh owner-approved workflow_dispatch so the candidate is evaluated against current main."
+            exit 1
+          fi
+          changed_since_eval="$(git diff --name-only "${EVALUATED_SHA}..HEAD" || true)"
+          disallowed_changed="$(printf '%s\n' "$changed_since_eval" | grep -v '^data/api_usage_ledger\.json$' || true)"
+          if [ -n "$disallowed_changed" ]; then
+            echo "::error::Main changed in non-ledger paths after candidate evaluation. Refusing to promote stale candidate."
+            printf '%s\n' "$disallowed_changed"
+            echo "::error::Run a fresh owner-approved workflow_dispatch so the candidate is evaluated against current main."
+            exit 1
+          fi
+          echo "Main drift check passed. Only canonical ledger drift is allowed after evaluation."
 
       - name: Promote candidate
         run: |
@@ -559,28 +579,10 @@ jobs:
 
           git commit -m "chore(immunizer): promote generation ${GENERATION}"
 
-          max_attempts=5
-          attempt=1
-
-          while [ "$attempt" -le "$max_attempts" ]; do
-            echo "Attempt ${attempt}/${max_attempts}: pushing promoted generation ${GENERATION}..."
-            if git push origin HEAD:main; then
-              echo "Promote push succeeded."
-              exit 0
-            fi
-
-            echo "Promote push failed. Fetching and rebasing onto origin/main..."
-            git fetch origin main
-
-            if ! git rebase origin/main; then
-              echo "::error::Failed to rebase promoted generation ${GENERATION} onto origin/main. Manual intervention required."
-              git rebase --abort || true
-              exit 1
-            fi
-
-            attempt=$((attempt + 1))
-            sleep 3
-          done
-
-          echo "::error::Failed to push promoted generation ${GENERATION} after ${max_attempts} attempts."
+          if git push origin HEAD:main; then
+            echo "Promote push succeeded."
+            exit 0
+          fi
+          echo "::error::Promote push failed because main moved after promotion was prepared. Refusing to rebase an already-evaluated candidate."
+          echo "::error::Run a fresh owner-approved workflow_dispatch so the candidate is evaluated against current main."
           exit 1
