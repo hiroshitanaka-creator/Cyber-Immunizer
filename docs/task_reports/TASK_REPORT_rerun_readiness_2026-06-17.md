@@ -4,14 +4,15 @@
 
 PR #112 マージ後（generation-invariant score migration 完了）の状態で、
 次の Owner 承認済み paid-credit rerun を実行する前の readiness audit を実施した。
-API 呼び出し・ワークフロー実行・プロモーション・ファイル編集は一切行っていない。
+API 呼び出し・ワークフロー実行・プロモーション・runtime/state ファイル編集は一切行っていない。
+本 PR の差分は、この readiness audit report の新規追加のみである。
 結論: **GO — Project Owner は paid-credit rerun を承認可能**。
 
 ---
 
 ## 変更ファイル一覧
 
-*このタスクはファイルを編集しない。本レポートファイル (docs/task_reports/) のみ新規作成。*
+*本 PR で追加したのは、この readiness audit report のみ。runtime/state files は編集していない。*
 
 ---
 
@@ -199,7 +200,8 @@ run triage 状態:
 
 ### 12. 禁止ファイル・設定の変更確認
 
-本タスク実行中に編集したファイル: **なし**（本レポートファイル新規作成のみ）
+本 PR の差分: **本 readiness audit report の新規作成のみ**。
+runtime/state files edited: **なし**。
 
 - `.github/**`: 変更なし ✅
 - `data/api_usage_ledger.json`: 変更なし ✅
