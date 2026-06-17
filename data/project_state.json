@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "state_id": "phase3_generation_invariant_score_migrated_await_owner_approved_rerun",
+  "state_id": "phase3_paid_credit_run7_promote_push_failed_owner_recovery_pending",
   "current_phase": "phase_3",
   "phase_3_activation": "complete",
   "live_model_enabled": true,
@@ -9,16 +9,17 @@
   "primary_model": "gemini-3-flash-preview",
   "fallback_model": "gemini-3.1-flash-lite",
   "paid_credit_api_calls": {
-    "gemini_3_flash_preview_success_records": 7,
+    "gemini_3_flash_preview_success_records": 8,
     "api_success_meaning": "http_200_and_token_usage_recorded",
     "valid_mutation_patch_produced": true,
     "apply_reached": true,
     "evaluate_reached": true,
-    "adoption_gate_ever_passed": false,
-    "promote_reached": false,
+    "adoption_gate_ever_passed": true,
+    "promote_reached": true,
     "g1_gap_closure_pr91": "merged",
     "run_5_artifact_triage_status": "complete",
     "run_6_artifact_triage_status": "complete",
+    "run_7_artifact_triage_status": "complete",
     "run_5_triage": {
       "github_actions_run_id": "27582285679",
       "github_actions_run_number": 52,
@@ -49,7 +50,23 @@
       "promote_reached": false,
       "evidence_source": "github_actions_job_logs (blob artifact download blocked by network egress policy)"
     },
-    "note": "apply_reached/evaluate_reached/adoption_gate_ever_passed/promote_reached are the best-known cumulative state across runs 1-6 (the triaged runs). data/api_usage_ledger.json records 7 primary-model success records; only runs 5 (2026-06-15) and 6 (2026-06-16) are triaged in this state file as evaluate-stage rejected runs. The 7th success record (2026-06-16T06:20:37+00:00) is API/token success only and has not been triaged. promote was never reached. Runs 5 and 6 historical scores (494.48 and 478.12) were computed under the old formula that included changed_lines; they remain historical records only and are not used as the adoption-gate baseline."
+    "run_7_triage": {
+      "github_actions_run_id": "27683267711",
+      "ledger_timestamp": "2026-06-17T10:43:08.894275+00:00",
+      "classification": "promote_push_failed",
+      "apply_reached": true,
+      "evaluate_reached": true,
+      "passed_adoption_gate": true,
+      "promote_reached": true,
+      "promote_completed": false,
+      "failure_point": "Promote Candidate / Commit promoted changes",
+      "failure_cause": "push rejected: main had advanced after persist-ledger committed the API usage ledger entry (push-race); workflow push-race hardening handled separately in PR #115",
+      "is_tool_failure": true,
+      "candidate_not_promoted": true,
+      "genome_not_advanced": true,
+      "evidence_source": "task_context (github_actions_run_id=27683267711, job=Promote Candidate, step=Commit promoted changes)"
+    },
+    "note": "apply_reached/evaluate_reached/adoption_gate_ever_passed/promote_reached are the best-known cumulative state across all triaged runs. data/api_usage_ledger.json records 8 primary-model success records; runs 5 (2026-06-15, ledger record 5) and 6 (2026-06-16T01, ledger record 6) are triaged as evaluate_rejected; run 7 (2026-06-17, ledger record 8) is triaged as promote_push_failed (adoption gate passed, promote reached, final push failed due to push-race). The 7th success record (2026-06-16T06:20:37+00:00) is API/token success only and remains untriaged. Genome was not advanced by run 7. Candidate was not promoted. Runs 5 and 6 historical scores (494.48 and 478.12) were computed under the old formula that included changed_lines; they remain historical records only and are not used as the adoption-gate baseline."
   },
   "propose_side_hardening": {
     "baseline_preservation_contract_added": true,
@@ -67,14 +84,14 @@
     "does_not_mean": "promotion_or_new_candidate_evaluated",
     "promotion_approved": false,
     "runs_5_6_historical_note": "Runs 5 and 6 scores (494.48 and 478.12) are historical records under the old formula. They remain classified as evaluate_rejected under their recorded historical gate. The new formula does not retroactively change their classification.",
-    "run_7_note": "The 7th primary-model success record remains API/token success only and untriaged. This migration does not infer apply, evaluate, adoption, or promote from run 7."
+    "run_7_note": "Run 7 (2026-06-17, ledger_timestamp=2026-06-17T10:43:08.894275+00:00, github_actions_run_id=27683267711) passed the adoption gate and reached the promote stage, but the final push failed due to a push-race: main had advanced after persist-ledger committed the API usage ledger entry. Candidate was not promoted. Genome was not advanced. Triage classification: promote_push_failed. Workflow push-race hardening handled separately in PR #115. Candidate recovery requires separate Owner-approved PR."
   },
   "promotion": {
     "promote_approved": false,
     "meaning": "promotion_not_approved",
     "does_not_mean": "api_call_unexecuted"
   },
-  "next_action": "generation_invariant_score_migrated_await_owner_approved_rerun_review",
+  "next_action": "owner_audited_candidate_recovery_run7_promote_push_failed",
   "fresh_verification_policy": {
     "paid_credit_run_in_this_pr": "forbidden",
     "workflow_dispatch_in_this_pr": "forbidden",
