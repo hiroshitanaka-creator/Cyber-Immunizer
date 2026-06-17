@@ -18,6 +18,8 @@ related:
   - data/project_state.json
   - docs/audit_gate/PR_AUDIT_PROTOCOL.md
   - docs/audit_gate/TASK_PROMPT_PROTOCOL.md
+  - docs/ADAPTIVE_SECURITY_GAME_MODEL.md
+  - README.md
 AI_DOC_META_END
 -->
 
@@ -47,7 +49,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Model provider | gemini |
 | Primary model | gemini-3-flash-preview |
 | Fallback model | gemini-3.1-flash-lite |
-| paid-credit API success records (primary model) | **6** |
+| paid-credit API success records (primary model) | **7** |
 | Valid mutation patch produced | **Yes** (S4 run #47 2026-06-11; runs 5 & 6 also produced valid patches) |
 | apply reached | **Yes** (runs 5 & 6 apply succeeded; S4 run #47 reached apply and failed at G1) |
 | evaluate reached | **Yes** (runs 5 & 6 reached evaluate — first verified evaluate-stage runs) |
@@ -68,7 +70,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Source | What it proves |
 |---|---|
 | `data/genome.json` | `live_model_enabled=true`, `api_mode=gemini_paid_credit`, `model_provider=gemini`, `model_name=gemini-3-flash-preview`, `fallback_model_name=gemini-3.1-flash-lite` |
-| `data/api_usage_ledger.json` | **6** records with `provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true` (2026-06-03 / 2026-06-04 ×3 / 2026-06-11 S4 run #47 / **2026-06-15 run 5** / **2026-06-16 run 6**). Runs 5 & 6 triaged: both `evaluate_rejected`. |
+| `data/api_usage_ledger.json` | **7** records with `provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true` (2026-06-03 / 2026-06-04 ×3 / 2026-06-11 S4 run #47 / **2026-06-15 run 5** / **2026-06-16 run 6** / **2026-06-16 (7th, untriaged)**). Runs 5 & 6 are triaged: both `evaluate_rejected`. The 7th primary-model success is an API/token success record only unless separately triaged; do not infer apply/evaluate/promote from ledger success alone. |
 | `docs/audit_gate/PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md` | First 3 runs: no valid mutation patch (propose output-contract failures). S4 run #47: valid mutation_patch.json produced; apply reached and failed at G1 repeat-multiplier runtime allocation risk |
 | GitHub Actions (runs 26919888348 / 26922191264 / 26924388218) | First three runs concluded `failure` at finalize-propose-status; evaluate / promote jobs skipped |
 | GitHub Actions (S4 run #47, 2026-06-11) | Materialize reached; apply reached; apply failed (G1 repeat-multiplier); evaluate / promote not reached |
@@ -102,6 +104,11 @@ regressed below the generation-2 best score (run 5: 494.48; run 6: 478.12; both 
 previous_best=729.34). `is_tool_failure=false` for both — these are clean negative results,
 not pipeline failures. promote was **not reached** in either run (the Promote job was skipped).
 
+A 7th primary-model `success=true` ledger record is present (2026-06-16T06:20:37+00:00,
+`model=gemini-3-flash-preview`). This records API/token success only. Unless separate
+artifact/job-log triage is added, it must not be treated as evidence that a new valid patch,
+apply, evaluate, adoption-gate result, or promotion stage was reached.
+
 ---
 
 ## 4. Meaning of promote_approved=false
@@ -113,7 +120,7 @@ not pipeline failures. promote was **not reached** in either run (the Promote jo
 | `promote_approved=false` means the paid-credit run has not occurred | ❌ Incorrect |
 
 The primary-model paid-credit API calls **have been executed** and are recorded in the ledger
-(6 success records). The promotion gate was never reached: in runs 1–3 no valid candidate patch
+(7 success records). The promotion gate was never reached: in runs 1–3 no valid candidate patch
 was produced, run #47 failed at apply, and runs 5 & 6 were rejected by the adoption gate
 (score regression) before the promote stage.
 
@@ -200,3 +207,21 @@ The SSOT work that introduced this file does **not**:
 * execute any paid-credit or paid-credit-preflight run;
 * promote any candidate or set `promote_approved=true`;
 * change `core/**`, `scripts/propose_mutation.py`, `.github/workflows/**`, model names, or budgets.
+
+---
+
+## 9. Planning-only architecture references
+
+The following documents exist as planning-only architecture references. They do **not** change
+current runtime behavior and must not be interpreted as implemented current state:
+
+- `docs/ADAPTIVE_SECURITY_GAME_MODEL.md`: Planning-only architecture document describing the
+  Adaptive Security Game model. Merged in PR #106 as a planning layer. Does not implement
+  adaptive tournament scoring, new adoption gates, new metrics, or memory model behavior.
+- `README.md`: Now declares a static-to-adaptive paradigm shift at high visibility (PR #109).
+  This is an aspirational/roadmap declaration. It does not implement adaptive scoring,
+  new gates, new metrics, or memory model behavior.
+
+Current-state interpretation remains governed by machine evidence, `data/project_state.json`,
+and this file (`docs/PROJECT_STATE.md`). The current fitness/adoption gate is unchanged.
+The promotion rules are unchanged. The current runtime behavior is unchanged.
