@@ -3612,10 +3612,27 @@ class TestScoringGuidance:
     def test_guidance_includes_score_formula_coefficients(
         self, genome_live_enabled: dict
     ) -> None:
-        """The deterministic score formula coefficients are all present."""
+        """The deterministic score formula coefficients are all present.
+
+        changed_lines (coefficient 10) is no longer in the score formula and
+        must NOT appear as a formula coefficient.
+        """
         guidance = pm._build_scoring_guidance(genome_live_enabled)
-        for coeff in ("1000", "2000", "1500", "50", "0.02", "10"):
+        for coeff in ("1000", "2000", "1500", "50", "0.02"):
             assert coeff in guidance, f"missing coefficient {coeff!r}"
+        assert "10*changed_lines" not in guidance, (
+            "stale changed_lines coefficient must not appear in formula"
+        )
+
+    def test_guidance_changed_lines_is_diagnostic_not_score(
+        self, genome_live_enabled: dict
+    ) -> None:
+        """changed_lines must be declared diagnostic-only, not part of the score."""
+        guidance = pm._build_scoring_guidance(genome_live_enabled)
+        assert "diagnostic" in guidance.lower(), (
+            "guidance must state changed_lines is diagnostic-only"
+        )
+        assert "NOT part of the adoption gate score" in guidance
 
     def test_guidance_states_strict_improvement_requirement(
         self, genome_live_enabled: dict
@@ -3650,11 +3667,11 @@ class TestScoringGuidance:
     def test_guidance_includes_strategy_instructions(
         self, genome_live_enabled: dict
     ) -> None:
-        """Low-FP, low-changed-line, low-code-size, determinism, and
-        branch-vs-multiplier guidance are all present."""
+        """Low-FP, low-code-size, determinism, and branch-vs-multiplier guidance
+        are all present. changed_lines is diagnostic-only and must NOT appear
+        as a strategy goal in the guidance."""
         guidance = pm._build_scoring_guidance(genome_live_enabled).lower()
         assert "false positive" in guidance
-        assert "changed line" in guidance
         assert "code size" in guidance
         assert "deterministic" in guidance
         assert "coverage" in guidance  # preserve existing indicator coverage
@@ -3771,8 +3788,9 @@ class TestScoringGuidance:
         prompt = pm._build_user_prompt(genome, test_detector_file.read_text())
         assert "SCORING-AWARE GUIDANCE" in prompt
         assert "729.34" in prompt
-        for coeff in ("1000", "2000", "1500", "50", "0.02", "10"):
+        for coeff in ("1000", "2000", "1500", "50", "0.02"):
             assert coeff in prompt
+        assert "10*changed_lines" not in prompt
         assert "max_fp_rate" in prompt
         assert "min_regression_pass_rate" in prompt
         assert "max_avg_latency_ms" in prompt

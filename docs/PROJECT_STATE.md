@@ -227,5 +227,6 @@ current runtime behavior and must not be interpreted as implemented current stat
   new gates, new metrics, or memory model behavior.
 
 Current-state interpretation remains governed by machine evidence, `data/project_state.json`,
-and this file (`docs/PROJECT_STATE.md`). The current fitness/adoption gate is unchanged.
-The promotion rules are unchanged. The current runtime behavior is unchanged.
+and this file (`docs/PROJECT_STATE.md`). The adoption-gate score formula has been migrated
+to generation-invariant scoring (`changed_lines` removed from score; see Score-schema migration
+row in section 1). The promotion rules are unchanged. No candidate has been promoted.
