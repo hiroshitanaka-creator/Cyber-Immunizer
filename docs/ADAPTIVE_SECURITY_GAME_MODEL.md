@@ -31,7 +31,7 @@ This document defines Cyber-Immunizer's next architecture layer as an **adaptive
 
 This is a planning document only. It does **not** claim that the adaptive tournament, new metrics, new gates, or new memory model are implemented. The current machine state remains governed by `data/project_state.json`, `docs/PROJECT_STATE.md`, and the existing Autonomous Immune Loop architecture.
 
-PR #105 should be interpreted as a **static-gate correction**: it improved the current fixed fitness/adoption-gate behavior and helped prevent regressions in the existing evaluation path. It is not the final adaptive security game model and should not be treated as completion of this architecture layer.
+The fitness-gate comparability work tracked in PR #105 should be interpreted as a **proposed static-gate correction**: it investigates improvements to the current fixed fitness/adoption-gate behavior. Whether or not PR #105 is merged, it is not the final adaptive security game model and should not be treated as completion of this architecture layer.
 
 ---
 
