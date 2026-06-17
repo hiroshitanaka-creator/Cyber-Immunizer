@@ -955,6 +955,69 @@ class TestCommitPromotedChangesShellQuoting:
         )
 
 
+class TestPromotePushRetryHardening:
+    """Verify the promote job uses the hardened main push retry path."""
+
+    def test_promote_checkout_uses_main_ref(self, promote_section: str) -> None:
+        """Promote must check out main before committing promoted changes."""
+        assert "ref: main" in promote_section, (
+            "Promote checkout must include 'ref: main' so the retry rebase "
+            "does not replay unrelated branch commits."
+        )
+
+    def test_promote_commit_step_pushes_head_to_main(
+        self, promote_section: str
+    ) -> None:
+        """Promote push must explicitly push the current commit to main."""
+        assert "git push origin HEAD:main" in promote_section, (
+            "Promote commit step must use 'git push origin HEAD:main'."
+        )
+
+    def test_promote_commit_step_rebases_after_push_failure(
+        self, promote_section: str
+    ) -> None:
+        """Promote push retry must fetch and rebase after a push race."""
+        assert "git fetch origin main" in promote_section, (
+            "Promote commit step must fetch origin main before retrying a "
+            "failed push."
+        )
+        assert "git rebase origin/main" in promote_section, (
+            "Promote commit step must rebase onto origin/main before retrying "
+            "a failed push."
+        )
+
+    def test_promote_commit_step_uses_five_attempts(
+        self, promote_section: str
+    ) -> None:
+        """Promote push retry must remain bounded."""
+        assert "max_attempts=5" in promote_section, (
+            "Promote commit step must set max_attempts=5."
+        )
+
+    def test_workflow_never_uses_force_push(self, workflow_content: str) -> None:
+        """No workflow job may force-push."""
+        assert "--force" not in workflow_content, "Workflow must not use --force."
+
+    def test_promote_commit_step_has_no_bare_git_push(
+        self, promote_section: str
+    ) -> None:
+        """Promote commit step must not use the old bare git push."""
+        match = re.search(
+            r"- name: Commit promoted changes\n\s+run: \|\n(.*?)(?=\n\s+- name:|\Z)",
+            promote_section,
+            re.DOTALL,
+        )
+        assert match is not None, (
+            "Could not find 'Commit promoted changes' step in promote job."
+        )
+
+        commit_step = match.group(1)
+        assert not re.search(r"^\s*git push\s*$", commit_step, re.MULTILINE), (
+            "Promote commit step must not use a bare 'git push'; use "
+            "'git push origin HEAD:main' instead."
+        )
+
+
 # ---------------------------------------------------------------------------
 # 15. Critical #1: Project Owner promote_approved gate
 # ---------------------------------------------------------------------------
