@@ -505,6 +505,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: main
           # GITHUB_TOKEN provides write permission for this job.
           # It has no access to GEMINI_API_KEY or other model credentials.
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -546,7 +547,40 @@ jobs:
         run: |
           git config user.name "Cyber-Immunizer Bot"
           git config user.email "cyber-immunizer-bot@noreply.github.com"
+
           GENERATION=$(python -c 'import json; print(json.load(open("data/genome.json"))["generation"])')
+
           git add core/detector.py data/genome.json data/evolution_history.json README.md
-          git diff --cached --quiet || git commit -m "chore(immunizer): promote generation ${GENERATION}"
-          git push
+
+          if git diff --cached --quiet; then
+            echo "No promoted changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore(immunizer): promote generation ${GENERATION}"
+
+          max_attempts=5
+          attempt=1
+
+          while [ "$attempt" -le "$max_attempts" ]; do
+            echo "Attempt ${attempt}/${max_attempts}: pushing promoted generation ${GENERATION}..."
+            if git push origin HEAD:main; then
+              echo "Promote push succeeded."
+              exit 0
+            fi
+
+            echo "Promote push failed. Fetching and rebasing onto origin/main..."
+            git fetch origin main
+
+            if ! git rebase origin/main; then
+              echo "::error::Failed to rebase promoted generation ${GENERATION} onto origin/main. Manual intervention required."
+              git rebase --abort || true
+              exit 1
+            fi
+
+            attempt=$((attempt + 1))
+            sleep 3
+          done
+
+          echo "::error::Failed to push promoted generation ${GENERATION} after ${max_attempts} attempts."
+          exit 1
