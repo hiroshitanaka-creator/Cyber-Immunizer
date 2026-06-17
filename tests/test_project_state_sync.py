@@ -314,8 +314,8 @@ def test_project_state_doc_no_stale_3_calls_claim() -> None:
 # 19.
 def test_project_state_doc_shows_6_success_records() -> None:
     text = _PROJECT_STATE_DOC.read_text(encoding="utf-8")
-    assert "**6**" in text, (
-        "docs/PROJECT_STATE.md must show 6 primary-model paid-credit success records"
+    assert "**7**" in text, (
+        "docs/PROJECT_STATE.md must show 7 primary-model paid-credit success records"
     )
 
 
