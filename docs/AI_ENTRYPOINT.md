@@ -27,6 +27,7 @@ headers as AI_DOC_META comment blocks.
 |---|---|
 | CURRENT | Use for current decision-making. |
 | CANONICAL | Rule or definition source of truth. |
+| PLANNING | Proposed or future architecture guidance; use for planning only and do not treat as implemented current state. |
 | PROTOCOL | Procedure to follow. |
 | RUNBOOK | Execution guide. |
 | HISTORICAL | Background or completed-phase record. |
@@ -68,6 +69,7 @@ See `docs/audit_gate/PR_AUDIT_PROTOCOL.md` (Terminology rule section) for the fu
 | Rollback/backtrack design | docs/ROLLBACK_BACKTRACK_DESIGN.md | docs/EVOLUTION_HISTORY_AUDIT.md |
 | Offline sample / promote separation | docs/OFFLINE_SAMPLE_PROMOTE_SEPARATION.md | docs/AUDIT_CHARTER.md |
 | Autonomous Immune Loop architecture / lifecycle progress axis | docs/AUTONOMOUS_IMMUNE_LOOP_ARCHITECTURE.md | docs/PROJECT_STATE.md, data/project_state.json |
+| Adaptive Security Game / static-to-adaptive paradigm / future adaptive evaluation model | docs/ADAPTIVE_SECURITY_GAME_MODEL.md | README.md, docs/human用roadmap/phase3_to_phase7_roadmap.md, docs/AUTONOMOUS_IMMUNE_LOOP_ARCHITECTURE.md |
 
 ---
 

@@ -128,6 +128,7 @@ Cyber-Immunizer/
 │   │   ├── THREAD_HANDOFF_PROTOCOL.md          # docs/audit_gate/THREAD_HANDOFF_PROTOCOL.md — 新スレッド引き継ぎプロンプト構築・受領ルール
 │   │   ├── TOOL_EXECUTION_ANOMALY_PROTOCOL.md  # docs/audit_gate/TOOL_EXECUTION_ANOMALY_PROTOCOL.md — tool failure / blocked / fallback / low-level GitHub操作の報告ルール
 │   │   └── CHANGELOG.md                        # docs/audit_gate/CHANGELOG.md — Audit Gate運用教訓（PR #33/#34/#36/#35/#28 由来）
+│   ├── ADAPTIVE_SECURITY_GAME_MODEL.md          # Adaptive Security Game 計画モデル（静的最適化から動的適応評価への上位レイヤー）
 │   ├── AUDIT_CHARTER.md                        # GPT Audit Gate 憲章（役割・カテゴリ・決定基準・Phase 2/3 transition rule）
 │   ├── PHASE_1_BASELINE.md                     # Phase 1 完了状態の固定記録（Safety invariants・Exit criteria）
 │   ├── PHASE_2_PLAN.md                         # Phase 2 計画文書（historical）
