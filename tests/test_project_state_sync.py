@@ -141,7 +141,7 @@ def test_project_state_matches_ledger_success_count() -> None:
         f"project_state declares {declared} primary-model success records "
         f"but ledger has {actual}"
     )
-    assert actual == 7, "ledger must contain exactly 7 primary-model paid-credit success records"
+    assert actual == 8, "ledger must contain exactly 8 primary-model paid-credit success records"
 
 
 # 5.
@@ -253,13 +253,13 @@ def test_evaluate_reached_and_promote_not_reached() -> None:
         "runs 5 & 6 reached the evaluate stage (triage complete); "
         "evaluate_reached must be true"
     )
-    assert calls.get("adoption_gate_ever_passed") is False, (
-        "no candidate has passed the adoption gate (runs 5 & 6 rejected for score "
-        "regression); adoption_gate_ever_passed must be false"
+    assert calls.get("adoption_gate_ever_passed") is True, (
+        "run 8 (2026-06-17, id=27683267711) passed the adoption gate; "
+        "adoption_gate_ever_passed must be true"
     )
-    assert calls.get("promote_reached") is False, (
-        "promote was not reached in any run (Promote job skipped in runs 5 & 6); "
-        "promote_reached must be false"
+    assert calls.get("promote_reached") is True, (
+        "run 8 reached the promote stage (promote push failed due to push-race); "
+        "promote_reached must be true"
     )
 
 
@@ -314,8 +314,8 @@ def test_project_state_doc_no_stale_3_calls_claim() -> None:
 # 19.
 def test_project_state_doc_shows_6_success_records() -> None:
     text = _PROJECT_STATE_DOC.read_text(encoding="utf-8")
-    assert "**7**" in text, (
-        "docs/PROJECT_STATE.md must show 7 primary-model paid-credit success records"
+    assert "**8**" in text, (
+        "docs/PROJECT_STATE.md must show 8 primary-model paid-credit success records"
     )
 
 
@@ -336,10 +336,10 @@ def test_project_state_doc_mentions_runs_5_6_triage_complete() -> None:
 def test_state_id_is_generation_invariant_score_migrated() -> None:
     state = _load(_PROJECT_STATE_PATH)
     assert state.get("state_id") == (
-        "phase3_generation_invariant_score_migrated_await_owner_approved_rerun"
+        "phase3_run8_adoption_gate_passed_promote_push_failed_await_owner_recovery"
     ), (
         "state_id must be "
-        "'phase3_generation_invariant_score_migrated_await_owner_approved_rerun'"
+        "'phase3_run8_adoption_gate_passed_promote_push_failed_await_owner_recovery'"
     )
 
 
@@ -347,8 +347,8 @@ def test_state_id_is_generation_invariant_score_migrated() -> None:
 def test_next_action_is_generation_invariant_score_migrated_review() -> None:
     state = _load(_PROJECT_STATE_PATH)
     assert state.get("next_action") == (
-        "generation_invariant_score_migrated_await_owner_approved_rerun_review"
+        "owner_audited_candidate_recovery_after_run8_promote_push_failure"
     ), (
         "next_action must be "
-        "'generation_invariant_score_migrated_await_owner_approved_rerun_review'"
+        "'owner_audited_candidate_recovery_after_run8_promote_push_failure'"
     )
