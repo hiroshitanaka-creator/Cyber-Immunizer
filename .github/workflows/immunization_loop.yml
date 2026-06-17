@@ -489,6 +489,7 @@ jobs:
     needs: [propose, persist-ledger, evaluate]
     if: >
       always() &&
+      github.ref == 'refs/heads/main' &&
       github.event_name == 'workflow_dispatch' &&
       github.event.inputs.promote_approved == 'true' &&
       needs.evaluate.outputs.passed_adoption_gate == 'true' &&
@@ -505,9 +506,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: main
           # GITHUB_TOKEN provides write permission for this job.
           # It has no access to GEMINI_API_KEY or other model credentials.
           token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -532,6 +535,24 @@ jobs:
           name: fitness-report
           path: .cyber_immunizer/
 
+      - name: Verify main drift since evaluation
+        run: |
+          EVALUATED_SHA="${{ github.sha }}"
+          if ! git merge-base --is-ancestor "$EVALUATED_SHA" HEAD; then
+            echo "::error::Current main is not a descendant of evaluated SHA ${EVALUATED_SHA}. Refusing to promote candidate."
+            echo "::error::Run a fresh owner-approved workflow_dispatch so the candidate is evaluated against current main."
+            exit 1
+          fi
+          changed_since_eval="$(git diff --name-only "${EVALUATED_SHA}..HEAD" || true)"
+          disallowed_changed="$(printf '%s\n' "$changed_since_eval" | grep -v '^data/api_usage_ledger\.json$' || true)"
+          if [ -n "$disallowed_changed" ]; then
+            echo "::error::Main changed in non-ledger paths after candidate evaluation. Refusing to promote stale candidate."
+            printf '%s\n' "$disallowed_changed"
+            echo "::error::Run a fresh owner-approved workflow_dispatch so the candidate is evaluated against current main."
+            exit 1
+          fi
+          echo "Main drift check passed. Only canonical ledger drift is allowed after evaluation."
+
       - name: Promote candidate
         run: |
           python scripts/promote_candidate.py \
@@ -546,7 +567,22 @@ jobs:
         run: |
           git config user.name "Cyber-Immunizer Bot"
           git config user.email "cyber-immunizer-bot@noreply.github.com"
+
           GENERATION=$(python -c 'import json; print(json.load(open("data/genome.json"))["generation"])')
+
           git add core/detector.py data/genome.json data/evolution_history.json README.md
-          git diff --cached --quiet || git commit -m "chore(immunizer): promote generation ${GENERATION}"
-          git push
+
+          if git diff --cached --quiet; then
+            echo "No promoted changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore(immunizer): promote generation ${GENERATION}"
+
+          if git push origin HEAD:main; then
+            echo "Promote push succeeded."
+            exit 0
+          fi
+          echo "::error::Promote push failed because main moved after promotion was prepared. Refusing to rebase an already-evaluated candidate."
+          echo "::error::Run a fresh owner-approved workflow_dispatch so the candidate is evaluated against current main."
+          exit 1
