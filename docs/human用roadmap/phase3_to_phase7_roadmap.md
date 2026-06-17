@@ -7,17 +7,21 @@ use_for:
   - thread handoff: what to paste at the start of a new AI thread
   - identifying which docs to read first in a new thread
   - understanding Phase 3 current state (activation complete, first run pending)
+  - aligning Phase 4+ planning with the Adaptive Security Game vision defined in docs/ADAPTIVE_SECURITY_GAME_MODEL.md
 do_not_use_for:
   - executing paid-credit runs (Project Owner triggers manually)
   - setting promote_approved=true before reviewing first run results
   - registering or modifying GitHub Secrets
   - replacing docs/PHASE_3_GO_NO_GO_CHECKLIST.md
+  - claiming the adaptive tournament or adaptive metrics are implemented
 related:
   - docs/AI_ENTRYPOINT.md
   - docs/PHASE_3_GO_NO_GO_CHECKLIST.md
   - docs/PHASE_2_5_CLOSEOUT_AUDIT.md
   - docs/API_ACTIVATION_CHECKLIST.md
   - docs/API_ACTIVATION_RUNBOOK.md
+  - docs/ADAPTIVE_SECURITY_GAME_MODEL.md
+  - README.md
 last_reviewed: 2026-06-03
 AI_DOC_META_END
 -->
@@ -40,6 +44,18 @@ This document provides the Project Owner with a roadmap for Phase 3 through Phas
 It also serves as a thread handoff document so that later AI instances (GPT, Claude, Codex) do not drift from the established project boundaries and safety constraints.
 
 **Reading this document does not authorize any Phase 3 activation work.**
+
+---
+
+## 2a. Adaptive Security Game planning layer
+
+PR #106 added [`docs/ADAPTIVE_SECURITY_GAME_MODEL.md`](../ADAPTIVE_SECURITY_GAME_MODEL.md) as the detailed planning source for the static-to-adaptive paradigm shift. PR #109 surfaced this paradigm as a high-visibility declaration in `README.md`.
+
+The current fitness score formula and adoption gate remain the safety floor for all phases. They define the minimum correctness requirement (regression-free, low FP) and must not be weakened. This is unchanged.
+
+Future Phase 4+ planning should treat `docs/ADAPTIVE_SECURITY_GAME_MODEL.md` as the guiding architecture layer for dynamic adaptive evaluation — covering evaluation tiers, adversarial non-stationarity, memory model concepts, and adaptive tournament scoring that goes beyond static corpus fitness. The roadmap phases below should be read with that planning layer in mind.
+
+**This is planning guidance only.** The adaptive tournament, new evaluation metrics, new gates, and memory model described in `docs/ADAPTIVE_SECURITY_GAME_MODEL.md` are not implemented. No runtime state, promotion rules, genome, ledger, or workflow behavior has changed.
 
 ---
 
@@ -98,6 +114,7 @@ Current state as of PR #53 (merged):
 | 4 | docs/human用roadmap/phase3_to_phase7_roadmap.md | This roadmap |
 | 5 | docs/API_ACTIVATION_CHECKLIST.md | Detailed API activation requirements |
 | 6 | docs/API_ACTIVATION_RUNBOOK.md | Phase 3 execution guide |
+| 7 | docs/ADAPTIVE_SECURITY_GAME_MODEL.md | Adaptive Security Game planning model — static-to-adaptive paradigm, evaluation tiers, safety constraints, and future adaptive metrics (planning only; not implemented) |
 
 ---
 
@@ -237,6 +254,7 @@ This gate applies to any work involving:
 - Review of fitness scores, adoption gate pass/fail rates, and ledger entries.
 - Project Owner monitors each run.
 - Adjustment of genome parameters (budget caps, resource limits) as needed.
+- Use `docs/ADAPTIVE_SECURITY_GAME_MODEL.md` as planning guidance for separating the current fitness/adoption gate safety floor from future adaptive tournament scoring. This does not mean adaptive scoring is implemented in Phase 4.
 
 **Prohibitions:**
 - No cron/scheduled live API runs until Project Owner explicitly authorizes.
