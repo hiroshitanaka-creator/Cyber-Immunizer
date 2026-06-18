@@ -73,14 +73,15 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Source | What it proves |
 |---|---|
 | `data/genome.json` | `live_model_enabled=true`, `api_mode=gemini_paid_credit`, `model_provider=gemini`, `model_name=gemini-3-flash-preview`, `fallback_model_name=gemini-3.1-flash-lite`, `best_score=939.34` (migrated to generation-invariant formula) |
-| `data/api_usage_ledger.json` | **8** records with `provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true` (2026-06-03 / 2026-06-04 ×3 / 2026-06-11 S4 run #47 / **2026-06-15 run 5** / **2026-06-16 run 6** / **2026-06-16T06:20 (run 7, untriaged)** / **2026-06-17 run 8, id=27683267711**). Runs 5 & 6: `evaluate_rejected`. Run 7: API/token success only, untriaged. Run 8: adoption gate passed, promote reached, promote push failed (push-race). Do not infer apply/evaluate/promote from ledger success alone. |
+| `data/api_usage_ledger.json` | **8** primary-model paid-credit success records (`provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true`). Timestamps: 2026-06-03 / 2026-06-04 ×3 / 2026-06-11 / 2026-06-15 / 2026-06-16 ×2 / 2026-06-17. **Proves API/token success count and timestamp/cost fields only.** Does **not** prove apply, evaluate, adoption-gate, or promote stage outcomes — do not infer stage results from ledger success alone. |
 | `docs/audit_gate/PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md` | First 3 runs: no valid mutation patch (propose output-contract failures). S4 run #47: valid mutation_patch.json produced; apply reached and failed at G1 repeat-multiplier runtime allocation risk |
 | GitHub Actions (runs 26919888348 / 26922191264 / 26924388218) | First three runs concluded `failure` at finalize-propose-status; evaluate / promote jobs skipped |
 | GitHub Actions (S4 run #47, 2026-06-11) | Materialize reached; apply reached; apply failed (G1 repeat-multiplier); evaluate / promote not reached |
 | GitHub Actions (run 5, #52 / id 27582285679, 2026-06-15) | propose succeeded; apply succeeded (`success=true`, no violations); evaluate reached → `passed_adoption_gate=false`, score=494.48 ≤ previous_best=729.34, `is_tool_failure=false`; promote job **skipped**. Evidence from job logs (artifact blob download blocked by network egress policy). |
 | GitHub Actions (run 6, #53 / id 27586892217, 2026-06-16) | propose succeeded; apply succeeded; evaluate reached → `passed_adoption_gate=false`, score=478.12 ≤ previous_best=729.34, `is_tool_failure=false`; promote job **skipped**. Evidence from job logs. |
+| GitHub Actions (run 8, id 27683267711, 2026-06-17) | propose succeeded; apply succeeded; evaluate reached → `passed_adoption_gate=true` (first adoption gate pass); promote stage reached; `promote_candidate.py` and README status update succeeded locally; final git push failed — `main` advanced after `persist-ledger` committed the API usage ledger entry (push-race condition). Candidate **not promoted**. `is_tool_failure=true`. Evidence: GitHub Actions run 27683267711 job logs / run context. Push-race hardening merged in PR #115. |
 
-`data/project_state.json` mirrors these machine facts and must not contradict `data/genome.json` or `data/api_usage_ledger.json`.
+`data/project_state.json` mirrors these machine facts and must not contradict `data/genome.json` or `data/api_usage_ledger.json` (API/token success count). Stage outcomes (apply/evaluate/adoption-gate/promote) are derived from GitHub Actions job logs and artifact triage, not from the ledger alone.
 
 ---
 

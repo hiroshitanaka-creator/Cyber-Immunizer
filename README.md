@@ -896,13 +896,13 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 
 | Field | Value |
 |---|---|
-| Current Phase | Phase 3 — runs 5 & 6 triaged: both reached evaluate, adoption gate rejected (score regression) |
+| Current Phase | Phase 3 — run 8 passed adoption gate; promote reached; promote push failed (push-race — PR #115 hardened); candidate not promoted; owner-audited recovery pending |
 | Phase 3 Activation | Complete (PR #58-#62) |
-| Phase 3 Paid-Credit API Calls | Executed (6 successful / 6 attempt(s)) |
+| Phase 3 Paid-Credit API Calls | Executed (8 successful / 8 attempt(s)) |
 | Gemini Primary Model | gemini-3-flash-preview |
 | Gemini Fallback Model | gemini-3.1-flash-lite |
-| promote_approved | false (promotion not approved — no candidate has passed the adoption gate) |
-| Next Focus | Propose-side baseline-preservation hardening implemented (Gemini prompt now requires preserving all five indicators, the full request surface, and the non-blocking fallback); awaiting Owner-approved paid-credit rerun review |
+| promote_approved | false (promotion not approved — promote push failed; candidate was not promoted; owner-audited recovery pending) |
+| Next Focus | Owner-audited candidate recovery after run 8 promote push failure — run 8 passed adoption gate; promote was reached; final push failed (push-race; PR #115 hardened); candidate not promoted to main; no new paid-credit rerun required as immediate next step |
 | live_model_enabled | true |
 | API Mode | gemini_paid_credit |
 | Model Provider | gemini |
@@ -920,14 +920,14 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | Paid-Credit Preflight | Fail-closed when GEMINI_API_KEY missing |
 | Phase 3 Gate | Project Owner explicit decision required |
 | Generation | 2 |
-| Best Score | 729.34 |
+| Best Score | 939.34 |
 | Detector Hash | `69aebceeaebf6f80…` |
-| Last Updated | 2026-05-26T07:28:45.915764Z |
+| Last Updated | 2026-06-17T00:00:00.000000Z |
 | Total Test Cases | N/A |
 | TP / FP / TN / FN | N/A / N/A / N/A / N/A |
 | Fitness Report | Not available — run baseline fitness to populate TP/FP/TN/FN |
 | Adoption Gate | ✅ Passed (generation 2) |
 | Active Threat IDs | `THREAT-2024-001` `THREAT-2024-002` `THREAT-2024-003` `THREAT-2024-004` `THREAT-2024-005` |
-| Status Block Updated | 2026-06-16 05:13 UTC |
+| Status Block Updated | 2026-06-18 01:27 UTC |
 
 <!-- CYBER_IMMUNIZER_STATUS_END -->

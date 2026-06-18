@@ -1509,6 +1509,124 @@ class TestPhase3MandatoryFields:
 
 
 # ---------------------------------------------------------------------------
+# Tests: Phase 3 run-8 recovery state (adoption gate passed, promote push failed)
+# ---------------------------------------------------------------------------
+
+class TestPhase3Run8RecoveryState:
+    """When project_state reflects run 8 (adoption gate passed, promote push failed),
+    generated README wording must direct maintainers to owner-audited candidate
+    recovery — NOT to generic post-run review or a new paid-credit rerun."""
+
+    _LEDGER = [{"model": "gemini-3-flash-preview", "success": True, "api_mode": "gemini_paid_credit"}]
+    _GENOME = {"live_model_enabled": True, "model_name": "gemini-3-flash-preview"}
+
+    def _ps(self) -> dict:
+        return {
+            "paid_credit_api_calls": {
+                "valid_mutation_patch_produced": True,
+                "apply_reached": True,
+                "evaluate_reached": True,
+                "adoption_gate_ever_passed": True,
+                "promote_reached": True,
+            },
+            "promotion": {"promote_approved": False},
+            "next_action": "owner_audited_candidate_recovery_after_run8_promote_push_failure",
+        }
+
+    def test_next_focus_says_owner_recovery(self, tmp_path: Path) -> None:
+        """next_focus must explicitly name owner-audited candidate recovery."""
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "Owner-audited candidate recovery" in block, (
+            "next_focus must say 'Owner-audited candidate recovery'"
+        )
+
+    def test_next_focus_mentions_promote_push_failure(self, tmp_path: Path) -> None:
+        """next_focus must mention that the promote push failed."""
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "push failed" in block, (
+            "next_focus must mention promote push failure"
+        )
+
+    def test_next_focus_says_candidate_not_promoted(self, tmp_path: Path) -> None:
+        """next_focus must state that the candidate was not promoted to main."""
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "not promoted" in block, (
+            "next_focus must state candidate was not promoted to main"
+        )
+
+    def test_next_focus_no_new_paid_credit_rerun_required(self, tmp_path: Path) -> None:
+        """next_focus must state no new paid-credit rerun is the immediate next step."""
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "no new paid-credit rerun required as immediate next step" in block, (
+            "next_focus must explicitly state no new paid-credit rerun is required immediately"
+        )
+
+    def test_current_phase_reflects_adoption_gate_passed(self, tmp_path: Path) -> None:
+        """current_phase must reflect adoption gate pass and promote push failure."""
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "adoption gate" in block.lower(), (
+            "current_phase must reflect adoption gate pass"
+        )
+        assert "promote" in block.lower(), (
+            "current_phase must reflect promote stage was reached"
+        )
+
+    def test_no_generic_post_run_review_wording(self, tmp_path: Path) -> None:
+        """Generic stale wording must not appear in run-8 recovery state."""
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "post-run result review pending" not in block, (
+            "generic 'post-run result review pending' must not appear for run-8 state"
+        )
+        assert "Review existing paid-credit run results" not in block, (
+            "generic 'Review existing paid-credit run results' must not appear for run-8 state"
+        )
+
+    def test_promote_note_does_not_say_gate_never_passed(self, tmp_path: Path) -> None:
+        """promote_note must not claim no candidate passed the adoption gate."""
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "no candidate has passed the adoption gate" not in block, (
+            "promote note must not claim adoption gate was never passed — run 8 passed it"
+        )
+
+    def test_promote_note_says_push_failed_and_not_promoted(self, tmp_path: Path) -> None:
+        """promote_note must communicate push failure and that candidate was not promoted."""
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "push failed" in block or "promote push failed" in block, (
+            "promote_note must communicate promote push failure"
+        )
+        assert "not promoted" in block, (
+            "promote_note must state candidate was not promoted"
+        )
+
+    def test_promote_approved_is_false(self, tmp_path: Path) -> None:
+        """promote_approved field must appear and show false — no completed promotion."""
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "promote_approved" in block, "promote_approved field must be present"
+        assert "false" in block.lower(), "promote_approved must show false"
+        assert "candidate was promoted" not in block.lower(), (
+            "block must not claim the candidate was promoted"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Tests: Real README.md Fitness Report state (read-only integration)
 # ---------------------------------------------------------------------------
 

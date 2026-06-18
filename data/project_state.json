@@ -72,7 +72,7 @@
       "failure_point": "Promote Candidate / Commit promoted changes",
       "failure_cause": "final push failed — main had advanced after persist-ledger committed the API usage ledger (push-race condition; hardening merged in PR #115)",
       "is_tool_failure": true,
-      "evidence_source": "task description / PR context (run id 27683267711)"
+      "evidence_source": "GitHub Actions run 27683267711 job/artifact triage; ledger proves API/token success count only"
     },
     "note": "apply_reached/evaluate_reached/adoption_gate_ever_passed/promote_reached reflect the best-known cumulative state across all triaged runs 1-8. data/api_usage_ledger.json records 8 primary-model success records. Runs 5 and 6 are triaged as evaluate_rejected. Run 7 (2026-06-16T06:20:37) is API/token success only and remains untriaged. Run 8 (2026-06-17, id=27683267711) passed the adoption gate and reached promote, but the final promote push failed due to a push-race condition (main had advanced after persist-ledger committed the ledger entry); candidate was not promoted. Runs 5 and 6 historical scores (494.48 and 478.12) were computed under the old formula; they remain historical records only."
   },

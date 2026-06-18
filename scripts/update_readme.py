@@ -46,6 +46,12 @@ _NEXT_ACTION_TEXT = {
         " requires preserving all five indicators, the full request surface, and the"
         " non-blocking fallback); awaiting Owner-approved paid-credit rerun review"
     ),
+    "owner_audited_candidate_recovery_after_run8_promote_push_failure": (
+        "Owner-audited candidate recovery after run 8 promote push failure"
+        " — run 8 passed adoption gate; promote was reached; final push failed"
+        " (push-race; PR #115 hardened); candidate not promoted to main;"
+        " no new paid-credit rerun required as immediate next step"
+    ),
 }
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"
@@ -124,6 +130,10 @@ def _apply_project_state(
         isinstance(calls, dict)
         and calls.get("adoption_gate_ever_passed") is True
     )
+    promote_reached = (
+        isinstance(calls, dict)
+        and calls.get("promote_reached") is True
+    )
 
     if patch_not_produced:
         current_phase = (
@@ -140,6 +150,12 @@ def _apply_project_state(
         current_phase = (
             "Phase 3 — runs 5 & 6 triaged: both reached evaluate,"
             " adoption gate rejected (score regression)"
+        )
+    elif patch_produced and apply_reached and evaluate_reached and adoption_gate_ever_passed:
+        current_phase = (
+            "Phase 3 — run 8 passed adoption gate;"
+            " promote reached; promote push failed (push-race — PR #115 hardened);"
+            " candidate not promoted; owner-audited recovery pending"
         )
 
     next_action = state.get("next_action")
@@ -165,6 +181,12 @@ def _apply_project_state(
             promote_note = (
                 "false (promotion not approved —"
                 " no candidate has passed the adoption gate)"
+            )
+        elif patch_produced and apply_reached and evaluate_reached and adoption_gate_ever_passed:
+            promote_note = (
+                "false (promotion not approved —"
+                " promote push failed; candidate was not promoted;"
+                " owner-audited recovery pending)"
             )
 
     return current_phase, next_focus, promote_note
