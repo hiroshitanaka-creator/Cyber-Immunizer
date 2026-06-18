@@ -923,3 +923,60 @@ def test_pre_paid_credit_candidate_hash_mismatch_helper():
     from scripts.offline_validation import hash_consistency_issues
     issues = hash_consistency_issues("candidate", "0" * 64)
     assert issues[0].code == "candidate_hash_mismatch"
+
+
+def test_pre_paid_credit_projected_source_too_large(monkeypatch):
+    from scripts import apply_mutation as apply_mod
+    monkeypatch.setattr(apply_mod, "MAX_POLICY_SOURCE_CHARS", 10)
+    new_source, err, issues = apply_mod._apply_replacement(
+        f"{_MUTATION_START}\nold\n{_MUTATION_END}\n", "    return None"
+    )
+    assert new_source is None
+    assert issues[0].code == "candidate_materialization_failed"
+
+
+def test_pre_paid_credit_outside_region_mismatch_helper():
+    from scripts.offline_validation import outside_region_issues
+    base = f"before\n{_MUTATION_START}\nold\n{_MUTATION_END}\nafter\n"
+    candidate = f"CHANGED\n{_MUTATION_START}\nnew\n{_MUTATION_END}\nafter\n"
+    issues = outside_region_issues(candidate_source=candidate, base_source=base)
+    assert issues[0].code == "mutation_region_escape"
+
+
+def test_pre_paid_credit_unsafe_output_path(tmp_path):
+    base = _write_base(tmp_path)
+    patch_path = _write_patch(tmp_path, _VALID_PATCH)
+    result = apply_mutation(
+        patch_path=patch_path,
+        base_path=base,
+        out_path=tmp_path / "outside.py",
+        output_root=tmp_path / "allowed",
+    )
+    assert result["success"] is False
+    assert any(r.startswith("candidate_output_path_unsafe:") for r in result["rejection_reasons"])
+
+
+def test_pre_paid_credit_candidate_hash_present_on_success(tmp_path):
+    base = _write_base(tmp_path)
+    patch_path = _write_patch(tmp_path, _VALID_PATCH)
+    with patch("scripts.apply_mutation.validate", return_value={"valid": True, "violations": []}):
+        result = apply_mutation(
+            patch_path=patch_path,
+            base_path=base,
+            out_path=tmp_path / "allowed" / "candidate.py",
+            output_root=tmp_path / "allowed",
+        )
+    assert result["success"] is True
+    assert len(result["candidate_hash"]) == 64
+
+
+def test_pre_paid_credit_candidate_hash_present_in_apply_report(tmp_path):
+    fake_val = {"valid": True, "violations": []}
+    rc, report_path = _call_main_with_patched_root(
+        tmp_path, _VALID_PATCH, validate_result=fake_val
+    )
+    report = json.loads(report_path.read_text())
+    assert rc == 0
+    assert len(report["candidate_hash"]) == 64
+    assert "replacement_code" not in report
+    assert _VALID_PATCH["replacement_code"] not in report_path.read_text()

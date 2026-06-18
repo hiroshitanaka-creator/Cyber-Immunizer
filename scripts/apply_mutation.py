@@ -34,6 +34,7 @@ from scripts.offline_validation import (  # noqa: E402
     MUTATION_START,
     ValidationIssue,
     mutation_marker_issues,
+    outside_region_issues,
     replacement_marker_issues,
     sha256_text,
 )
@@ -316,7 +317,10 @@ def _apply_replacement(base_source: str, replacement_code: str) -> tuple[str | N
         return None, (
             f"candidate source too large: projected {projected_len} chars "
             f"(limit MAX_POLICY_SOURCE_CHARS={MAX_POLICY_SOURCE_CHARS})"
-        ), []
+        ), [ValidationIssue(
+            "candidate_materialization_failed",
+            f"candidate source too large: projected {projected_len} chars (limit MAX_POLICY_SOURCE_CHARS={MAX_POLICY_SOURCE_CHARS})",
+        )]
 
     # Build new source: before + newline + replacement + newline + after
     new_source = before + "\n" + replacement_stripped + "\n" + after
@@ -413,8 +417,17 @@ def apply_mutation(
 
     # --- Read base ---
     if not base_path.exists():
-        return _fail(error=f"base file not found: {base_path}")
-    base_source = base_path.read_text(encoding="utf-8")
+        return _fail(
+            violations=[f"candidate_materialization_failed: base file not found: {base_path}"],
+            error=f"base file not found: {base_path}",
+        )
+    try:
+        base_source = base_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return _fail(
+            violations=[f"candidate_materialization_failed: base file unreadable: {exc}"],
+            error=f"base file unreadable: {exc}",
+        )
     marker_issues = mutation_marker_issues(base_source)
     if marker_issues:
         return _fail(
@@ -427,15 +440,25 @@ def apply_mutation(
     if err:
         return _fail(violations=_issue_messages(apply_issues), error=err)
 
+    region_issues = outside_region_issues(candidate_source=new_source, base_source=base_source)
+    if region_issues:
+        return _fail(violations=_issue_messages(region_issues), error=_issue_messages(region_issues)[0])
+
     # --- Validate output path (fail-closed before any write) ---
     resolved_out, path_err = _resolve_safe_output_path(out_path, output_root)
     if path_err:
-        return _fail(error=path_err)
+        return _fail(
+            violations=[f"candidate_output_path_unsafe: {path_err}"],
+            error=path_err,
+        )
 
     # --- Write candidate to a same-directory temp file ---
     tmp_path, write_err = _write_text_atomic(resolved_out, new_source)
     if write_err:
-        return _fail(error=write_err)
+        return _fail(
+            violations=[f"candidate_materialization_failed: {write_err}"],
+            error=write_err,
+        )
 
     # --- Validate the temp candidate before replacing the final target ---
     # Wrap in try/except so any unexpected parser exception (MemoryError,
@@ -446,7 +469,7 @@ def apply_mutation(
     except Exception as exc:  # noqa: BLE001
         tmp_path.unlink(missing_ok=True)
         return _fail(
-            violations=[f"parser failed (fail-closed): {type(exc).__name__}"],
+            violations=[f"candidate_materialization_failed: parser failed (fail-closed): {type(exc).__name__}"],
             error="validation raised an unexpected exception; candidate removed",
         )
     if not val_result["valid"]:
@@ -461,7 +484,10 @@ def apply_mutation(
         os.replace(tmp_path, resolved_out)
     except OSError as exc:
         tmp_path.unlink(missing_ok=True)
-        return _fail(error=f"atomic replace of candidate failed: {exc}")
+        return _fail(
+            violations=[f"candidate_materialization_failed: atomic replace of candidate failed: {exc}"],
+            error=f"atomic replace of candidate failed: {exc}",
+        )
 
     return {
         "success": True,
@@ -528,6 +554,7 @@ def main(argv: list[str] | None = None) -> int:
             "mutation_rationale": san_rationale,
             "target_threats": san_threats,
             "replacement_code_sha256": result.get("replacement_code_sha256"),
+            "candidate_hash": result.get("candidate_hash"),
         }
         ok, report_err = _write_apply_report_atomic(Path(args.report), report_payload)
         if not ok:
