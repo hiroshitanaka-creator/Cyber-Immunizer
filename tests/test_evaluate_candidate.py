@@ -38,13 +38,10 @@ from scripts.evaluate_candidate import (
 # Shared test fixtures / helpers
 # ---------------------------------------------------------------------------
 
-_MINIMAL_CANDIDATE = """\
-\"\"\"Minimal valid candidate for tests.\"\"\"
-from core.detector import Detector as _Base
-
-class Detector(_Base):
-    pass
-"""
+# Use the actual detector as the minimal candidate — it passes all offline contract checks.
+# The tests mock validate() and subprocess.run(), so the candidate content is irrelevant
+# to what the tests are asserting; it just needs to clear the contract check gate.
+_MINIMAL_CANDIDATE = (_PROJECT_ROOT / "core" / "detector.py").read_text(encoding="utf-8")
 
 _FAKE_REJECTED_OUTPUT = json.dumps({
     "passed_adoption_gate": False,
@@ -69,6 +66,45 @@ def _write_candidate(tmp_path: Path) -> Path:
     p = tmp_path / "candidate_detector.py"
     p.write_text(_MINIMAL_CANDIDATE, encoding="utf-8")
     return p
+
+
+_BEHAVIORAL_PASS_RESULT = {
+    "passed": True,
+    "field_results": {
+        ind: {f: True for f in ["method", "path", "query_keys", "query_values",
+                                  "header_keys", "header_values", "body"]}
+        for ind in [
+            "path_traversal_indicator", "script_injection_indicator", "sqli_indicator",
+            "command_delimiter_indicator", "encoded_traversal_indicator",
+        ]
+    },
+    "missing": [],
+    "rejection_reasons": [],
+    "harness_error": False,
+    "error": None,
+}
+
+
+@pytest.fixture(autouse=True)
+def _auto_behavioral_pass(request):
+    """Auto-patch run_behavioral_surface_check_subprocess to pass for all existing tests.
+
+    Tests in TestEvaluateCandidateBehavioralSurfaceCheck explicitly patch it themselves
+    or run the real pipeline, so they opt out via the marker.
+    """
+    if request.node.get_closest_marker("no_behavioral_mock"):
+        yield
+        return
+    # Only auto-patch for classes that don't explicitly control behavioral check
+    cls = request.node.cls
+    if cls is not None and cls.__name__ == "TestEvaluateCandidateBehavioralSurfaceCheck":
+        yield
+        return
+    with patch(
+        "scripts.evaluate_candidate.run_behavioral_surface_check_subprocess",
+        return_value=_BEHAVIORAL_PASS_RESULT,
+    ):
+        yield
 
 
 # ===========================================================================
@@ -687,3 +723,269 @@ class TestNoSecretsInReport:
             assert key not in safe, (
                 f"{key} must be stripped by _safe_env() — must not reach subprocess"
             )
+
+
+def _make_mock_proc(returncode: int, stdout: str, stderr: str = "") -> SimpleNamespace:
+    """Create a mock subprocess.CompletedProcess-like object for tests."""
+    return SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+# ===========================================================================
+# Behavioral surface check integration with evaluate_candidate
+# ===========================================================================
+
+class TestEvaluateCandidateBehavioralSurfaceCheck:
+    """evaluate_candidate soft-rejects behavioral surface failures before fitness."""
+
+    def _write_candidate(self, tmp_path: Path) -> Path:
+        """Write a candidate that passes static checks."""
+        p = tmp_path / "candidate.py"
+        p.write_text(_MINIMAL_CANDIDATE, encoding="utf-8")
+        return p
+
+    def test_behavioral_failure_is_soft_reject(self, tmp_path: Path) -> None:
+        """Behavioral surface check failure must be is_tool_failure=False."""
+        from scripts.evaluate_candidate import evaluate_candidate
+
+        p = self._write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        behavioral_fail = {
+            "passed": False,
+            "field_results": {f: False for f in ["method", "path", "query_keys",
+                                                   "query_values", "header_keys",
+                                                   "header_values", "body"]},
+            "missing": ["method", "header_keys", "header_values"],
+            "rejection_reasons": [
+                "missing_request_surface:method",
+                "missing_request_surface:header_keys",
+                "missing_request_surface:header_values",
+            ],
+            "harness_error": False,
+            "error": None,
+        }
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("scripts.evaluate_candidate.run_behavioral_surface_check_subprocess",
+                       return_value=behavioral_fail):
+                result = evaluate_candidate(p, timeout_seconds=5, report_path=report_path)
+
+        assert not result["success"]
+        assert result["is_tool_failure"] is False
+        assert "missing_request_surface:method" in result["rejection_reasons"]
+
+    def test_behavioral_harness_error_is_tool_failure(self, tmp_path: Path) -> None:
+        """Behavioral subprocess crash must be is_tool_failure=True."""
+        from scripts.evaluate_candidate import evaluate_candidate
+
+        p = self._write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        harness_fail = {
+            "passed": False,
+            "field_results": {},
+            "missing": [],
+            "rejection_reasons": [],
+            "harness_error": True,
+            "error": "behavioral check subprocess timed out",
+        }
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("scripts.evaluate_candidate.run_behavioral_surface_check_subprocess",
+                       return_value=harness_fail):
+                result = evaluate_candidate(p, timeout_seconds=5, report_path=report_path)
+
+        assert not result["success"]
+        assert result["is_tool_failure"] is True
+
+    def test_report_includes_behavioral_check_entry(self, tmp_path: Path) -> None:
+        """Written report must include request_surface_coverage_behavioral in contract_checks."""
+        from scripts.evaluate_candidate import evaluate_candidate
+        import json
+
+        p = self._write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        behavioral_fail = {
+            "passed": False,
+            "field_results": {"method": False, "path": True, "query_keys": True,
+                               "query_values": True, "header_keys": False,
+                               "header_values": False, "body": True},
+            "missing": ["method", "header_keys", "header_values"],
+            "rejection_reasons": [
+                "missing_request_surface:method",
+                "missing_request_surface:header_keys",
+                "missing_request_surface:header_values",
+            ],
+            "harness_error": False,
+            "error": None,
+        }
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("scripts.evaluate_candidate.run_behavioral_surface_check_subprocess",
+                       return_value=behavioral_fail):
+                evaluate_candidate(p, timeout_seconds=5, report_path=report_path)
+
+        report = json.loads(report_path.read_text())
+        names = {c["name"] for c in report.get("contract_checks", [])}
+        assert "request_surface_coverage_behavioral" in names
+
+    def test_behavioral_check_result_has_field_results_in_report(self, tmp_path: Path) -> None:
+        """The behavioral check entry in report must include field_results detail."""
+        from scripts.evaluate_candidate import evaluate_candidate
+        import json
+
+        p = self._write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        behavioral_pass = {
+            "passed": True,
+            "field_results": {f: True for f in ["method", "path", "query_keys",
+                                                   "query_values", "header_keys",
+                                                   "header_values", "body"]},
+            "missing": [],
+            "rejection_reasons": [],
+            "harness_error": False,
+            "error": None,
+        }
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("scripts.evaluate_candidate.run_behavioral_surface_check_subprocess",
+                       return_value=behavioral_pass):
+                with patch("subprocess.run") as mock_sub:
+                    mock_sub.return_value = _make_mock_proc(
+                        returncode=1, stdout=json.dumps({"passed_adoption_gate": False,
+                                                          "rejection_reasons": ["score <= best"],
+                                                          "score": 0.0})
+                    )
+                    evaluate_candidate(p, timeout_seconds=5, report_path=report_path)
+
+        report = json.loads(report_path.read_text())
+        behavioral_entries = [c for c in report.get("contract_checks", [])
+                               if c["name"] == "request_surface_coverage_behavioral"]
+        assert len(behavioral_entries) == 1
+        assert "field_results" in behavioral_entries[0]["details"]
+
+    def test_indicator_aware_rejection_in_report(self, tmp_path: Path) -> None:
+        """Report must propagate indicator-aware rejection reasons from behavioral check."""
+        from scripts.evaluate_candidate import evaluate_candidate
+
+        p = self._write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        behavioral_fail = {
+            "passed": False,
+            "field_results": {
+                "path_traversal_indicator": {f: True for f in [
+                    "method", "path", "query_keys", "query_values",
+                    "header_keys", "header_values", "body",
+                ]},
+                "sqli_indicator": {f: False for f in [
+                    "method", "path", "query_keys", "query_values",
+                    "header_keys", "header_values", "body",
+                ]},
+                "script_injection_indicator": {f: True for f in [
+                    "method", "path", "query_keys", "query_values",
+                    "header_keys", "header_values", "body",
+                ]},
+                "command_delimiter_indicator": {f: True for f in [
+                    "method", "path", "query_keys", "query_values",
+                    "header_keys", "header_values", "body",
+                ]},
+                "encoded_traversal_indicator": {f: True for f in [
+                    "method", "path", "query_keys", "query_values",
+                    "header_keys", "header_values", "body",
+                ]},
+            },
+            "missing": [
+                {"indicator": "sqli_indicator", "surface": s}
+                for s in ["method", "path", "query_keys", "query_values",
+                          "header_keys", "header_values", "body"]
+            ],
+            "rejection_reasons": [
+                "missing_baseline_symbolic_indicator_runtime:sqli_indicator",
+                "missing_request_surface:method:sqli_indicator",
+                "missing_request_surface:method",
+            ],
+            "harness_error": False,
+            "error": None,
+        }
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("scripts.evaluate_candidate.run_behavioral_surface_check_subprocess",
+                       return_value=behavioral_fail):
+                result = evaluate_candidate(p, timeout_seconds=5, report_path=report_path)
+
+        assert not result["success"]
+        assert result["is_tool_failure"] is False
+        assert "missing_baseline_symbolic_indicator_runtime:sqli_indicator" in result["rejection_reasons"]
+
+        report = json.loads(report_path.read_text())
+        behavioral_entries = [c for c in report.get("contract_checks", [])
+                               if c["name"] == "request_surface_coverage_behavioral"]
+        assert len(behavioral_entries) == 1
+        entry = behavioral_entries[0]
+        assert isinstance(entry["details"]["field_results"], dict)
+        # indicator-aware rejection reasons appear in report
+        assert any(
+            "missing_baseline_symbolic_indicator_runtime" in r
+            for r in entry["rejection_reasons"]
+        )
+
+    def test_unreachable_code_candidate_soft_rejected_in_full_pipeline(
+        self, tmp_path: Path
+    ) -> None:
+        """End-to-end: candidate with unreachable surface code is soft-rejected by Step 2b."""
+        from scripts.evaluate_candidate import evaluate_candidate
+
+        # Build a candidate using core/detector.py outside region but with unreachable
+        # surface code in the mutation region — passes static checks, fails behavioral.
+        base = (_PROJECT_ROOT / "core" / "detector.py").read_text(encoding="utf-8")
+        _MS = "# === MUTATION_START ==="
+        _ME = "# === MUTATION_END ==="
+        ms_idx = base.index(_MS)
+        me_idx = base.index(_ME)
+        unreachable_region = (
+            '    tokens = ("path_traversal_indicator", "script_injection_indicator",'
+            ' "sqli_indicator", "command_delimiter_indicator", "encoded_traversal_indicator")\n'
+            '    if False:\n'
+            '        surface_list = []\n'
+            '        surface_list.append(request.method.lower())\n'
+            '        surface_list.append(request.path.lower())\n'
+            '        for k, v in request.query.items():\n'
+            '            surface_list.append(k.lower())\n'
+            '            surface_list.append(v.lower())\n'
+            '        for k, v in request.headers.items():\n'
+            '            surface_list.append(k.lower())\n'
+            '            surface_list.append(v.lower())\n'
+            '        surface_list.append(request.body.lower())\n'
+            '    surface = request.body.lower()\n'
+            '    for token in tokens:\n'
+            '        if token in surface:\n'
+            '            return DetectionResult(blocked=True, reason="match",'
+            ' confidence=0.9, matched_signals=(token,))\n'
+            '    return DetectionResult(blocked=False, reason="clean",'
+            ' confidence=0.0, matched_signals=())\n'
+        )
+        candidate_source = (
+            base[: ms_idx + len(_MS)] + "\n" + unreachable_region + "    " + base[me_idx:]
+        )
+        p = tmp_path / "candidate.py"
+        p.write_text(candidate_source, encoding="utf-8")
+        report_path = tmp_path / "report.json"
+
+        # Run without mocking validate or behavioral check — real pipeline
+        result = evaluate_candidate(p, timeout_seconds=30, report_path=report_path)
+
+        assert not result["success"]
+        assert result["is_tool_failure"] is False, (
+            f"Expected soft reject, got tool failure: {result['error']}"
+        )
+        assert any("missing_request_surface" in r for r in result["rejection_reasons"]), (
+            f"Expected surface rejection reasons, got: {result['rejection_reasons']}"
+        )
