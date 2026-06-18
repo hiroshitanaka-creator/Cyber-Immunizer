@@ -896,13 +896,13 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 
 | Field | Value |
 |---|---|
-| Current Phase | Phase 3 — run 8 passed adoption gate; promote reached; promote push failed (push-race — PR #115 hardened); candidate not promoted; owner-audited recovery pending |
+| Current Phase | Phase 3 — run 8 candidate recovered and promoted to generation 3 (score 947.66, hash c488855e…); owner merge review pending |
 | Phase 3 Activation | Complete (PR #58-#62) |
 | Phase 3 Paid-Credit API Calls | Executed (8 successful / 8 attempt(s)) |
 | Gemini Primary Model | gemini-3-flash-preview |
 | Gemini Fallback Model | gemini-3.1-flash-lite |
-| promote_approved | false (promotion not approved — promote push failed; candidate was not promoted; owner-audited recovery pending) |
-| Next Focus | Owner-audited candidate recovery after run 8 promote push failure — run 8 passed adoption gate; promote was reached; final push failed (push-race; PR #115 hardened); candidate not promoted to main; no new paid-credit rerun required as immediate next step |
+| promote_approved | true (run 8 candidate promoted to generation 3 via owner-audited recovery — score 947.66, hash c488855e…; pending owner merge) |
+| Next Focus | Owner merge review of the run 8 candidate recovery PR — generation 3 promoted to core/detector.py (score 947.66, hash c488855e…); no new paid-credit run required |
 | live_model_enabled | true |
 | API Mode | gemini_paid_credit |
 | Model Provider | gemini |
@@ -919,15 +919,14 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | Offline Sample Path | Verified |
 | Paid-Credit Preflight | Fail-closed when GEMINI_API_KEY missing |
 | Phase 3 Gate | Project Owner explicit decision required |
-| Generation | 2 |
-| Best Score | 939.34 |
-| Detector Hash | `69aebceeaebf6f80…` |
-| Last Updated | 2026-06-17T00:00:00.000000Z |
-| Total Test Cases | N/A |
-| TP / FP / TN / FN | N/A / N/A / N/A / N/A |
-| Fitness Report | Not available — run baseline fitness to populate TP/FP/TN/FN |
-| Adoption Gate | ✅ Passed (generation 2) |
+| Generation | 3 |
+| Best Score | 947.66 |
+| Detector Hash | `c488855e44411912…` |
+| Last Updated | 2026-06-18T02:13:36.244170Z |
+| Total Test Cases | 15 |
+| TP / FP / TN / FN | 8 / 0 / 7 / 0 |
+| Adoption Gate | ✅ Passed (generation 3) |
 | Active Threat IDs | `THREAT-2024-001` `THREAT-2024-002` `THREAT-2024-003` `THREAT-2024-004` `THREAT-2024-005` |
-| Status Block Updated | 2026-06-18 01:27 UTC |
+| Status Block Updated | 2026-06-18 02:17 UTC |
 
 <!-- CYBER_IMMUNIZER_STATUS_END -->

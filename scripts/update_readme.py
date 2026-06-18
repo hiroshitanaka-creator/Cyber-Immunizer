@@ -52,6 +52,11 @@ _NEXT_ACTION_TEXT = {
         " (push-race; PR #115 hardened); candidate not promoted to main;"
         " no new paid-credit rerun required as immediate next step"
     ),
+    "run8_candidate_recovered_generation3_pending_owner_merge": (
+        "Owner merge review of the run 8 candidate recovery PR"
+        " — generation 3 promoted to core/detector.py (score 947.66,"
+        " hash c488855e…); no new paid-credit run required"
+    ),
 }
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"
@@ -134,6 +139,10 @@ def _apply_project_state(
         isinstance(calls, dict)
         and calls.get("promote_reached") is True
     )
+    candidate_promoted = (
+        isinstance(calls, dict)
+        and calls.get("candidate_promoted") is True
+    )
 
     if patch_not_produced:
         current_phase = (
@@ -151,11 +160,16 @@ def _apply_project_state(
             "Phase 3 — runs 5 & 6 triaged: both reached evaluate,"
             " adoption gate rejected (score regression)"
         )
-    elif patch_produced and apply_reached and evaluate_reached and adoption_gate_ever_passed:
+    elif patch_produced and apply_reached and evaluate_reached and adoption_gate_ever_passed and not candidate_promoted:
         current_phase = (
             "Phase 3 — run 8 passed adoption gate;"
             " promote reached; promote push failed (push-race — PR #115 hardened);"
             " candidate not promoted; owner-audited recovery pending"
+        )
+    elif patch_produced and apply_reached and evaluate_reached and adoption_gate_ever_passed and candidate_promoted:
+        current_phase = (
+            "Phase 3 — run 8 candidate recovered and promoted to generation 3"
+            " (score 947.66, hash c488855e…); owner merge review pending"
         )
 
     next_action = state.get("next_action")
@@ -164,6 +178,16 @@ def _apply_project_state(
 
     promo = state.get("promotion")
     if (
+        isinstance(promo, dict)
+        and _parse_bool(promo.get("promote_approved"), default=False) is True
+    ):
+        if candidate_promoted:
+            promote_note = (
+                "true (run 8 candidate promoted to generation 3"
+                " via owner-audited recovery — score 947.66,"
+                " hash c488855e…; pending owner merge)"
+            )
+    elif (
         isinstance(promo, dict)
         and _parse_bool(promo.get("promote_approved"), default=False) is False
     ):
@@ -182,7 +206,7 @@ def _apply_project_state(
                 "false (promotion not approved —"
                 " no candidate has passed the adoption gate)"
             )
-        elif patch_produced and apply_reached and evaluate_reached and adoption_gate_ever_passed:
+        elif patch_produced and apply_reached and evaluate_reached and adoption_gate_ever_passed and not candidate_promoted:
             promote_note = (
                 "false (promotion not approved —"
                 " promote push failed; candidate was not promoted;"

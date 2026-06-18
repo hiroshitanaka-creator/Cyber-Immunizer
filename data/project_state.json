@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "state_id": "phase3_run8_adoption_gate_passed_promote_push_failed_await_owner_recovery",
+  "state_id": "phase3_run8_candidate_recovered_generation3_pending_owner_merge",
   "current_phase": "phase_3",
   "phase_3_activation": "complete",
   "live_model_enabled": true,
@@ -59,22 +59,29 @@
       "is_tool_failure": null,
       "evidence_source": "untriaged — API/token success recorded; no artifact or job-log triage available for this record"
     },
+    "candidate_promoted": true,
+    "candidate_promoted_meaning": "run_8_candidate_recovered_and_promoted_to_core_detector_py_generation_3",
+    "candidate_promoted_generation": 3,
+    "candidate_promoted_score": 947.66,
+    "candidate_promoted_hash": "c488855e44411912a0efee50fcecc2e5575b3b51e6a128a0c6f0b8df4e78a0b6",
+    "candidate_promoted_by": "owner_audited_recovery_2026-06-18",
     "run_8_triage": {
       "github_actions_run_id": "27683267711",
       "ledger_timestamp": "2026-06-17T10:43:08.894275+00:00",
-      "classification": "promote_push_failed",
+      "classification": "promote_push_failed_recovered",
       "apply_reached": true,
       "evaluate_reached": true,
       "passed_adoption_gate": true,
       "promote_reached": true,
-      "promote_completed": false,
-      "candidate_promoted": false,
-      "failure_point": "Promote Candidate / Commit promoted changes",
-      "failure_cause": "final push failed — main had advanced after persist-ledger committed the API usage ledger (push-race condition; hardening merged in PR #115)",
-      "is_tool_failure": true,
-      "evidence_source": "GitHub Actions run 27683267711 job/artifact triage; ledger proves API/token success count only"
+      "promote_completed": true,
+      "candidate_promoted": true,
+      "original_failure_point": "Promote Candidate / Commit promoted changes",
+      "original_failure_cause": "final push failed — main had advanced after persist-ledger committed the API usage ledger (push-race condition; hardening merged in PR #115)",
+      "recovery_method": "owner_audited_candidate_recovery_2026-06-18 — candidate hash verified (c488855e…), promote_candidate.py re-executed, generation 3 written",
+      "is_tool_failure": false,
+      "evidence_source": "GitHub Actions run 27683267711 job/artifact triage; candidate_hash verified against fitness report from job logs"
     },
-    "note": "apply_reached/evaluate_reached/adoption_gate_ever_passed/promote_reached reflect the best-known cumulative state across all triaged runs 1-8. data/api_usage_ledger.json records 8 primary-model success records. Runs 5 and 6 are triaged as evaluate_rejected. Run 7 (2026-06-16T06:20:37) is API/token success only and remains untriaged. Run 8 (2026-06-17, id=27683267711) passed the adoption gate and reached promote, but the final promote push failed due to a push-race condition (main had advanced after persist-ledger committed the ledger entry); candidate was not promoted. Runs 5 and 6 historical scores (494.48 and 478.12) were computed under the old formula; they remain historical records only."
+    "note": "apply_reached/evaluate_reached/adoption_gate_ever_passed/promote_reached/candidate_promoted reflect the best-known cumulative state across all triaged runs 1-8. data/api_usage_ledger.json records 8 primary-model success records. Runs 5 and 6 are triaged as evaluate_rejected. Run 7 (2026-06-16T06:20:37) is API/token success only and remains untriaged. Run 8 (2026-06-17, id=27683267711) passed the adoption gate and reached promote; the original promote push failed (push-race); candidate was recovered via owner-audited recovery on 2026-06-18 — hash verified, promote_candidate.py re-executed, generation 3 written to core/detector.py. This PR is the recovery PR pending owner merge."
   },
   "propose_side_hardening": {
     "baseline_preservation_contract_added": true,
@@ -95,11 +102,14 @@
     "run_7_note": "The 7th primary-model success record remains API/token success only and untriaged. This migration does not infer apply, evaluate, adoption, or promote from run 7."
   },
   "promotion": {
-    "promote_approved": false,
-    "meaning": "promotion_not_approved",
-    "does_not_mean": "api_call_unexecuted"
+    "promote_approved": true,
+    "promote_approved_by": "owner_audited_recovery_2026-06-18",
+    "meaning": "run_8_candidate_promoted_to_generation_3_via_recovery",
+    "generation": 3,
+    "score": 947.66,
+    "detector_hash": "c488855e44411912a0efee50fcecc2e5575b3b51e6a128a0c6f0b8df4e78a0b6"
   },
-  "next_action": "owner_audited_candidate_recovery_after_run8_promote_push_failure",
+  "next_action": "run8_candidate_recovered_generation3_pending_owner_merge",
   "fresh_verification_policy": {
     "paid_credit_run_in_this_pr": "forbidden",
     "workflow_dispatch_in_this_pr": "forbidden",
