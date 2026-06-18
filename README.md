@@ -923,10 +923,11 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | Best Score | 947.66 |
 | Detector Hash | `c488855e44411912…` |
 | Last Updated | 2026-06-18T02:13:36.244170Z |
-| Total Test Cases | 15 |
-| TP / FP / TN / FN | 8 / 0 / 7 / 0 |
+| Total Test Cases | N/A |
+| TP / FP / TN / FN | N/A / N/A / N/A / N/A |
+| Fitness Report | Not available — run baseline fitness to populate TP/FP/TN/FN |
 | Adoption Gate | ✅ Passed (generation 3) |
 | Active Threat IDs | `THREAT-2024-001` `THREAT-2024-002` `THREAT-2024-003` `THREAT-2024-004` `THREAT-2024-005` |
-| Status Block Updated | 2026-06-18 02:17 UTC |
+| Status Block Updated | 2026-06-18 02:42 UTC |
 
 <!-- CYBER_IMMUNIZER_STATUS_END -->
