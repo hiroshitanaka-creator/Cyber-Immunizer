@@ -885,3 +885,41 @@ class TestSanitizationAppliedInReport:
         report = json.loads(report_path.read_text())
         assert "replacement_code" not in report
         assert _VALID_PATCH["replacement_code"] not in report_path.read_text()
+
+# Offline pre-paid-credit mutation-boundary hardening
+from scripts.apply_mutation import _apply_replacement, _parse_patch
+
+
+def test_pre_paid_credit_mutation_marker_missing():
+    source = "def inspect_request(request):\n    return None\n"
+    new_source, err, issues = _apply_replacement(source, "    return None")
+    assert new_source is None
+    assert issues[0].code == "mutation_marker_missing"
+
+
+def test_pre_paid_credit_mutation_marker_duplicated():
+    source = "# === MUTATION_START ===\n# === MUTATION_START ===\n# === MUTATION_END ===\n"
+    new_source, err, issues = _apply_replacement(source, "    return None")
+    assert new_source is None
+    assert issues[0].code == "mutation_marker_duplicate"
+
+
+def test_pre_paid_credit_mutation_marker_order_invalid():
+    source = "# === MUTATION_END ===\nbody\n# === MUTATION_START ===\n"
+    new_source, err, issues = _apply_replacement(source, "    return None")
+    assert new_source is None
+    assert issues[0].code == "mutation_marker_order_invalid"
+
+
+def test_pre_paid_credit_mutation_region_escape(tmp_path):
+    patch = tmp_path / "patch.json"
+    patch.write_text('{"mutation_rationale":"r","target_threats":[],"expected_improvement":"e","risk":"r","replacement_code":"    # === MUTATION_START ===\\n    return None"}')
+    parsed, err, issues = _parse_patch(patch)
+    assert parsed is None
+    assert issues[0].code == "mutation_region_escape"
+
+
+def test_pre_paid_credit_candidate_hash_mismatch_helper():
+    from scripts.offline_validation import hash_consistency_issues
+    issues = hash_consistency_issues("candidate", "0" * 64)
+    assert issues[0].code == "candidate_hash_mismatch"

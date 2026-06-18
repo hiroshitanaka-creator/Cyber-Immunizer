@@ -1694,6 +1694,52 @@ def _parse_and_validate_response(raw_text: str) -> tuple[dict | None, str]:
     return patch, ""
 
 
+
+
+def validate_proposal_output(raw_text: str, *, offline_only: bool = True) -> dict:
+    """Validate proposal output without running the proposer or external APIs.
+
+    Returns structured readiness-friendly status with precise rejection reason
+    codes. This function is deterministic and performs only local parsing and
+    static validation.
+    """
+    reasons: list[dict[str, str]] = []
+    if not offline_only:
+        reasons.append({
+            "code": "proposal_external_call_not_allowed",
+            "detail": "Proposal validation must be offline-only; external calls are not allowed.",
+        })
+        return {"valid": False, "rejection_reasons": reasons}
+
+    try:
+        proposal = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        return {
+            "valid": False,
+            "rejection_reasons": [{
+                "code": "proposal_output_unparseable",
+                "detail": f"Proposal output is not parseable JSON: {exc}.",
+            }],
+        }
+
+    schema_err = _validate_patch_schema(proposal)
+    if schema_err:
+        code = "proposal_replacement_missing" if "replacement_code" in schema_err or "missing required" in schema_err else "proposal_output_unparseable"
+        return {"valid": False, "rejection_reasons": [{"code": code, "detail": schema_err}]}
+
+    replacement = proposal["replacement_code"]
+    if isinstance(replacement, list):
+        return {"valid": False, "rejection_reasons": [{"code": "proposal_replacement_duplicate", "detail": "Proposal must contain exactly one replacement_code string, not a list."}]}
+    if _MUTATION_START_MARKER in replacement or _MUTATION_END_MARKER in replacement:
+        return {"valid": False, "rejection_reasons": [{"code": "proposal_mutation_boundary_tampering", "detail": "replacement_code must not include mutation boundary markers."}]}
+    if "def inspect_request" in replacement or len(replacement) > 5000:
+        return {"valid": False, "rejection_reasons": [{"code": "proposal_replacement_too_broad", "detail": "replacement_code appears to rewrite more than the mutation-region function body."}]}
+
+    code_err = _validate_replacement_code(replacement)
+    if code_err:
+        return {"valid": False, "rejection_reasons": [{"code": "proposal_output_unparseable", "detail": code_err}]}
+    return {"valid": True, "rejection_reasons": []}
+
 # ---------------------------------------------------------------------------
 # Live Gemini API call — free-tier / --live-model path
 # ---------------------------------------------------------------------------

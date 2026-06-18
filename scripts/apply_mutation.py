@@ -29,10 +29,18 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from scripts.validate_mutation import validate  # noqa: E402
+from scripts.offline_validation import (  # noqa: E402
+    MUTATION_END,
+    MUTATION_START,
+    ValidationIssue,
+    mutation_marker_issues,
+    replacement_marker_issues,
+    sha256_text,
+)
 from core.policy import MAX_POLICY_SOURCE_CHARS  # noqa: E402
 
-_MUTATION_START = "# === MUTATION_START ==="
-_MUTATION_END = "# === MUTATION_END ==="
+_MUTATION_START = MUTATION_START
+_MUTATION_END = MUTATION_END
 
 _REQUIRED_PATCH_FIELDS = (
     "mutation_rationale",
@@ -210,41 +218,52 @@ def _resolve_safe_output_path(
     return resolved_output, ""
 
 
-def _parse_patch(patch_path: Path) -> tuple[dict | None, str]:
+def _issue_messages(issues: list[ValidationIssue]) -> list[str]:
+    return [f"{issue.code}: {issue.detail}" for issue in issues]
+
+
+def _parse_patch(patch_path: Path) -> tuple[dict | None, str, list[ValidationIssue]]:
     """Parse and validate the mutation patch JSON.
 
     Returns (patch_dict, error_message).  error_message is empty on success.
     """
     if not patch_path.exists():
-        return None, f"patch file not found: {patch_path}"
+        return None, f"patch file not found: {patch_path}", [
+            ValidationIssue("candidate_materialization_failed", f"Patch file not found: {patch_path}.")
+        ]
 
     try:
         patch = json.loads(patch_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        return None, f"invalid JSON in patch: {exc}"
+        return None, f"invalid JSON in patch: {exc}", [
+            ValidationIssue("candidate_materialization_failed", f"Patch JSON is not parseable: {exc}.")
+        ]
 
     if not isinstance(patch, dict):
-        return None, "patch must be a JSON object"
+        return None, "patch must be a JSON object", [
+            ValidationIssue("candidate_materialization_failed", "Patch must be a JSON object.")
+        ]
 
     for field in _REQUIRED_PATCH_FIELDS:
         if field not in patch:
-            return None, f"missing required field in patch: {field!r}"
+            return None, f"missing required field in patch: {field!r}", [
+                ValidationIssue("candidate_materialization_failed", f"Patch is missing required field {field!r}.")
+            ]
 
     replacement = patch["replacement_code"]
     if not isinstance(replacement, str):
-        return None, "replacement_code must be a string"
+        return None, "replacement_code must be a string", [
+            ValidationIssue("candidate_materialization_failed", "replacement_code must be a string.")
+        ]
 
-    # Reject if replacement contains mutation markers (prevents nested markers)
-    if _MUTATION_START in replacement or _MUTATION_END in replacement:
-        return None, (
-            "replacement_code must not contain mutation markers "
-            f"({_MUTATION_START!r} or {_MUTATION_END!r})"
-        )
+    marker_issues = replacement_marker_issues(replacement)
+    if marker_issues:
+        return None, _issue_messages(marker_issues)[0], marker_issues
 
-    return patch, ""
+    return patch, "", []
 
 
-def _apply_replacement(base_source: str, replacement_code: str) -> tuple[str | None, str]:
+def _apply_replacement(base_source: str, replacement_code: str) -> tuple[str | None, str, list[ValidationIssue]]:
     """Replace the mutation region in base_source with replacement_code.
 
     Returns (new_source, error).
@@ -253,25 +272,37 @@ def _apply_replacement(base_source: str, replacement_code: str) -> tuple[str | N
     start_count = base_source.count(_MUTATION_START)
     end_count = base_source.count(_MUTATION_END)
     if start_count == 0:
-        return None, f"base file missing {_MUTATION_START!r}"
+        issue = ValidationIssue(
+            "mutation_marker_missing", f"Base file missing {_MUTATION_START!r}."
+        )
+        return None, issue.detail, [issue]
     if start_count > 1:
-        return None, (
-            f"base file has {start_count} occurrences of {_MUTATION_START!r}; "
-            "expected exactly 1 — possible double-apply detected"
+        issue = ValidationIssue(
+            "mutation_marker_duplicate",
+            f"Base file has {start_count} occurrences of {_MUTATION_START!r}; expected exactly 1.",
         )
+        return None, issue.detail, [issue]
     if end_count == 0:
-        return None, f"base file missing {_MUTATION_END!r}"
-    if end_count > 1:
-        return None, (
-            f"base file has {end_count} occurrences of {_MUTATION_END!r}; "
-            "expected exactly 1 — possible double-apply detected"
+        issue = ValidationIssue(
+            "mutation_marker_missing", f"Base file missing {_MUTATION_END!r}."
         )
+        return None, issue.detail, [issue]
+    if end_count > 1:
+        issue = ValidationIssue(
+            "mutation_marker_duplicate",
+            f"Base file has {end_count} occurrences of {_MUTATION_END!r}; expected exactly 1.",
+        )
+        return None, issue.detail, [issue]
 
     start_idx = base_source.find(_MUTATION_START)
     end_idx = base_source.find(_MUTATION_END)
 
     if end_idx <= start_idx:
-        return None, "MUTATION_END appears before MUTATION_START in base file"
+        issue = ValidationIssue(
+            "mutation_marker_order_invalid",
+            "MUTATION_END appears before MUTATION_START in base file.",
+        )
+        return None, issue.detail, [issue]
 
     # Preserve everything up to and including MUTATION_START line
     before = base_source[: start_idx + len(_MUTATION_START)]
@@ -285,12 +316,12 @@ def _apply_replacement(base_source: str, replacement_code: str) -> tuple[str | N
         return None, (
             f"candidate source too large: projected {projected_len} chars "
             f"(limit MAX_POLICY_SOURCE_CHARS={MAX_POLICY_SOURCE_CHARS})"
-        )
+        ), []
 
     # Build new source: before + newline + replacement + newline + after
     new_source = before + "\n" + replacement_stripped + "\n" + after
 
-    return new_source, ""
+    return new_source, "", []
 
 
 def _write_text_atomic(path: Path, content: str) -> tuple[Path | None, str]:
@@ -344,7 +375,7 @@ def apply_mutation(
     rejected fail-closed before any file is created.
     """
     # --- Parse patch ---
-    patch, err = _parse_patch(patch_path)
+    patch, err, parse_issues = _parse_patch(patch_path)
     if err:
         return {
             "success": False,
@@ -354,6 +385,7 @@ def apply_mutation(
             "mutation_rationale": None,
             "target_threats": [],
             "replacement_code_sha256": None,
+            "rejection_reasons": _issue_messages(parse_issues),
         }
 
     # Extract safe metadata now that the patch is parsed.
@@ -376,17 +408,24 @@ def apply_mutation(
             "mutation_rationale": mutation_rationale,
             "target_threats": target_threats,
             "replacement_code_sha256": replacement_sha256,
+            "rejection_reasons": violations or [],
         }
 
     # --- Read base ---
     if not base_path.exists():
         return _fail(error=f"base file not found: {base_path}")
     base_source = base_path.read_text(encoding="utf-8")
+    marker_issues = mutation_marker_issues(base_source)
+    if marker_issues:
+        return _fail(
+            violations=_issue_messages(marker_issues),
+            error=_issue_messages(marker_issues)[0],
+        )
 
     # --- Apply replacement (includes source-size projection guard) ---
-    new_source, err = _apply_replacement(base_source, patch["replacement_code"])
+    new_source, err, apply_issues = _apply_replacement(base_source, patch["replacement_code"])
     if err:
-        return _fail(error=err)
+        return _fail(violations=_issue_messages(apply_issues), error=err)
 
     # --- Validate output path (fail-closed before any write) ---
     resolved_out, path_err = _resolve_safe_output_path(out_path, output_root)
@@ -434,6 +473,8 @@ def apply_mutation(
         "expected_improvement": patch.get("expected_improvement", ""),
         "risk": patch.get("risk", ""),
         "replacement_code_sha256": replacement_sha256,
+        "candidate_hash": sha256_text(new_source),
+        "rejection_reasons": [],
     }
 
 
