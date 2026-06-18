@@ -1694,6 +1694,89 @@ def _parse_and_validate_response(raw_text: str) -> tuple[dict | None, str]:
     return patch, ""
 
 
+
+
+def _json_no_duplicate_object(pairs: list[tuple[str, object]]) -> dict:
+    """JSON object hook that fails on duplicate keys before json.loads collapses them."""
+    seen: set[str] = set()
+    data: dict[str, object] = {}
+    for key, value in pairs:
+        if key in seen:
+            raise ValueError(f"duplicate JSON key: {key}")
+        seen.add(key)
+        data[key] = value
+    return data
+
+
+def _proposal_replacement_too_broad(replacement: str) -> bool:
+    """Return True if replacement looks like a whole-module/function rewrite."""
+    if len(replacement) > 5000:
+        return True
+    try:
+        tree = ast.parse(replacement)
+    except SyntaxError:
+        # Existing _validate_replacement_code returns the detailed syntax error.
+        return False
+    return any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) for node in ast.walk(tree))
+
+
+def validate_proposal_output(raw_text: str, *, offline_only: bool = True) -> dict:
+    """Validate proposal output without running the proposer or external APIs.
+
+    List-valued replacement_code and unexpected replacement-like keys
+    (replacement_codes, candidate_code, full_file) are treated as
+    proposal_replacement_duplicate because they attempt to provide multiple or
+    ambiguous replacement regions. This function is deterministic and performs
+    only local parsing and static validation.
+    """
+    reasons: list[dict[str, str]] = []
+    if not offline_only:
+        reasons.append({
+            "code": "proposal_external_call_not_allowed",
+            "detail": "Proposal validation must be offline-only; external calls are not allowed.",
+        })
+        return {"valid": False, "rejection_reasons": reasons}
+
+    try:
+        proposal = json.loads(raw_text, object_pairs_hook=_json_no_duplicate_object)
+    except ValueError as exc:
+        code = "proposal_replacement_duplicate" if "replacement_code" in str(exc) else "proposal_output_unparseable"
+        return {"valid": False, "rejection_reasons": [{"code": code, "detail": str(exc)}]}
+    except json.JSONDecodeError as exc:
+        return {
+            "valid": False,
+            "rejection_reasons": [{
+                "code": "proposal_output_unparseable",
+                "detail": f"Proposal output is not parseable JSON: {exc}.",
+            }],
+        }
+
+    if isinstance(proposal, dict) and any(k in proposal for k in ("replacement_codes", "candidate_code", "full_file")):
+        return {"valid": False, "rejection_reasons": [{"code": "proposal_replacement_duplicate", "detail": "Proposal contains ambiguous replacement-like keys."}]}
+
+    if isinstance(proposal, dict) and "replacement_code" not in proposal:
+        return {"valid": False, "rejection_reasons": [{"code": "proposal_replacement_missing", "detail": "Proposal is missing replacement_code."}]}
+
+    replacement = proposal.get("replacement_code") if isinstance(proposal, dict) else None
+    if isinstance(replacement, list):
+        return {"valid": False, "rejection_reasons": [{"code": "proposal_replacement_duplicate", "detail": "Proposal must contain exactly one replacement_code string, not a list."}]}
+
+    schema_err = _validate_patch_schema(proposal)
+    if schema_err:
+        code = "proposal_replacement_missing" if "replacement_code" in schema_err or "missing required" in schema_err else "proposal_output_unparseable"
+        return {"valid": False, "rejection_reasons": [{"code": code, "detail": schema_err}]}
+
+    replacement = proposal["replacement_code"]
+    if _MUTATION_START_MARKER in replacement or _MUTATION_END_MARKER in replacement:
+        return {"valid": False, "rejection_reasons": [{"code": "proposal_mutation_boundary_tampering", "detail": "replacement_code must not include mutation boundary markers."}]}
+    if _proposal_replacement_too_broad(replacement):
+        return {"valid": False, "rejection_reasons": [{"code": "proposal_replacement_too_broad", "detail": "replacement_code appears to rewrite more than the mutation-region function body."}]}
+
+    code_err = _validate_replacement_code(replacement)
+    if code_err:
+        return {"valid": False, "rejection_reasons": [{"code": "proposal_output_unparseable", "detail": code_err}]}
+    return {"valid": True, "rejection_reasons": []}
+
 # ---------------------------------------------------------------------------
 # Live Gemini API call — free-tier / --live-model path
 # ---------------------------------------------------------------------------
