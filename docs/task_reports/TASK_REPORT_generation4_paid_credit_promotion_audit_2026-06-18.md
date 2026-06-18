@@ -90,6 +90,32 @@ The ledger proves API/token success only. It does not by itself prove proposal v
 
 Generation 4 is now the verified, documented baseline after the owner-approved paid-credit promotion from generation 3. Future Phase 3 experiments should treat generation 4 / score 948.04 / detector hash `ebb8799db748ed3c3b38eec0c11cdc423b0e43ca04a374ba7e26a48059c30d3f` as the audited baseline unless superseded by a later promotion.
 
+## SSOT reconciliation
+
+`data/project_state.json` updated to generation 4 baseline:
+
+- `state_id`: `phase3_generation4_paid_credit_promotion_active`
+- `paid_credit_api_calls.gemini_3_flash_preview_success_records`: 9
+- `paid_credit_api_calls.candidate_promoted_generation`: 4
+- `paid_credit_api_calls.candidate_promoted_score`: 948.04
+- `paid_credit_api_calls.candidate_promoted_hash`: `ebb8799db748ed3c3b38eec0c11cdc423b0e43ca04a374ba7e26a48059c30d3f`
+- `paid_credit_api_calls.run_9_triage`: added (classification: promoted, score 948.04, generation 4)
+- `promotion.generation`: 4, `promotion.score`: 948.04, `promotion.detector_hash`: `ebb8799d…`
+- `next_action`: `generation4_audited_baseline_owner_decide_next_phase3_step`
+
+`scripts/update_readme.py` updated:
+- Added `generation4_audited_baseline_owner_decide_next_phase3_step` to `_NEXT_ACTION_TEXT`
+- `_apply_project_state` now renders generation 4 current-phase and promote_note dynamically from `state["promotion"]["generation"]`, `state["promotion"]["score"]`, `state["promotion"]["detector_hash"]`
+
+`tests/test_project_state_sync.py` updated:
+- Test #4: asserts `actual == declared` (declared count from `project_state.json` must match ledger)
+- Test #21: asserts `state_id == "phase3_generation4_paid_credit_promotion_active"`
+- Test #22: asserts `next_action == "generation4_audited_baseline_owner_decide_next_phase3_step"`
+
+`README.md` status block regenerated via `scripts/update_readme.py` — now renders generation 4 wording from `project_state.json` rather than hardcoded generation 3 strings.
+
+`pytest tests/ -q`: **2364 passed** — all tests pass with SSOT update.
+
 ## No-API / no-runtime-change confirmation
 
 - This audit did not call Gemini or any external model API.

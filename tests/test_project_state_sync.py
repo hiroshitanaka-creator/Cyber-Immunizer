@@ -146,8 +146,11 @@ def test_project_state_matches_ledger_success_count() -> None:
         and e.get("model") == primary_model
         and e.get("success") is True
     )
-    # Machine evidence is authoritative for this docs-only generation 4 audit;
-    # data/project_state.json is intentionally not edited in this PR.
+    declared = state["paid_credit_api_calls"]["gemini_3_flash_preview_success_records"]
+    assert actual == declared, (
+        f"data/project_state.json declares {declared} success records "
+        f"but ledger has {actual}"
+    )
     assert actual == 9, "ledger must contain exactly 9 primary-model paid-credit success records"
 
 
@@ -341,31 +344,31 @@ def test_project_state_doc_mentions_runs_5_6_triage_complete() -> None:
 
 
 # 21.
-def test_state_id_is_run8_candidate_recovered_active() -> None:
+def test_state_id_is_generation4_promotion_active() -> None:
     state = _load(_PROJECT_STATE_PATH)
     assert state.get("state_id") == (
-        "phase3_run8_candidate_recovered_generation3_active"
+        "phase3_generation4_paid_credit_promotion_active"
     ), (
-        "state_id must be 'phase3_run8_candidate_recovered_generation3_active'"
-        " — PR #117 merged; generation 3 is now active on main"
+        "state_id must be 'phase3_generation4_paid_credit_promotion_active'"
+        " — generation 4 promoted via owner-approved paid-credit run #59 on 2026-06-18"
     )
-    assert "pending_owner_merge" not in state.get("state_id", ""), (
-        "state_id must not contain 'pending_owner_merge' — PR #117 has merged"
+    assert "generation3" not in state.get("state_id", ""), (
+        "state_id must not reference generation 3 after generation 4 has been promoted"
     )
 
 
 # 22.
-def test_next_action_is_post_recovery_monitor() -> None:
+def test_next_action_is_generation4_audited_baseline() -> None:
     state = _load(_PROJECT_STATE_PATH)
     assert state.get("next_action") == (
-        "post_recovery_monitor_generation3_and_owner_decide_next_phase3_step"
+        "generation4_audited_baseline_owner_decide_next_phase3_step"
     ), (
-        "next_action must be "
-        "'post_recovery_monitor_generation3_and_owner_decide_next_phase3_step'"
-        " — PR #117 merged; generation 3 active on main; post-recovery monitoring is next"
+        "next_action must be 'generation4_audited_baseline_owner_decide_next_phase3_step'"
+        " — generation 4 is the audited Phase 3 baseline; owner decision required"
+        " before any next paid-credit experiment"
     )
-    assert "pending_owner_merge" not in state.get("next_action", ""), (
-        "next_action must not contain 'pending_owner_merge' — PR #117 has merged"
+    assert "generation3" not in state.get("next_action", ""), (
+        "next_action must not reference generation 3 after generation 4 has been promoted"
     )
 
 
