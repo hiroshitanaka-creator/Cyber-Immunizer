@@ -68,6 +68,19 @@ def _write_candidate(tmp_path: Path) -> Path:
     return p
 
 
+_BENIGN_PASS_RESULT = {
+    "passed": True,
+    "case_results": {
+        name: {"blocked": False, "matched_signals": []}
+        for name in ["method", "path", "query_keys", "query_values",
+                     "header_keys", "header_values", "body", "combined"]
+    },
+    "failing_cases": [],
+    "rejection_reasons": [],
+    "harness_error": False,
+    "error": None,
+}
+
 _BEHAVIORAL_PASS_RESULT = {
     "passed": True,
     "field_results": {
@@ -103,6 +116,9 @@ def _auto_behavioral_pass(request):
     with patch(
         "scripts.evaluate_candidate.run_behavioral_surface_check_subprocess",
         return_value=_BEHAVIORAL_PASS_RESULT,
+    ), patch(
+        "scripts.evaluate_candidate.run_behavioral_benign_control_check_subprocess",
+        return_value=_BENIGN_PASS_RESULT,
     ):
         yield
 
@@ -989,3 +1005,71 @@ class TestEvaluateCandidateBehavioralSurfaceCheck:
         assert any("missing_request_surface" in r for r in result["rejection_reasons"]), (
             f"Expected surface rejection reasons, got: {result['rejection_reasons']}"
         )
+
+
+# ===========================================================================
+# F. Behavioral benign-control evaluation integration
+# ===========================================================================
+
+class TestEvaluateCandidateBehavioralBenignControls:
+    """Benign-control contract failures reject before fitness evaluation."""
+
+    def test_benign_control_failure_is_soft_rejection_without_fitness(self, tmp_path: Path) -> None:
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+        benign_fail = {
+            "passed": False,
+            "case_results": {"method": {"blocked": True, "matched_signals": []}},
+            "failing_cases": ["method"],
+            "rejection_reasons": ["benign_control_blocked"],
+            "harness_error": False,
+            "error": None,
+        }
+        with patch("scripts.evaluate_candidate.validate", return_value={"valid": True, "violations": []}), \
+             patch("scripts.evaluate_candidate.run_behavioral_surface_check_subprocess", return_value=_BEHAVIORAL_PASS_RESULT), \
+             patch("scripts.evaluate_candidate.run_behavioral_benign_control_check_subprocess", return_value=benign_fail), \
+             patch("subprocess.run") as mock_run:
+            result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        assert result["is_tool_failure"] is False
+        assert result["passed_adoption_gate"] is False
+        assert result["fitness_report"] is None
+        assert "benign_control_blocked" in result["rejection_reasons"]
+        assert any(c["name"] == "behavioral_benign_controls" for c in result["contract_checks"])
+        mock_run.assert_not_called()
+
+    def test_benign_control_harness_failure_is_tool_failure(self, tmp_path: Path) -> None:
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+        benign_harness_fail = {
+            "passed": False,
+            "case_results": {},
+            "failing_cases": ["method"],
+            "rejection_reasons": ["benign_control_malformed_result"],
+            "harness_error": True,
+            "error": "behavioral benign-control check failed to launch",
+        }
+        with patch("scripts.evaluate_candidate.validate", return_value={"valid": True, "violations": []}), \
+             patch("scripts.evaluate_candidate.run_behavioral_surface_check_subprocess", return_value=_BEHAVIORAL_PASS_RESULT), \
+             patch("scripts.evaluate_candidate.run_behavioral_benign_control_check_subprocess", return_value=benign_harness_fail), \
+             patch("subprocess.run") as mock_run:
+            result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+
+        assert result["is_tool_failure"] is True
+        assert result["fitness_report"] is None
+        assert any(c["name"] == "behavioral_benign_controls" for c in result["contract_checks"])
+        mock_run.assert_not_called()
+
+    def test_score_transparency_remains_for_fitness_path(self, tmp_path: Path) -> None:
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+        with patch("scripts.evaluate_candidate.validate", return_value={"valid": True, "violations": []}), \
+             patch("scripts.evaluate_candidate.run_behavioral_surface_check_subprocess", return_value=_BEHAVIORAL_PASS_RESULT), \
+             patch("scripts.evaluate_candidate.run_behavioral_benign_control_check_subprocess", return_value=_BENIGN_PASS_RESULT), \
+             patch("subprocess.run", return_value=_fake_proc(_FAKE_PASSING_OUTPUT)):
+            result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path, baseline_mode=True)
+
+        assert result["fitness_report"] is not None
+        assert "score_components" in result["fitness_report"]
+        assert "adoption_decision" in result["fitness_report"]
+        assert any(c["name"] == "behavioral_benign_controls" for c in result["contract_checks"])

@@ -670,3 +670,181 @@ def run_behavioral_surface_check_subprocess(
         "harness_error": False,
         "error": None,
     }
+
+
+# ---------------------------------------------------------------------------
+# 7. Behavioral benign-control check — isolated subprocess
+# ---------------------------------------------------------------------------
+
+_BEHAVIORAL_BENIGN_CONTROL_SCRIPT = """\
+import sys
+import json
+import importlib.util
+
+_SURFACE_FIELDS = (
+    "method", "path", "query_keys", "query_values",
+    "header_keys", "header_values", "body", "combined",
+)
+
+
+def _result_payload(result):
+    if not isinstance(getattr(result, "blocked", None), bool):
+        return None, "blocked must be bool"
+    signals = getattr(result, "matched_signals", None)
+    if signals is None:
+        return None, "matched_signals missing"
+    if isinstance(signals, str):
+        return None, "matched_signals must not be a string"
+    try:
+        signal_list = [str(s) for s in signals]
+    except TypeError:
+        return None, "matched_signals not iterable"
+    return {"blocked": result.blocked, "matched_signals": signal_list}, None
+
+
+def _run(project_root, candidate_path_str):
+    sys.path.insert(0, project_root)
+    from core.types import Request  # noqa: PLC0415
+
+    spec = importlib.util.spec_from_file_location("_cand_benign_control_check", candidate_path_str)
+    if spec is None or spec.loader is None:
+        raise ImportError("Cannot create module spec for " + repr(candidate_path_str))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    inspect_fn = getattr(module, "inspect_request", None)
+    if inspect_fn is None:
+        raise AttributeError("candidate missing inspect_request function")
+
+    cases = {
+        "method": Request(method="BENIGN_METHOD", path="/safe", query={}, headers={}, body=""),
+        "path": Request(method="GET", path="/safe/path", query={}, headers={}, body=""),
+        "query_keys": Request(method="GET", path="/safe", query={"benign_query_key": "value"}, headers={}, body=""),
+        "query_values": Request(method="GET", path="/safe", query={"key": "benign_query_value"}, headers={}, body=""),
+        "header_keys": Request(method="GET", path="/safe", query={}, headers={"benign_header_key": "value"}, body=""),
+        "header_values": Request(method="GET", path="/safe", query={}, headers={"key": "benign_header_value"}, body=""),
+        "body": Request(method="GET", path="/safe", query={}, headers={}, body="benign_body_text"),
+        "combined": Request(
+            method="BENIGN_METHOD",
+            path="/safe/path",
+            query={"benign_query_key": "benign_query_value"},
+            headers={"benign_header_key": "benign_header_value"},
+            body="benign_body_text",
+        ),
+    }
+
+    case_results = {}
+    failing_cases = []
+    reasons = []
+    for name, req in cases.items():
+        try:
+            payload, malformed = _result_payload(inspect_fn(req))
+        except Exception as exc:  # candidate exception is a soft rejection
+            case_results[name] = {"blocked": None, "matched_signals": [], "error": str(exc)}
+            failing_cases.append(name)
+            reasons.append("benign_control_exception")
+            continue
+        if malformed is not None:
+            case_results[name] = {"blocked": None, "matched_signals": [], "error": malformed}
+            failing_cases.append(name)
+            reasons.append("benign_control_malformed_result")
+            continue
+        case_results[name] = payload
+        if payload["blocked"]:
+            failing_cases.append(name)
+            reasons.append("benign_control_blocked")
+        if payload["matched_signals"]:
+            if name not in failing_cases:
+                failing_cases.append(name)
+            reasons.append("benign_control_matched_signal")
+
+    return {
+        "case_results": case_results,
+        "failing_cases": failing_cases,
+        "rejection_reasons": sorted(set(reasons)),
+    }
+
+
+try:
+    _project_root = sys.argv[1]
+    _candidate_path = sys.argv[2]
+    _payload = _run(_project_root, _candidate_path)
+    print(json.dumps({"success": True, **_payload}))
+except Exception as _exc:
+    print(json.dumps({"success": False, "error": str(_exc)}))
+"""
+
+
+def run_behavioral_benign_control_check_subprocess(
+    candidate_path: Path,
+    timeout_seconds: float = 30.0,
+    project_root: Path | None = None,
+) -> dict:
+    """Run benign-control behavioral checks in an isolated subprocess.
+
+    The candidate must not block or emit matched signals for deterministic,
+    synthetic benign Request cases covering every request surface plus a combined
+    benign request. Candidate behavior failures are soft rejections; subprocess
+    infrastructure failures are reported as harness_error=True.
+    """
+    _root = str(project_root or _PROJECT_ROOT)
+    _cases = [*REQUEST_SURFACE_FIELDS, "combined"]
+    _fail_dict = {
+        "passed": False,
+        "case_results": {},
+        "failing_cases": _cases,
+        "rejection_reasons": ["benign_control_malformed_result"],
+    }
+
+    allowed_keys = {
+        "PATH", "PYTHONPATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE",
+        "TMPDIR", "TMP", "TEMP",
+    }
+    safe_env = {k: v for k, v in os.environ.items() if k in allowed_keys}
+
+    def _preexec() -> None:
+        try:
+            import resource as _r  # noqa: PLC0415
+            _r.setrlimit(_r.RLIMIT_CPU, (10, 10))
+            _r.setrlimit(_r.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
+        except Exception:
+            pass
+
+    preexec_fn = _preexec if os.name == "posix" else None
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", _BEHAVIORAL_BENIGN_CONTROL_SCRIPT, _root, str(candidate_path)],
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            env=safe_env,
+            preexec_fn=preexec_fn,
+        )
+    except subprocess.TimeoutExpired:
+        return {**_fail_dict, "harness_error": True, "error": "behavioral benign-control check subprocess timed out"}
+    except Exception as exc:
+        return {**_fail_dict, "harness_error": True, "error": f"behavioral benign-control check failed to launch: {exc}"}
+
+    if proc.returncode != 0:
+        excerpt = (proc.stderr or proc.stdout)[:300]
+        return {**_fail_dict, "harness_error": True, "error": f"behavioral benign-control subprocess exited {proc.returncode}: {excerpt}"}
+
+    try:
+        data = json.loads(proc.stdout.strip())
+    except json.JSONDecodeError:
+        return {**_fail_dict, "harness_error": True, "error": f"behavioral benign-control returned non-JSON output: {proc.stdout[:200]}"}
+
+    if not data.get("success", False):
+        return {**_fail_dict, "harness_error": False, "error": data.get("error", "candidate failed during benign-control check")}
+
+    reasons = data.get("rejection_reasons", [])
+    failing_cases = data.get("failing_cases", [])
+    return {
+        "passed": not reasons and not failing_cases,
+        "case_results": data.get("case_results", {}),
+        "failing_cases": failing_cases,
+        "rejection_reasons": reasons,
+        "harness_error": False,
+        "error": None,
+    }
