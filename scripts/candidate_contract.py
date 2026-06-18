@@ -86,7 +86,13 @@ def check_request_surface_coverage(candidate_source: str) -> ContractCheckResult
 
     Detects missing access to request.method, request.path, request.query
     (keys and values), request.headers (keys and values), and request.body.
-    Uses chained attribute analysis to distinguish .keys() / .values() / .items().
+
+    For query and headers, bare attribute access, .get(), str(), indexing, and
+    f-string interpolation do NOT satisfy coverage. Coverage requires:
+      - .items()  — satisfies both keys and values
+      - .keys()   — satisfies keys only
+      - .values() — satisfies values only
+    Both .keys() and .values() together satisfy full coverage.
     """
     try:
         tree = ast.parse(candidate_source)
@@ -100,10 +106,11 @@ def check_request_surface_coverage(candidate_source: str) -> ContractCheckResult
             ),
         )
 
-    # Direct: request.X  → collected in `accessed`
-    # Chained method: request.X.items() / .keys() / .values() → collected in `method_calls`
+    # Direct: request.X  → collected in `accessed` (used for method, path, body)
+    # Chained: request.X.items() / .keys() / .values() → collected in `method_calls`
     # method_calls keys: "{attr}" for .items(), "{attr}_keys_only" for .keys(),
     #                    "{attr}_values_only" for .values()
+    # For query and headers, only method_calls entries count — not bare accessed.
     accessed: set[str] = set()
     method_calls: set[str] = set()
 
@@ -135,32 +142,24 @@ def check_request_surface_coverage(candidate_source: str) -> ContractCheckResult
     if "path" not in accessed:
         missing.append("path")
 
-    # query
-    if "query" not in accessed:
+    # query: bare access / .get() / str() / indexing do NOT count.
+    # Keys require .items() or .keys(); values require .items() or .values().
+    q_items = "query" in method_calls
+    q_keys = "query_keys_only" in method_calls
+    q_values = "query_values_only" in method_calls
+    if not (q_items or q_keys):
         missing.append("query_keys")
+    if not (q_items or q_values):
         missing.append("query_values")
-    else:
-        # query accessed; check whether only keys or only values are iterated
-        uses_items = "query" in method_calls
-        uses_keys_only = "query_keys_only" in method_calls
-        uses_values_only = "query_values_only" in method_calls
-        if uses_values_only and not uses_items:
-            missing.append("query_keys")
-        if uses_keys_only and not uses_items:
-            missing.append("query_values")
 
-    # headers
-    if "headers" not in accessed:
+    # headers: same rule
+    h_items = "headers" in method_calls
+    h_keys = "headers_keys_only" in method_calls
+    h_values = "headers_values_only" in method_calls
+    if not (h_items or h_keys):
         missing.append("header_keys")
+    if not (h_items or h_values):
         missing.append("header_values")
-    else:
-        uses_items = "headers" in method_calls
-        uses_keys_only = "headers_keys_only" in method_calls
-        uses_values_only = "headers_values_only" in method_calls
-        if uses_values_only and not uses_items:
-            missing.append("header_keys")
-        if uses_keys_only and not uses_items:
-            missing.append("header_values")
 
     if "body" not in accessed:
         missing.append("body")

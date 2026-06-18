@@ -175,6 +175,8 @@ def evaluate_candidate(
             "error": f"candidate file not found: {candidate_path}",
             "is_tool_failure": True,
             "candidate_hash": None,
+            "contract_checks": [],
+            "rejection_reasons": [f"candidate file not found: {candidate_path}"],
         }
         _write_report(result, None, report_path)
         return result

@@ -105,6 +105,40 @@ pytest tests/ -q
 - core/detector.py 編集: **なし**
 - .github/workflows/** 編集: **なし**
 
+## 事後監査対応（2026-06-18）
+
+監査で指摘された merge-blocking weakness に対応し、以下を追加修正した。
+
+### 静的リクエストサーフェスチェックの強化
+
+`check_request_surface_coverage()` を強化し、以下のパターンは query/header coverage を
+**満たさない**ように変更した:
+
+- 裸属性アクセス (`request.query`, `request.headers`)
+- `.get(...)` 呼び出し (`request.query.get(...)`, `request.headers.get(...)`)
+- `str()` 変換 (`str(request.query)`, `str(request.headers)`)
+- f-string 補間 (`f"{request.query}"`, `f"{request.headers}"`)
+- 辞書インデクシング (`request.query["x"]`, `request.headers["x"]`)
+
+coverage として認める唯一のパターン:
+- `.items()` → keys + values 両方を満たす
+- `.keys()` → keys のみ、`.values()` → values のみ
+- `.keys()` と `.values()` の両方 → keys + values 両方を満たす
+
+Generation 3 の `core/detector.py`（`request.query.items()` / `request.headers.items()` 使用）は
+引き続き全チェックを通過することを確認済み。
+
+### missing-candidate result dict の修正
+
+candidate ファイルが存在しない場合の早期 return dict に
+`contract_checks: []` と `rejection_reasons: [...]` を追加し、
+全 result dict への記載という PR の主張と一致させた。
+
+### 追加テスト
+
+`tests/test_candidate_contract.py` に `TestRequestSurfaceCoverageTightened` クラス（19 件）を追加。
+`pytest tests/ -q`: 2272 passed（追加前 2253 から増加）。
+
 ## 残存事項・注意点
 
 - `check_request_surface_coverage_behavioral` は evaluate_candidate.py の通常フロー（Step 2）では

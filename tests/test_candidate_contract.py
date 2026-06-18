@@ -735,3 +735,203 @@ class TestEvaluateCandidateContractChecksInReport:
             assert "name" in check
             assert "passed" in check
             assert "rejection_reasons" in check
+
+
+# ===========================================================================
+# I. Tightened static request-surface coverage: bare access / .get() / str()
+#    do NOT count; .items() or both .keys() and .values() are required
+# ===========================================================================
+
+# Candidate using .get() on query and headers (not .items()/.keys()/.values())
+_QUERY_GET_ONLY = """\
+\"\"\"Candidate accessing query and header values via .get().\"\"\"
+from core.types import Request, DetectionResult
+
+def inspect_request(request: Request) -> DetectionResult:
+    # === MUTATION_START ===
+    tokens = ("path_traversal_indicator", "script_injection_indicator", "sqli_indicator", "command_delimiter_indicator", "encoded_traversal_indicator")
+    surface_list = []
+    surface_list.append(request.method.lower())
+    surface_list.append(request.path.lower())
+    surface_list.append(str(request.query.get("x", "")).lower())
+    surface_list.append(str(request.headers.get("x", "")).lower())
+    surface_list.append(request.body.lower())
+    surface = " ".join(surface_list)
+    for token in tokens:
+        if token in surface:
+            return DetectionResult(blocked=True, reason="match", confidence=0.9, matched_signals=(token,))
+    return DetectionResult(blocked=False, reason="clean", confidence=0.0, matched_signals=())
+    # === MUTATION_END ===
+"""
+
+# Candidate using str(request.query) and str(request.headers)
+_STR_QUERY_HEADERS = """\
+\"\"\"Candidate stringifying query and headers objects.\"\"\"
+from core.types import Request, DetectionResult
+
+def inspect_request(request: Request) -> DetectionResult:
+    # === MUTATION_START ===
+    tokens = ("path_traversal_indicator", "script_injection_indicator", "sqli_indicator", "command_delimiter_indicator", "encoded_traversal_indicator")
+    surface = (request.method.lower() + " " + request.path.lower() + " "
+               + str(request.query).lower() + " " + str(request.headers).lower()
+               + " " + request.body.lower())
+    for token in tokens:
+        if token in surface:
+            return DetectionResult(blocked=True, reason="match", confidence=0.9, matched_signals=(token,))
+    return DetectionResult(blocked=False, reason="clean", confidence=0.0, matched_signals=())
+    # === MUTATION_END ===
+"""
+
+# Candidate assigning bare request.query / request.headers to local vars
+_BARE_QUERY_HEADERS = """\
+\"\"\"Candidate assigning query and headers to local variables without iteration.\"\"\"
+from core.types import Request, DetectionResult
+
+def inspect_request(request: Request) -> DetectionResult:
+    # === MUTATION_START ===
+    tokens = ("path_traversal_indicator", "script_injection_indicator", "sqli_indicator", "command_delimiter_indicator", "encoded_traversal_indicator")
+    q = request.query
+    h = request.headers
+    surface = (request.method.lower() + " " + request.path.lower() + " "
+               + str(q).lower() + " " + str(h).lower() + " " + request.body.lower())
+    for token in tokens:
+        if token in surface:
+            return DetectionResult(blocked=True, reason="match", confidence=0.9, matched_signals=(token,))
+    return DetectionResult(blocked=False, reason="clean", confidence=0.0, matched_signals=())
+    # === MUTATION_END ===
+"""
+
+# Candidate iterating only .keys() on query and headers (no values)
+_QUERY_KEYS_ONLY_CANDIDATE = """\
+\"\"\"Candidate iterating only keys of query and headers.\"\"\"
+from core.types import Request, DetectionResult
+
+def inspect_request(request: Request) -> DetectionResult:
+    # === MUTATION_START ===
+    tokens = ("path_traversal_indicator", "script_injection_indicator", "sqli_indicator", "command_delimiter_indicator", "encoded_traversal_indicator")
+    surface_list = [request.method.lower(), request.path.lower(), request.body.lower()]
+    for k in request.query.keys():
+        surface_list.append(k.lower())
+    for k in request.headers.keys():
+        surface_list.append(k.lower())
+    surface = " ".join(surface_list)
+    for token in tokens:
+        if token in surface:
+            return DetectionResult(blocked=True, reason="match", confidence=0.9, matched_signals=(token,))
+    return DetectionResult(blocked=False, reason="clean", confidence=0.0, matched_signals=())
+    # === MUTATION_END ===
+"""
+
+# Candidate using both .keys() and .values() (no .items()) — should pass
+_BOTH_KEYS_AND_VALUES = """\
+\"\"\"Candidate iterating query and header keys and values separately.\"\"\"
+from core.types import Request, DetectionResult
+
+def inspect_request(request: Request) -> DetectionResult:
+    # === MUTATION_START ===
+    tokens = ("path_traversal_indicator", "script_injection_indicator", "sqli_indicator", "command_delimiter_indicator", "encoded_traversal_indicator")
+    surface_list = [request.method.lower(), request.path.lower(), request.body.lower()]
+    for k in request.query.keys():
+        surface_list.append(k.lower())
+    for v in request.query.values():
+        surface_list.append(v.lower())
+    for k in request.headers.keys():
+        surface_list.append(k.lower())
+    for v in request.headers.values():
+        surface_list.append(v.lower())
+    surface = " ".join(surface_list)
+    for token in tokens:
+        if token in surface:
+            return DetectionResult(blocked=True, reason="match", confidence=0.9, matched_signals=(token,))
+    return DetectionResult(blocked=False, reason="clean", confidence=0.0, matched_signals=())
+    # === MUTATION_END ===
+"""
+
+
+class TestRequestSurfaceCoverageTightened:
+    """Tightened static check: .get()/bare/str() do not satisfy coverage."""
+
+    def test_query_get_rejected_missing_query_keys(self) -> None:
+        result = check_request_surface_coverage(_QUERY_GET_ONLY)
+        assert not result.passed
+        assert "missing_request_surface:query_keys" in result.rejection_reasons
+
+    def test_query_get_rejected_missing_query_values(self) -> None:
+        result = check_request_surface_coverage(_QUERY_GET_ONLY)
+        assert "missing_request_surface:query_values" in result.rejection_reasons
+
+    def test_headers_get_rejected_missing_header_keys(self) -> None:
+        result = check_request_surface_coverage(_QUERY_GET_ONLY)
+        assert "missing_request_surface:header_keys" in result.rejection_reasons
+
+    def test_headers_get_rejected_missing_header_values(self) -> None:
+        result = check_request_surface_coverage(_QUERY_GET_ONLY)
+        assert "missing_request_surface:header_values" in result.rejection_reasons
+
+    def test_str_query_rejected_missing_query_keys(self) -> None:
+        result = check_request_surface_coverage(_STR_QUERY_HEADERS)
+        assert not result.passed
+        assert "missing_request_surface:query_keys" in result.rejection_reasons
+
+    def test_str_query_rejected_missing_query_values(self) -> None:
+        result = check_request_surface_coverage(_STR_QUERY_HEADERS)
+        assert "missing_request_surface:query_values" in result.rejection_reasons
+
+    def test_str_headers_rejected_missing_header_keys(self) -> None:
+        result = check_request_surface_coverage(_STR_QUERY_HEADERS)
+        assert "missing_request_surface:header_keys" in result.rejection_reasons
+
+    def test_str_headers_rejected_missing_header_values(self) -> None:
+        result = check_request_surface_coverage(_STR_QUERY_HEADERS)
+        assert "missing_request_surface:header_values" in result.rejection_reasons
+
+    def test_bare_query_rejected_missing_query_keys(self) -> None:
+        result = check_request_surface_coverage(_BARE_QUERY_HEADERS)
+        assert not result.passed
+        assert "missing_request_surface:query_keys" in result.rejection_reasons
+
+    def test_bare_query_rejected_missing_query_values(self) -> None:
+        result = check_request_surface_coverage(_BARE_QUERY_HEADERS)
+        assert "missing_request_surface:query_values" in result.rejection_reasons
+
+    def test_bare_headers_rejected_missing_header_keys(self) -> None:
+        result = check_request_surface_coverage(_BARE_QUERY_HEADERS)
+        assert "missing_request_surface:header_keys" in result.rejection_reasons
+
+    def test_bare_headers_rejected_missing_header_values(self) -> None:
+        result = check_request_surface_coverage(_BARE_QUERY_HEADERS)
+        assert "missing_request_surface:header_values" in result.rejection_reasons
+
+    def test_keys_only_rejected_missing_query_values(self) -> None:
+        result = check_request_surface_coverage(_QUERY_KEYS_ONLY_CANDIDATE)
+        assert not result.passed
+        assert "missing_request_surface:query_values" in result.rejection_reasons
+
+    def test_keys_only_rejected_missing_header_values(self) -> None:
+        result = check_request_surface_coverage(_QUERY_KEYS_ONLY_CANDIDATE)
+        assert "missing_request_surface:header_values" in result.rejection_reasons
+
+    def test_keys_only_does_not_flag_missing_keys(self) -> None:
+        result = check_request_surface_coverage(_QUERY_KEYS_ONLY_CANDIDATE)
+        assert "missing_request_surface:query_keys" not in result.rejection_reasons
+        assert "missing_request_surface:header_keys" not in result.rejection_reasons
+
+    def test_both_keys_and_values_passes_query_coverage(self) -> None:
+        result = check_request_surface_coverage(_BOTH_KEYS_AND_VALUES)
+        assert "missing_request_surface:query_keys" not in result.rejection_reasons
+        assert "missing_request_surface:query_values" not in result.rejection_reasons
+
+    def test_both_keys_and_values_passes_header_coverage(self) -> None:
+        result = check_request_surface_coverage(_BOTH_KEYS_AND_VALUES)
+        assert "missing_request_surface:header_keys" not in result.rejection_reasons
+        assert "missing_request_surface:header_values" not in result.rejection_reasons
+
+    def test_both_keys_and_values_full_pass(self) -> None:
+        result = check_request_surface_coverage(_BOTH_KEYS_AND_VALUES)
+        assert result.passed, f"Unexpected failures: {result.rejection_reasons}"
+
+    def test_actual_detector_still_passes(self) -> None:
+        """Generation 3 core/detector.py must still pass the tightened check."""
+        detector = (_PROJECT_ROOT / "core" / "detector.py").read_text(encoding="utf-8")
+        result = check_request_surface_coverage(detector)
+        assert result.passed, f"Detector fails tightened check: {result.rejection_reasons}"
