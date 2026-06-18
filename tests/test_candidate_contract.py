@@ -34,6 +34,7 @@ from scripts.candidate_contract import (
     check_mutation_region_integrity,
     check_request_surface_coverage,
     check_request_surface_coverage_behavioral,
+    run_behavioral_surface_check_subprocess,
     run_candidate_contract_checks,
 )
 
@@ -935,3 +936,232 @@ class TestRequestSurfaceCoverageTightened:
         detector = (_PROJECT_ROOT / "core" / "detector.py").read_text(encoding="utf-8")
         result = check_request_surface_coverage(detector)
         assert result.passed, f"Detector fails tightened check: {result.rejection_reasons}"
+
+
+# ===========================================================================
+# J. Behavioral request-surface coverage — subprocess
+# ===========================================================================
+
+# All surface accesses are in an unreachable if False block.
+# Static AST check passes (it sees all accesses); runtime only detects body.
+_UNREACHABLE_SURFACE = """\
+\"\"\"Candidate hiding all surface accesses in unreachable if False block.\"\"\"
+from core.types import Request, DetectionResult
+
+def inspect_request(request: Request) -> DetectionResult:
+    # === MUTATION_START ===
+    tokens = ("path_traversal_indicator", "script_injection_indicator", "sqli_indicator", "command_delimiter_indicator", "encoded_traversal_indicator")
+    if False:
+        surface_list = []
+        surface_list.append(request.method.lower())
+        surface_list.append(request.path.lower())
+        for k, v in request.query.items():
+            surface_list.append(k.lower())
+            surface_list.append(v.lower())
+        for k, v in request.headers.items():
+            surface_list.append(k.lower())
+            surface_list.append(v.lower())
+        surface_list.append(request.body.lower())
+    surface = request.body.lower()
+    for token in tokens:
+        if token in surface:
+            return DetectionResult(blocked=True, reason="match", confidence=0.9, matched_signals=(token,))
+    return DetectionResult(blocked=False, reason="clean", confidence=0.0, matched_signals=())
+    # === MUTATION_END ===
+"""
+
+# Headers in unreachable code; runtime inspects everything except headers.
+_HEADER_BLIND_SPOT_UNREACHABLE = """\
+\"\"\"Candidate with header access only in unreachable code.\"\"\"
+from core.types import Request, DetectionResult
+
+def inspect_request(request: Request) -> DetectionResult:
+    # === MUTATION_START ===
+    tokens = ("path_traversal_indicator", "script_injection_indicator", "sqli_indicator", "command_delimiter_indicator", "encoded_traversal_indicator")
+    if False:
+        for k, v in request.headers.items():
+            pass
+    surface_list = [request.method.lower(), request.path.lower(), request.body.lower()]
+    for k, v in request.query.items():
+        surface_list.append(k.lower())
+        surface_list.append(v.lower())
+    surface = " ".join(surface_list)
+    for token in tokens:
+        if token in surface:
+            return DetectionResult(blocked=True, reason="match", confidence=0.9, matched_signals=(token,))
+    return DetectionResult(blocked=False, reason="clean", confidence=0.0, matched_signals=())
+    # === MUTATION_END ===
+"""
+
+# Method in unreachable code; runtime inspects everything except method.
+_METHOD_BLIND_SPOT_UNREACHABLE = """\
+\"\"\"Candidate with method access only in unreachable code.\"\"\"
+from core.types import Request, DetectionResult
+
+def inspect_request(request: Request) -> DetectionResult:
+    # === MUTATION_START ===
+    tokens = ("path_traversal_indicator", "script_injection_indicator", "sqli_indicator", "command_delimiter_indicator", "encoded_traversal_indicator")
+    if False:
+        _ = request.method.lower()
+    surface_list = [request.path.lower(), request.body.lower()]
+    for k, v in request.query.items():
+        surface_list.append(k.lower())
+        surface_list.append(v.lower())
+    for k, v in request.headers.items():
+        surface_list.append(k.lower())
+        surface_list.append(v.lower())
+    surface = " ".join(surface_list)
+    for token in tokens:
+        if token in surface:
+            return DetectionResult(blocked=True, reason="match", confidence=0.9, matched_signals=(token,))
+    return DetectionResult(blocked=False, reason="clean", confidence=0.0, matched_signals=())
+    # === MUTATION_END ===
+"""
+
+# Query in unreachable code; runtime inspects everything except query.
+_QUERY_BLIND_SPOT_UNREACHABLE = """\
+\"\"\"Candidate with query access only in unreachable code.\"\"\"
+from core.types import Request, DetectionResult
+
+def inspect_request(request: Request) -> DetectionResult:
+    # === MUTATION_START ===
+    tokens = ("path_traversal_indicator", "script_injection_indicator", "sqli_indicator", "command_delimiter_indicator", "encoded_traversal_indicator")
+    if False:
+        for k, v in request.query.items():
+            pass
+    surface_list = [request.method.lower(), request.path.lower(), request.body.lower()]
+    for k, v in request.headers.items():
+        surface_list.append(k.lower())
+        surface_list.append(v.lower())
+    surface = " ".join(surface_list)
+    for token in tokens:
+        if token in surface:
+            return DetectionResult(blocked=True, reason="match", confidence=0.9, matched_signals=(token,))
+    return DetectionResult(blocked=False, reason="clean", confidence=0.0, matched_signals=())
+    # === MUTATION_END ===
+"""
+
+
+class TestBehavioralSurfaceContractSubprocess:
+    """Behavioral subprocess check catches runtime blind spots that static AST misses."""
+
+    def _write(self, tmp_path: Path, source: str) -> Path:
+        p = tmp_path / "candidate.py"
+        p.write_text(source, encoding="utf-8")
+        return p
+
+    # -- Static passes / behavioral fails (regression tests) --
+
+    def test_unreachable_passes_static_check(self) -> None:
+        """Unreachable-code candidate must pass the static AST check."""
+        result = check_request_surface_coverage(_UNREACHABLE_SURFACE)
+        assert result.passed, (
+            "Static check should not detect unreachable code; behavioral check must catch it"
+        )
+
+    def test_unreachable_fails_behavioral_check(self, tmp_path: Path) -> None:
+        """Unreachable-code candidate must fail behavioral subprocess check."""
+        p = self._write(tmp_path, _UNREACHABLE_SURFACE)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert not result["passed"]
+        assert not result["harness_error"]
+
+    def test_unreachable_missing_method(self, tmp_path: Path) -> None:
+        p = self._write(tmp_path, _UNREACHABLE_SURFACE)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert "missing_request_surface:method" in result["rejection_reasons"]
+
+    def test_unreachable_missing_query_keys(self, tmp_path: Path) -> None:
+        p = self._write(tmp_path, _UNREACHABLE_SURFACE)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert "missing_request_surface:query_keys" in result["rejection_reasons"]
+
+    def test_unreachable_missing_header_keys(self, tmp_path: Path) -> None:
+        p = self._write(tmp_path, _UNREACHABLE_SURFACE)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert "missing_request_surface:header_keys" in result["rejection_reasons"]
+
+    def test_unreachable_body_still_detected(self, tmp_path: Path) -> None:
+        p = self._write(tmp_path, _UNREACHABLE_SURFACE)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert result["field_results"].get("body") is True
+
+    # -- Header blind spot --
+
+    def test_header_blind_spot_passes_static(self) -> None:
+        result = check_request_surface_coverage(_HEADER_BLIND_SPOT_UNREACHABLE)
+        assert result.passed, "Static check should pass (headers.items() visible in AST)"
+
+    def test_header_blind_spot_fails_behavioral(self, tmp_path: Path) -> None:
+        p = self._write(tmp_path, _HEADER_BLIND_SPOT_UNREACHABLE)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert not result["passed"]
+
+    def test_header_blind_spot_missing_header_keys(self, tmp_path: Path) -> None:
+        p = self._write(tmp_path, _HEADER_BLIND_SPOT_UNREACHABLE)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert "missing_request_surface:header_keys" in result["rejection_reasons"]
+
+    def test_header_blind_spot_missing_header_values(self, tmp_path: Path) -> None:
+        p = self._write(tmp_path, _HEADER_BLIND_SPOT_UNREACHABLE)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert "missing_request_surface:header_values" in result["rejection_reasons"]
+
+    # -- Method blind spot --
+
+    def test_method_blind_spot_fails_behavioral(self, tmp_path: Path) -> None:
+        p = self._write(tmp_path, _METHOD_BLIND_SPOT_UNREACHABLE)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert not result["passed"]
+        assert "missing_request_surface:method" in result["rejection_reasons"]
+
+    # -- Query blind spot --
+
+    def test_query_blind_spot_fails_behavioral(self, tmp_path: Path) -> None:
+        p = self._write(tmp_path, _QUERY_BLIND_SPOT_UNREACHABLE)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert not result["passed"]
+        assert "missing_request_surface:query_keys" in result["rejection_reasons"]
+        assert "missing_request_surface:query_values" in result["rejection_reasons"]
+
+    # -- Full candidate passes --
+
+    def test_full_candidate_passes_behavioral(self, tmp_path: Path) -> None:
+        p = self._write(tmp_path, _FULL_CANDIDATE)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert result["passed"]
+        assert not result["harness_error"]
+
+    def test_actual_detector_passes_behavioral(self) -> None:
+        detector_path = _PROJECT_ROOT / "core" / "detector.py"
+        result = run_behavioral_surface_check_subprocess(detector_path, timeout_seconds=30)
+        assert result["passed"], f"Detector fails behavioral check: {result['rejection_reasons']}"
+
+    # -- Harness safety --
+
+    def test_subprocess_isolation_sys_exit_does_not_crash_parent(self, tmp_path: Path) -> None:
+        """Candidate calling sys.exit() must not crash the parent process."""
+        p = tmp_path / "candidate.py"
+        p.write_text("import sys\nsys.exit(42)\n", encoding="utf-8")
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=10)
+        # subprocess exits non-zero → harness_error; parent survives
+        assert result["harness_error"]
+
+    def test_broken_candidate_returns_harness_error_false(self, tmp_path: Path) -> None:
+        """Candidate that raises during inspect_request is a soft reject, not harness error."""
+        bad = """\
+from core.types import Request, DetectionResult
+def inspect_request(request: Request) -> DetectionResult:
+    raise RuntimeError("candidate error")
+"""
+        p = self._write(tmp_path, bad)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=10)
+        # Candidate raises during field tests — all fields False — soft reject
+        assert not result["passed"]
+        assert not result["harness_error"]
+
+    def test_result_dict_has_required_keys(self, tmp_path: Path) -> None:
+        p = self._write(tmp_path, _FULL_CANDIDATE)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        for key in ("passed", "field_results", "missing", "rejection_reasons", "harness_error"):
+            assert key in result, f"Missing key: {key}"

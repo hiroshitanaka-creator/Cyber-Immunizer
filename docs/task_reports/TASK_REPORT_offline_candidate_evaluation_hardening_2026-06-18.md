@@ -147,3 +147,33 @@ candidate ファイルが存在しない場合の早期 return dict に
 - `base_source` の自動ロードは意図的に削除済み。evaluate_candidate.py 側で明示提供する設計。
 - 採点ゲート（adoption gate）: `score > previous_best_score` の厳格な不等号は変更していない
   （`core/fitness.py` 未変更）。
+
+---
+
+### Audit P1 follow-up — 行動的リクエストサーフェスチェック（2026-06-18）
+
+Codex P1「Verify request surface coverage at runtime」に対応した。
+
+**問題**: 静的 AST チェックは `if False:` ブロック内の unreachable code を通過させる。
+`request.headers.items()` が unreachable block にあれば static check は pass するが、
+runtime では headers を検査しない candidate が fitness まで到達できた。
+
+**対応**:
+
+- `scripts/candidate_contract.py` に `run_behavioral_surface_check_subprocess()` を追加
+  - isolated subprocess (POSIX resource limits + stripped env + no API keys) で candidate を実行
+  - 7 つの synthetic `Request`（field ごと 1 件）を使って全 surface field を個別検証
+  - candidate code は親プロセスで import しない
+- `scripts/evaluate_candidate.py` に Step 2b を追加
+  - Step 2a（static）通過後、Step 3（resource limits）前に実行
+  - harness error → `is_tool_failure=True`、coverage miss → soft reject（`is_tool_failure=False`）
+  - `contract_checks` に `request_surface_coverage_behavioral` エントリを追加
+
+**確認**:
+
+- `core/detector.py`（generation 3）は静的・行動的両チェックを通過することを確認
+- `if False:` unreachable code を持つ candidate は behavioral check で拒否されることを確認
+- `is_tool_failure=False` で soft reject されることを確認
+- `pytest tests/ -q`: `2294 passed`
+- frozen files 未変更
+- Gemini / 外部 API / workflow_dispatch / paid-credit run なし

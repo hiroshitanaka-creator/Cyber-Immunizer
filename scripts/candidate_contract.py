@@ -6,12 +6,19 @@ Deterministic, offline, network-free checks that fail closed when a candidate:
   - alters code outside the allowed mutation region
   - produces inconsistent candidate/report hashes
 
-No Gemini, no external API, no subprocess, no network.
+Static checks (1–4) are offline, network-free, no subprocess.
+The behavioral surface check (run_behavioral_surface_check_subprocess) uses an
+isolated subprocess with stripped environment and POSIX resource limits.
+No Gemini, no external API, no network.
 """
 from __future__ import annotations
 
 import ast
 import hashlib
+import json
+import os
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -425,4 +432,198 @@ def run_candidate_contract_checks(
             for c in checks
         ],
         "candidate_hash": actual_hash,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 6. Behavioral request-surface coverage check — isolated subprocess
+# ---------------------------------------------------------------------------
+
+_BEHAVIORAL_CHECK_SCRIPT = """\
+import sys
+import json
+import importlib.util
+
+_SURFACE_FIELDS = (
+    "method", "path", "query_keys", "query_values",
+    "header_keys", "header_values", "body",
+)
+_INDICATOR = "path_traversal_indicator"
+
+
+def _run(project_root, candidate_path_str):
+    sys.path.insert(0, project_root)
+    from core.types import Request  # noqa: PLC0415
+
+    spec = importlib.util.spec_from_file_location("_cand_behavioral_check", candidate_path_str)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot create module spec for {candidate_path_str!r}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    inspect_fn = getattr(module, "inspect_request", None)
+    if inspect_fn is None:
+        raise AttributeError("candidate missing inspect_request function")
+
+    test_cases = {
+        "method": Request(method=_INDICATOR, path="/safe", query={}, headers={}, body=""),
+        "path": Request(method="GET", path=f"/{_INDICATOR}", query={}, headers={}, body=""),
+        "query_keys": Request(
+            method="GET", path="/safe", query={_INDICATOR: "safe"}, headers={}, body=""
+        ),
+        "query_values": Request(
+            method="GET", path="/safe", query={"safe": _INDICATOR}, headers={}, body=""
+        ),
+        "header_keys": Request(
+            method="GET", path="/safe", query={}, headers={_INDICATOR: "safe"}, body=""
+        ),
+        "header_values": Request(
+            method="GET", path="/safe", query={}, headers={"safe": _INDICATOR}, body=""
+        ),
+        "body": Request(method="GET", path="/safe", query={}, headers={}, body=_INDICATOR),
+    }
+
+    field_results = {}
+    for field, req in test_cases.items():
+        try:
+            result = inspect_fn(req)
+            field_results[field] = bool(getattr(result, "blocked", False))
+        except Exception:
+            field_results[field] = False
+
+    missing = [f for f in _SURFACE_FIELDS if not field_results.get(f, False)]
+    return field_results, missing
+
+
+try:
+    _project_root = sys.argv[1]
+    _candidate_path = sys.argv[2]
+    _field_results, _missing = _run(_project_root, _candidate_path)
+    print(json.dumps({
+        "success": True,
+        "field_results": _field_results,
+        "missing": _missing,
+    }))
+except Exception as _exc:
+    _all_false = {
+        f: False for f in (
+            "method", "path", "query_keys", "query_values",
+            "header_keys", "header_values", "body",
+        )
+    }
+    print(json.dumps({
+        "success": False,
+        "error": str(_exc),
+        "field_results": _all_false,
+        "missing": list(_all_false),
+    }))
+"""
+
+
+def run_behavioral_surface_check_subprocess(
+    candidate_path: Path,
+    timeout_seconds: float = 30.0,
+    project_root: Path | None = None,
+) -> dict:
+    """Run behavioral request-surface coverage check in an isolated subprocess.
+
+    The candidate is loaded and executed against synthetic Request objects in a
+    subprocess with stripped environment (no API keys, no secrets) and conservative
+    POSIX resource limits. No candidate code runs in the parent process.
+
+    Returns a dict:
+        passed: bool
+        field_results: dict[str, bool]
+        missing: list[str]
+        rejection_reasons: list[str]
+        harness_error: bool  — True if subprocess itself failed (is_tool_failure=True)
+        error: str | None
+    """
+    _root = str(project_root or _PROJECT_ROOT)
+    _all_fields = list(REQUEST_SURFACE_FIELDS)
+    _all_missing = {
+        "passed": False,
+        "field_results": {f: False for f in _all_fields},
+        "missing": _all_fields,
+        "rejection_reasons": [f"missing_request_surface:{f}" for f in _all_fields],
+    }
+
+    # Stripped environment — no API keys, no secrets, no write tokens
+    allowed_keys = {
+        "PATH", "PYTHONPATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE",
+        "TMPDIR", "TMP", "TEMP",
+    }
+    safe_env = {k: v for k, v in os.environ.items() if k in allowed_keys}
+
+    # Conservative POSIX resource limits applied in child process only
+    def _preexec() -> None:
+        try:
+            import resource as _r  # noqa: PLC0415
+            _r.setrlimit(_r.RLIMIT_CPU, (10, 10))
+            _r.setrlimit(_r.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
+        except Exception:
+            pass
+
+    preexec_fn = _preexec if os.name == "posix" else None
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", _BEHAVIORAL_CHECK_SCRIPT, _root, str(candidate_path)],
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            env=safe_env,
+            preexec_fn=preexec_fn,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            **_all_missing,
+            "harness_error": True,
+            "error": "behavioral surface check subprocess timed out",
+        }
+    except Exception as exc:
+        return {
+            **_all_missing,
+            "harness_error": True,
+            "error": f"behavioral surface check failed to launch: {exc}",
+        }
+
+    if proc.returncode != 0:
+        excerpt = (proc.stderr or proc.stdout)[:300]
+        return {
+            **_all_missing,
+            "harness_error": True,
+            "error": f"behavioral check subprocess exited {proc.returncode}: {excerpt}",
+        }
+
+    try:
+        data = json.loads(proc.stdout.strip())
+    except json.JSONDecodeError:
+        return {
+            **_all_missing,
+            "harness_error": True,
+            "error": f"behavioral check returned non-JSON output: {proc.stdout[:200]}",
+        }
+
+    if not data.get("success", False):
+        # Candidate failed to load or raised during detection — soft reject
+        return {
+            "passed": False,
+            "field_results": data.get("field_results", {f: False for f in _all_fields}),
+            "missing": _all_fields,
+            "rejection_reasons": [f"missing_request_surface:{f}" for f in _all_fields],
+            "harness_error": False,
+            "error": data.get("error", "candidate failed during behavioral surface check"),
+        }
+
+    field_results = data.get("field_results", {})
+    missing = data.get("missing", [])
+
+    return {
+        "passed": len(missing) == 0,
+        "field_results": field_results,
+        "missing": missing,
+        "rejection_reasons": [f"missing_request_surface:{f}" for f in missing],
+        "harness_error": False,
+        "error": None,
     }

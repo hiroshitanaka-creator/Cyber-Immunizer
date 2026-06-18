@@ -44,7 +44,10 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from scripts.validate_mutation import validate  # noqa: E402
-from scripts.candidate_contract import run_candidate_contract_checks  # noqa: E402
+from scripts.candidate_contract import (  # noqa: E402
+    run_candidate_contract_checks,
+    run_behavioral_surface_check_subprocess,
+)
 
 _REPORT_PATH = _PROJECT_ROOT / ".cyber_immunizer" / "fitness_report.json"
 
@@ -229,6 +232,57 @@ def evaluate_candidate(
         _write_report(result, candidate_hash, report_path)
         return result
 
+    # --- Step 2b: Behavioral request-surface check (isolated subprocess, no secrets) ---
+    behavioral_raw = run_behavioral_surface_check_subprocess(
+        candidate_path, timeout_seconds=min(float(timeout_seconds), 30.0)
+    )
+    behavioral_check_entry = {
+        "name": "request_surface_coverage_behavioral",
+        "passed": behavioral_raw["passed"],
+        "details": {
+            "field_results": behavioral_raw.get("field_results", {}),
+            "missing_surface_fields": behavioral_raw.get("missing", []),
+        },
+        "rejection_reasons": behavioral_raw.get("rejection_reasons", []),
+    }
+    # All subsequent result dicts include both static and behavioral checks
+    all_contract_checks = contract_result["contract_checks"] + [behavioral_check_entry]
+
+    if behavioral_raw.get("harness_error"):
+        result = {
+            "success": False,
+            "passed_adoption_gate": False,
+            "timed_out": False,
+            "return_code": None,
+            "violations": behavioral_raw.get("rejection_reasons", []),
+            "fitness_report": None,
+            "error": behavioral_raw.get("error", "behavioral surface check harness error"),
+            "is_tool_failure": True,
+            "candidate_hash": candidate_hash,
+            "contract_checks": all_contract_checks,
+            "rejection_reasons": behavioral_raw.get("rejection_reasons", []),
+        }
+        _write_report(result, candidate_hash, report_path)
+        return result
+
+    if not behavioral_raw["passed"]:
+        reasons = behavioral_raw["rejection_reasons"]
+        result = {
+            "success": False,
+            "passed_adoption_gate": False,
+            "timed_out": False,
+            "return_code": None,
+            "violations": reasons,
+            "fitness_report": None,
+            "error": f"behavioral surface check failed: {'; '.join(reasons)}",
+            "is_tool_failure": False,
+            "candidate_hash": candidate_hash,
+            "contract_checks": all_contract_checks,
+            "rejection_reasons": reasons,
+        }
+        _write_report(result, candidate_hash, report_path)
+        return result
+
     # --- Step 3: Build physical resource limiter (fail closed if unsupported) ---
     # On Linux/POSIX, resource limits are mandatory.  We never run untrusted
     # candidate code without rlimits; if they cannot be set, we fail closed.
@@ -246,7 +300,7 @@ def evaluate_candidate(
                 "error": f"resource limit setup failed: {exc}",
                 "is_tool_failure": True,
                 "candidate_hash": candidate_hash,
-                "contract_checks": contract_result["contract_checks"],
+                "contract_checks": all_contract_checks,
                 "rejection_reasons": [],
             }
             _write_report(result, candidate_hash, report_path)
@@ -267,7 +321,7 @@ def evaluate_candidate(
             ),
             "is_tool_failure": True,
             "candidate_hash": candidate_hash,
-            "contract_checks": contract_result["contract_checks"],
+            "contract_checks": all_contract_checks,
             "rejection_reasons": [],
         }
         _write_report(result, candidate_hash, report_path)
@@ -308,7 +362,7 @@ def evaluate_candidate(
             "error": f"evaluation subprocess timed out after {timeout_seconds}s",
             "is_tool_failure": True,  # timeout is a tool failure
             "candidate_hash": candidate_hash,
-            "contract_checks": contract_result["contract_checks"],
+            "contract_checks": all_contract_checks,
             "rejection_reasons": [],
         }
         _write_report(result, candidate_hash, report_path)
@@ -324,7 +378,7 @@ def evaluate_candidate(
             "error": f"subprocess launch failed: {exc}",
             "is_tool_failure": True,
             "candidate_hash": candidate_hash,
-            "contract_checks": contract_result["contract_checks"],
+            "contract_checks": all_contract_checks,
             "rejection_reasons": [],
         }
         _write_report(result, candidate_hash, report_path)
@@ -349,7 +403,7 @@ def evaluate_candidate(
             "error": parse_error or f"empty fitness output (stderr={stderr!r})",
             "is_tool_failure": True,  # parse failure is a tool failure
             "candidate_hash": candidate_hash,
-            "contract_checks": contract_result["contract_checks"],
+            "contract_checks": all_contract_checks,
             "rejection_reasons": [],
         }
         _write_report(result, candidate_hash, report_path)
@@ -368,7 +422,7 @@ def evaluate_candidate(
         "error": "" if passed else "adoption gate not passed",
         "is_tool_failure": False,  # gate evaluated cleanly — not a tool failure
         "candidate_hash": candidate_hash,
-        "contract_checks": contract_result["contract_checks"],
+        "contract_checks": all_contract_checks,
         "rejection_reasons": list(fitness_report.get("rejection_reasons", [])),
     }
     _write_report(result, candidate_hash, report_path)
