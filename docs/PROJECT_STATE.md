@@ -55,7 +55,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | evaluate reached | **Yes** (runs 5, 6 & 8 reached evaluate) |
 | adoption gate passed | **Yes (run 8, 2026-06-17)** — runs 5 & 6 were rejected (score regression under old formula); run 8 passed the adoption gate for the first time |
 | promote reached | **Yes (run 8, 2026-06-17)** — promote was reached; original push failed (push-race; hardened in PR #115); candidate recovered via owner-audited recovery 2026-06-18 |
-| promote_approved | **true** — run 8 candidate promoted to generation 3 via owner-audited recovery (2026-06-18); score 947.66; hash c488855e…; this PR pending owner merge |
+| promote_approved | **true** — run 8 candidate recovered via PR #117 and active on main as generation 3; score 947.66; hash c488855e… |
 | Generation | **3** (promoted 2026-06-18) |
 | best_score | **947.66** (generation 3, hash c488855e…) |
 | Propose/output-contract hardening | Implemented in PR #84; G1 repeat-multiplier gap closure in PR #91 (merged) |
@@ -65,8 +65,8 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | run 8 (2026-06-17, id 27683267711) | **artifact triage complete** → `promote_push_failed_recovered` — adoption gate passed; promote reached; original push failed (push-race); **candidate recovered and promoted to generation 3 via owner-audited recovery 2026-06-18** |
 | Propose-side baseline-preservation hardening | **Implemented** (Gemini propose prompt now requires preserving all five symbolic indicators, the full request inspection surface, and the non-blocking fallback) |
 | Score-schema migration | **Implemented** — `changed_lines` removed from score formula (generation-invariant scoring). `best_score` migrated from 729.34 (old formula) to 939.34 (generation 2 under new formula), then to **947.66** (generation 3, run 8 candidate, 2026-06-18). |
-| state_id | `phase3_run8_candidate_recovered_generation3_pending_owner_merge` |
-| Next action | Owner merge review of the run 8 candidate recovery PR — generation 3 promoted to core/detector.py (score 947.66, hash c488855e…); no new paid-credit run required. |
+| state_id | `phase3_run8_candidate_recovered_generation3_active` |
+| Next action | Post-recovery monitoring of generation 3 and owner decision for the next Phase 3 experiment; no automatic paid-credit run. |
 
 ---
 
@@ -122,7 +122,7 @@ An 8th primary-model `success=true` ledger record is present (2026-06-17T10:43:0
 passed the adoption gate for the first time. The promote stage was reached; `promote_candidate.py`
 and the README status update succeeded locally, but the final git push failed because `main`
 had advanced after `persist-ledger` committed the API usage ledger entry (push-race condition).
-The candidate was not promoted to `main`. The push-race hardening was merged separately in PR #115.
+The candidate was not promoted to `main` via the original run 8 workflow (push-race). The push-race hardening was merged separately in PR #115. The candidate was subsequently recovered via owner-audited PR #117 and promoted to generation 3 on main.
 
 ---
 
@@ -135,12 +135,13 @@ The candidate was not promoted to `main`. The push-race hardening was merged sep
 | `promote_approved=true` means the run 8 candidate was promoted to `core/detector.py` | ✅ Correct |
 | `promote_approved=true` means generation 3 is now active (score 947.66) | ✅ Correct |
 | `promote_approved=true` means a new paid-credit run was executed | ❌ Incorrect — no new API call was made |
-| `promote_approved=true` means the recovery PR has been merged to main | ❌ Incorrect — this PR is pending owner merge |
+| `promote_approved=true` means the recovery PR has been merged to main | ✅ Correct — PR #117 merged on 2026-06-18; generation 3 is now active on main |
 
 The primary-model paid-credit API calls **have been executed** and are recorded in the ledger
 (8 success records). Run 8 (2026-06-17) passed the adoption gate. The candidate was recovered
 via owner-audited recovery on 2026-06-18: hash verified against run 8 job-log fitness report,
-`promote_candidate.py` re-executed, generation 3 written. This recovery PR is pending owner merge.
+`promote_candidate.py` re-executed, generation 3 written. Recovery was completed via
+owner-audited PR #117 (merged 2026-06-18). Generation 3 is now active on main.
 
 ---
 
@@ -206,11 +207,11 @@ re-executed; `core/detector.py` updated to generation 3 (score 947.66); `data/ge
 
 The current next action is:
 
-> **Owner merge review of the run 8 candidate recovery PR** — generation 3 promoted to
-> `core/detector.py` (score 947.66, hash c488855e…); no new paid-credit run required.
+> **Post-recovery monitoring of generation 3 and owner decision for the next Phase 3 experiment**
+> — no automatic paid-credit run. PR #117 has merged; generation 3 is active on main.
 
-`promote_approved` is `true`. This PR is pending owner merge. After merge, the next paid-credit
-run (when owner-approved) will target `previous_best=947.66`.
+`promote_approved` is `true`. PR #117 merged on 2026-06-18. Generation 3 is now active on main.
+The next paid-credit run (when owner-approved) will target `previous_best=947.66`.
 
 ---
 
@@ -241,4 +242,7 @@ current runtime behavior and must not be interpreted as implemented current stat
 Current-state interpretation remains governed by machine evidence, `data/project_state.json`,
 and this file (`docs/PROJECT_STATE.md`). The adoption-gate score formula has been migrated
 to generation-invariant scoring (`changed_lines` removed from score; see Score-schema migration
-row in section 1). The promotion rules are unchanged. No candidate has been promoted.
+row in section 1). The promotion rules are unchanged. The run 8 candidate has been promoted
+to generation 3 via owner-audited PR #117 and is now active on main. The original run 8
+workflow still failed at the final promote push, but recovery completed through PR #117
+without a new API call, workflow_dispatch, or paid-credit run.

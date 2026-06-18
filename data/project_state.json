@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "state_id": "phase3_run8_candidate_recovered_generation3_pending_owner_merge",
+  "state_id": "phase3_run8_candidate_recovered_generation3_active",
   "current_phase": "phase_3",
   "phase_3_activation": "complete",
   "live_model_enabled": true,
@@ -81,7 +81,7 @@
       "is_tool_failure": false,
       "evidence_source": "GitHub Actions run 27683267711 job/artifact triage; candidate_hash verified against fitness report from job logs"
     },
-    "note": "apply_reached/evaluate_reached/adoption_gate_ever_passed/promote_reached/candidate_promoted reflect the best-known cumulative state across all triaged runs 1-8. data/api_usage_ledger.json records 8 primary-model success records. Runs 5 and 6 are triaged as evaluate_rejected. Run 7 (2026-06-16T06:20:37) is API/token success only and remains untriaged. Run 8 (2026-06-17, id=27683267711) passed the adoption gate and reached promote; the original promote push failed (push-race); candidate was recovered via owner-audited recovery on 2026-06-18 — hash verified, promote_candidate.py re-executed, generation 3 written to core/detector.py. This PR is the recovery PR pending owner merge."
+    "note": "apply_reached/evaluate_reached/adoption_gate_ever_passed/promote_reached/candidate_promoted reflect the best-known cumulative state across all triaged runs 1-8. data/api_usage_ledger.json records 8 primary-model success records. Runs 5 and 6 are triaged as evaluate_rejected. Run 7 (2026-06-16T06:20:37) is API/token success only and remains untriaged. Run 8 (2026-06-17, id=27683267711) passed the adoption gate and reached promote; the original promote push failed (push-race); candidate was recovered via owner-audited recovery on 2026-06-18 — hash verified, promote_candidate.py re-executed, generation 3 written to core/detector.py. Run 8 candidate recovered via owner-audited PR #117 and is now active on main as generation 3. Original run 8 workflow result remains promote_push_failed; recovery completed through PR #117 without a new API call, workflow_dispatch, or paid-credit run."
   },
   "propose_side_hardening": {
     "baseline_preservation_contract_added": true,
@@ -109,7 +109,7 @@
     "score": 947.66,
     "detector_hash": "c488855e44411912a0efee50fcecc2e5575b3b51e6a128a0c6f0b8df4e78a0b6"
   },
-  "next_action": "run8_candidate_recovered_generation3_pending_owner_merge",
+  "next_action": "post_recovery_monitor_generation3_and_owner_decide_next_phase3_step",
   "fresh_verification_policy": {
     "paid_credit_run_in_this_pr": "forbidden",
     "workflow_dispatch_in_this_pr": "forbidden",

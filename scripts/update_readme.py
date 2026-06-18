@@ -57,6 +57,10 @@ _NEXT_ACTION_TEXT = {
         " — generation 3 promoted to core/detector.py (score 947.66,"
         " hash c488855e…); no new paid-credit run required"
     ),
+    "post_recovery_monitor_generation3_and_owner_decide_next_phase3_step": (
+        "Post-recovery monitoring of generation 3 and owner decision"
+        " for the next Phase 3 experiment; no automatic paid-credit run"
+    ),
 }
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"
@@ -167,10 +171,17 @@ def _apply_project_state(
             " candidate not promoted; owner-audited recovery pending"
         )
     elif patch_produced and apply_reached and evaluate_reached and adoption_gate_ever_passed and candidate_promoted:
-        current_phase = (
-            "Phase 3 — run 8 candidate recovered and promoted to generation 3"
-            " (score 947.66, hash c488855e…); owner merge review pending"
-        )
+        _next_action_peek = state.get("next_action", "")
+        if _next_action_peek == "post_recovery_monitor_generation3_and_owner_decide_next_phase3_step":
+            current_phase = (
+                "Phase 3 — generation 3 active on main after owner-audited run 8 recovery"
+                " (score 947.66, hash c488855e…); recovery complete"
+            )
+        else:
+            current_phase = (
+                "Phase 3 — run 8 candidate recovered and promoted to generation 3"
+                " (score 947.66, hash c488855e…); owner merge review pending"
+            )
 
     next_action = state.get("next_action")
     if isinstance(next_action, str) and next_action in _NEXT_ACTION_TEXT:
@@ -182,11 +193,18 @@ def _apply_project_state(
         and _parse_bool(promo.get("promote_approved"), default=False) is True
     ):
         if candidate_promoted:
-            promote_note = (
-                "true (run 8 candidate promoted to generation 3"
-                " via owner-audited recovery — score 947.66,"
-                " hash c488855e…; pending owner merge)"
-            )
+            _next_action_promo = state.get("next_action", "")
+            if _next_action_promo == "post_recovery_monitor_generation3_and_owner_decide_next_phase3_step":
+                promote_note = (
+                    "true (run 8 candidate promoted to generation 3"
+                    " via PR #117; active on main)"
+                )
+            else:
+                promote_note = (
+                    "true (run 8 candidate promoted to generation 3"
+                    " via owner-audited recovery — score 947.66,"
+                    " hash c488855e…; pending owner merge)"
+                )
     elif (
         isinstance(promo, dict)
         and _parse_bool(promo.get("promote_approved"), default=False) is False
