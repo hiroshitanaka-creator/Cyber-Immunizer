@@ -122,7 +122,7 @@ An 8th primary-model `success=true` ledger record is present (2026-06-17T10:43:0
 passed the adoption gate for the first time. The promote stage was reached; `promote_candidate.py`
 and the README status update succeeded locally, but the final git push failed because `main`
 had advanced after `persist-ledger` committed the API usage ledger entry (push-race condition).
-The candidate was not promoted to `main`. The push-race hardening was merged separately in PR #115.
+The candidate was not promoted to `main` via the original run 8 workflow (push-race). The push-race hardening was merged separately in PR #115. The candidate was subsequently recovered via owner-audited PR #117 and promoted to generation 3 on main.
 
 ---
 
@@ -242,4 +242,7 @@ current runtime behavior and must not be interpreted as implemented current stat
 Current-state interpretation remains governed by machine evidence, `data/project_state.json`,
 and this file (`docs/PROJECT_STATE.md`). The adoption-gate score formula has been migrated
 to generation-invariant scoring (`changed_lines` removed from score; see Score-schema migration
-row in section 1). The promotion rules are unchanged. No candidate has been promoted.
+row in section 1). The promotion rules are unchanged. The run 8 candidate has been promoted
+to generation 3 via owner-audited PR #117 and is now active on main. The original run 8
+workflow still failed at the final promote push, but recovery completed through PR #117
+without a new API call, workflow_dispatch, or paid-credit run.

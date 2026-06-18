@@ -51,6 +51,9 @@ _FORBIDDEN_STALE = [
     "Owner merge review of the run 8 candidate recovery PR",
     "this PR is pending owner merge",
     "This PR is pending owner merge",
+    # Post-PR-#117-merge: generation 3 has been promoted; the stale no-promotion
+    # claim must not appear in active current-state sources.
+    "No candidate has been promoted",
 ]
 
 # Active current-state surfaces that must never carry a stale claim.
