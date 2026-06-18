@@ -70,10 +70,14 @@ def _write_candidate(tmp_path: Path) -> Path:
 
 _BEHAVIORAL_PASS_RESULT = {
     "passed": True,
-    "field_results": {f: True for f in [
-        "method", "path", "query_keys", "query_values",
-        "header_keys", "header_values", "body",
-    ]},
+    "field_results": {
+        ind: {f: True for f in ["method", "path", "query_keys", "query_values",
+                                  "header_keys", "header_values", "body"]}
+        for ind in [
+            "path_traversal_indicator", "script_injection_indicator", "sqli_indicator",
+            "command_delimiter_indicator", "encoded_traversal_indicator",
+        ]
+    },
     "missing": [],
     "rejection_reasons": [],
     "harness_error": False,
@@ -865,6 +869,73 @@ class TestEvaluateCandidateBehavioralSurfaceCheck:
                                if c["name"] == "request_surface_coverage_behavioral"]
         assert len(behavioral_entries) == 1
         assert "field_results" in behavioral_entries[0]["details"]
+
+    def test_indicator_aware_rejection_in_report(self, tmp_path: Path) -> None:
+        """Report must propagate indicator-aware rejection reasons from behavioral check."""
+        from scripts.evaluate_candidate import evaluate_candidate
+
+        p = self._write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+
+        behavioral_fail = {
+            "passed": False,
+            "field_results": {
+                "path_traversal_indicator": {f: True for f in [
+                    "method", "path", "query_keys", "query_values",
+                    "header_keys", "header_values", "body",
+                ]},
+                "sqli_indicator": {f: False for f in [
+                    "method", "path", "query_keys", "query_values",
+                    "header_keys", "header_values", "body",
+                ]},
+                "script_injection_indicator": {f: True for f in [
+                    "method", "path", "query_keys", "query_values",
+                    "header_keys", "header_values", "body",
+                ]},
+                "command_delimiter_indicator": {f: True for f in [
+                    "method", "path", "query_keys", "query_values",
+                    "header_keys", "header_values", "body",
+                ]},
+                "encoded_traversal_indicator": {f: True for f in [
+                    "method", "path", "query_keys", "query_values",
+                    "header_keys", "header_values", "body",
+                ]},
+            },
+            "missing": [
+                {"indicator": "sqli_indicator", "surface": s}
+                for s in ["method", "path", "query_keys", "query_values",
+                          "header_keys", "header_values", "body"]
+            ],
+            "rejection_reasons": [
+                "missing_baseline_symbolic_indicator_runtime:sqli_indicator",
+                "missing_request_surface:method:sqli_indicator",
+                "missing_request_surface:method",
+            ],
+            "harness_error": False,
+            "error": None,
+        }
+
+        with patch("scripts.evaluate_candidate.validate",
+                   return_value={"valid": True, "violations": []}):
+            with patch("scripts.evaluate_candidate.run_behavioral_surface_check_subprocess",
+                       return_value=behavioral_fail):
+                result = evaluate_candidate(p, timeout_seconds=5, report_path=report_path)
+
+        assert not result["success"]
+        assert result["is_tool_failure"] is False
+        assert "missing_baseline_symbolic_indicator_runtime:sqli_indicator" in result["rejection_reasons"]
+
+        report = json.loads(report_path.read_text())
+        behavioral_entries = [c for c in report.get("contract_checks", [])
+                               if c["name"] == "request_surface_coverage_behavioral"]
+        assert len(behavioral_entries) == 1
+        entry = behavioral_entries[0]
+        assert isinstance(entry["details"]["field_results"], dict)
+        # indicator-aware rejection reasons appear in report
+        assert any(
+            "missing_baseline_symbolic_indicator_runtime" in r
+            for r in entry["rejection_reasons"]
+        )
 
     def test_unreachable_code_candidate_soft_rejected_in_full_pipeline(
         self, tmp_path: Path

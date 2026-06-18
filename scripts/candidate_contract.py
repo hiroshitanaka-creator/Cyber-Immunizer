@@ -444,11 +444,17 @@ import sys
 import json
 import importlib.util
 
+_INDICATORS = (
+    "path_traversal_indicator",
+    "script_injection_indicator",
+    "sqli_indicator",
+    "command_delimiter_indicator",
+    "encoded_traversal_indicator",
+)
 _SURFACE_FIELDS = (
     "method", "path", "query_keys", "query_values",
     "header_keys", "header_values", "body",
 )
-_INDICATOR = "path_traversal_indicator"
 
 
 def _run(project_root, candidate_path_str):
@@ -457,7 +463,7 @@ def _run(project_root, candidate_path_str):
 
     spec = importlib.util.spec_from_file_location("_cand_behavioral_check", candidate_path_str)
     if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot create module spec for {candidate_path_str!r}")
+        raise ImportError("Cannot create module spec for " + repr(candidate_path_str))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
@@ -465,33 +471,35 @@ def _run(project_root, candidate_path_str):
     if inspect_fn is None:
         raise AttributeError("candidate missing inspect_request function")
 
-    test_cases = {
-        "method": Request(method=_INDICATOR, path="/safe", query={}, headers={}, body=""),
-        "path": Request(method="GET", path=f"/{_INDICATOR}", query={}, headers={}, body=""),
-        "query_keys": Request(
-            method="GET", path="/safe", query={_INDICATOR: "safe"}, headers={}, body=""
-        ),
-        "query_values": Request(
-            method="GET", path="/safe", query={"safe": _INDICATOR}, headers={}, body=""
-        ),
-        "header_keys": Request(
-            method="GET", path="/safe", query={}, headers={_INDICATOR: "safe"}, body=""
-        ),
-        "header_values": Request(
-            method="GET", path="/safe", query={}, headers={"safe": _INDICATOR}, body=""
-        ),
-        "body": Request(method="GET", path="/safe", query={}, headers={}, body=_INDICATOR),
-    }
-
-    field_results = {}
-    for field, req in test_cases.items():
+    def _check(req):
         try:
             result = inspect_fn(req)
-            field_results[field] = bool(getattr(result, "blocked", False))
+            return bool(getattr(result, "blocked", False))
         except Exception:
-            field_results[field] = False
+            return False
 
-    missing = [f for f in _SURFACE_FIELDS if not field_results.get(f, False)]
+    # field_results: {indicator: {surface: bool}} — 5 indicators × 7 surfaces = 35 cases
+    field_results = {}
+    missing = []
+
+    for ind in _INDICATORS:
+        cases = {
+            "method":        Request(method=ind,   path="/safe", query={},            headers={},            body=""),
+            "path":          Request(method="GET", path="/" + ind, query={},          headers={},            body=""),
+            "query_keys":    Request(method="GET", path="/safe", query={ind: "safe"}, headers={},            body=""),
+            "query_values":  Request(method="GET", path="/safe", query={"safe": ind}, headers={},            body=""),
+            "header_keys":   Request(method="GET", path="/safe", query={},            headers={ind: "safe"}, body=""),
+            "header_values": Request(method="GET", path="/safe", query={},            headers={"safe": ind}, body=""),
+            "body":          Request(method="GET", path="/safe", query={},            headers={},            body=ind),
+        }
+        per_ind = {}
+        for surf, req in cases.items():
+            detected = _check(req)
+            per_ind[surf] = detected
+            if not detected:
+                missing.append({"indicator": ind, "surface": surf})
+        field_results[ind] = per_ind
+
     return field_results, missing
 
 
@@ -499,23 +507,20 @@ try:
     _project_root = sys.argv[1]
     _candidate_path = sys.argv[2]
     _field_results, _missing = _run(_project_root, _candidate_path)
-    print(json.dumps({
-        "success": True,
-        "field_results": _field_results,
-        "missing": _missing,
-    }))
+    print(json.dumps({"success": True, "field_results": _field_results, "missing": _missing}))
 except Exception as _exc:
-    _all_false = {
-        f: False for f in (
-            "method", "path", "query_keys", "query_values",
-            "header_keys", "header_values", "body",
-        )
-    }
+    _indicators = (
+        "path_traversal_indicator", "script_injection_indicator", "sqli_indicator",
+        "command_delimiter_indicator", "encoded_traversal_indicator",
+    )
+    _surfaces = ("method", "path", "query_keys", "query_values", "header_keys", "header_values", "body")
+    _all_fr = {i: {s: False for s in _surfaces} for i in _indicators}
+    _all_miss = [{"indicator": i, "surface": s} for i in _indicators for s in _surfaces]
     print(json.dumps({
         "success": False,
         "error": str(_exc),
-        "field_results": _all_false,
-        "missing": list(_all_false),
+        "field_results": _all_fr,
+        "missing": _all_miss,
     }))
 """
 
@@ -527,26 +532,62 @@ def run_behavioral_surface_check_subprocess(
 ) -> dict:
     """Run behavioral request-surface coverage check in an isolated subprocess.
 
-    The candidate is loaded and executed against synthetic Request objects in a
-    subprocess with stripped environment (no API keys, no secrets) and conservative
-    POSIX resource limits. No candidate code runs in the parent process.
+    Tests every baseline symbolic indicator against every request surface
+    (5 indicators × 7 surfaces = 35 synthetic Request cases). The candidate passes
+    only if all 35 cases result in DetectionResult.blocked == True.
+
+    No candidate code runs in the parent process. The subprocess uses a stripped
+    environment (no API keys, no secrets) and conservative POSIX resource limits.
 
     Returns a dict:
         passed: bool
-        field_results: dict[str, bool]
-        missing: list[str]
-        rejection_reasons: list[str]
+        field_results: dict[str, dict[str, bool]]  — {indicator: {surface: bool}}
+        missing: list[dict]                         — [{"indicator": ..., "surface": ...}]
+        rejection_reasons: list[str]                — new-style + old-style aggregated
         harness_error: bool  — True if subprocess itself failed (is_tool_failure=True)
         error: str | None
     """
     _root = str(project_root or _PROJECT_ROOT)
-    _all_fields = list(REQUEST_SURFACE_FIELDS)
-    _all_missing = {
+    _all_surfaces = list(REQUEST_SURFACE_FIELDS)
+    _all_indicators = list(BASELINE_SYMBOLIC_INDICATORS)
+
+    # All-failure defaults (used on harness error or subprocess crash)
+    _fail_fr = {ind: {f: False for f in _all_surfaces} for ind in _all_indicators}
+    _fail_missing = [
+        {"indicator": ind, "surface": f}
+        for ind in _all_indicators for f in _all_surfaces
+    ]
+    _fail_reasons = (
+        [f"missing_baseline_symbolic_indicator_runtime:{ind}" for ind in _all_indicators]
+        + [f"missing_request_surface:{f}:{ind}" for ind in _all_indicators for f in _all_surfaces]
+        + [f"missing_request_surface:{f}" for f in _all_surfaces]
+    )
+    _fail_dict = {
         "passed": False,
-        "field_results": {f: False for f in _all_fields},
-        "missing": _all_fields,
-        "rejection_reasons": [f"missing_request_surface:{f}" for f in _all_fields],
+        "field_results": _fail_fr,
+        "missing": _fail_missing,
+        "rejection_reasons": _fail_reasons,
     }
+
+    def _compute_reasons(fr: dict) -> list[str]:
+        """Derive rejection reasons from nested {indicator: {surface: bool}} dict."""
+        reasons: list[str] = []
+        failed_surfaces: set[str] = set()
+        for ind in _all_indicators:
+            ind_r = fr.get(ind, {})
+            # Indicator-level: never detected on any surface
+            if all(not ind_r.get(s, False) for s in _all_surfaces):
+                reasons.append(f"missing_baseline_symbolic_indicator_runtime:{ind}")
+            # Per-(surface, indicator) failures
+            for surf in _all_surfaces:
+                if not ind_r.get(surf, False):
+                    reasons.append(f"missing_request_surface:{surf}:{ind}")
+                    failed_surfaces.add(surf)
+        # Old-style aggregated reasons for backward compatibility
+        for surf in _all_surfaces:
+            if surf in failed_surfaces:
+                reasons.append(f"missing_request_surface:{surf}")
+        return reasons
 
     # Stripped environment — no API keys, no secrets, no write tokens
     allowed_keys = {
@@ -577,13 +618,13 @@ def run_behavioral_surface_check_subprocess(
         )
     except subprocess.TimeoutExpired:
         return {
-            **_all_missing,
+            **_fail_dict,
             "harness_error": True,
             "error": "behavioral surface check subprocess timed out",
         }
     except Exception as exc:
         return {
-            **_all_missing,
+            **_fail_dict,
             "harness_error": True,
             "error": f"behavioral surface check failed to launch: {exc}",
         }
@@ -591,7 +632,7 @@ def run_behavioral_surface_check_subprocess(
     if proc.returncode != 0:
         excerpt = (proc.stderr or proc.stdout)[:300]
         return {
-            **_all_missing,
+            **_fail_dict,
             "harness_error": True,
             "error": f"behavioral check subprocess exited {proc.returncode}: {excerpt}",
         }
@@ -600,30 +641,32 @@ def run_behavioral_surface_check_subprocess(
         data = json.loads(proc.stdout.strip())
     except json.JSONDecodeError:
         return {
-            **_all_missing,
+            **_fail_dict,
             "harness_error": True,
             "error": f"behavioral check returned non-JSON output: {proc.stdout[:200]}",
         }
 
     if not data.get("success", False):
         # Candidate failed to load or raised during detection — soft reject
+        fr = data.get("field_results", _fail_fr)
+        miss = data.get("missing", _fail_missing)
         return {
             "passed": False,
-            "field_results": data.get("field_results", {f: False for f in _all_fields}),
-            "missing": _all_fields,
-            "rejection_reasons": [f"missing_request_surface:{f}" for f in _all_fields],
+            "field_results": fr,
+            "missing": miss,
+            "rejection_reasons": _compute_reasons(fr),
             "harness_error": False,
             "error": data.get("error", "candidate failed during behavioral surface check"),
         }
 
-    field_results = data.get("field_results", {})
-    missing = data.get("missing", [])
+    field_results = data.get("field_results", _fail_fr)
+    missing_list = data.get("missing", [])
 
     return {
-        "passed": len(missing) == 0,
+        "passed": len(missing_list) == 0,
         "field_results": field_results,
-        "missing": missing,
-        "rejection_reasons": [f"missing_request_surface:{f}" for f in missing],
+        "missing": missing_list,
+        "rejection_reasons": _compute_reasons(field_results),
         "harness_error": False,
         "error": None,
     }

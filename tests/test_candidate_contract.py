@@ -1084,7 +1084,9 @@ class TestBehavioralSurfaceContractSubprocess:
     def test_unreachable_body_still_detected(self, tmp_path: Path) -> None:
         p = self._write(tmp_path, _UNREACHABLE_SURFACE)
         result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
-        assert result["field_results"].get("body") is True
+        # body is reachable runtime code; all 5 indicators must be detected there
+        for ind in BASELINE_SYMBOLIC_INDICATORS:
+            assert result["field_results"][ind]["body"] is True
 
     # -- Header blind spot --
 
@@ -1165,3 +1167,181 @@ def inspect_request(request: Request) -> DetectionResult:
         result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
         for key in ("passed", "field_results", "missing", "rejection_reasons", "harness_error"):
             assert key in result, f"Missing key: {key}"
+
+
+# ===========================================================================
+# K. Behavioral indicator coverage — P2 regression tests
+#    Verifies all 5 baseline indicators are exercised at runtime (5 × 7 = 35)
+# ===========================================================================
+
+# Candidate that has all 5 indicator names present statically (in a comment within
+# the mutation region) but only blocks path_traversal_indicator at runtime.
+# Static baseline check passes; behavioral check must fail for the other 4.
+_PATH_TRAVERSAL_ONLY_RUNTIME = """\
+\"\"\"Only detects path_traversal_indicator at runtime; others in dead comment only.\"\"\"
+from core.types import Request, DetectionResult
+
+def inspect_request(request: Request) -> DetectionResult:
+    # === MUTATION_START ===
+    # Neutralized static names for baseline check:
+    # script_injection_indicator sqli_indicator command_delimiter_indicator encoded_traversal_indicator
+    surface_list = [request.method.lower(), request.path.lower(), request.body.lower()]
+    for k, v in request.query.items():
+        surface_list.append(k.lower())
+        surface_list.append(v.lower())
+    for k, v in request.headers.items():
+        surface_list.append(k.lower())
+        surface_list.append(v.lower())
+    surface = " ".join(surface_list)
+    if "path_traversal_indicator" in surface:
+        return DetectionResult(blocked=True, reason="match", confidence=0.9, matched_signals=("path_traversal_indicator",))
+    return DetectionResult(blocked=False, reason="clean", confidence=0.0, matched_signals=())
+    # === MUTATION_END ===
+"""
+
+# Candidate that detects all 5 indicators on all surfaces EXCEPT sqli_indicator
+# in header values — all other 34/35 cases pass.
+_SQLI_HEADER_VALUES_BLIND = """\
+\"\"\"All indicators on all surfaces except sqli_indicator in header values.\"\"\"
+from core.types import Request, DetectionResult
+
+def inspect_request(request: Request) -> DetectionResult:
+    # === MUTATION_START ===
+    ALL_TOKENS = ("path_traversal_indicator", "script_injection_indicator", "sqli_indicator", "command_delimiter_indicator", "encoded_traversal_indicator")
+    NON_SQLI = ("path_traversal_indicator", "script_injection_indicator", "command_delimiter_indicator", "encoded_traversal_indicator")
+    parts = [request.method.lower(), request.path.lower(), request.body.lower()]
+    for k, v in request.query.items():
+        parts.append(k.lower())
+        parts.append(v.lower())
+    for k, v in request.headers.items():
+        parts.append(k.lower())
+    surface = " ".join(parts)
+    for tok in ALL_TOKENS:
+        if tok in surface:
+            return DetectionResult(blocked=True, reason="match", confidence=0.9, matched_signals=(tok,))
+    for hv in request.headers.values():
+        hv_lower = hv.lower()
+        for tok in NON_SQLI:
+            if tok in hv_lower:
+                return DetectionResult(blocked=True, reason="match", confidence=0.9, matched_signals=(tok,))
+    return DetectionResult(blocked=False, reason="clean", confidence=0.0, matched_signals=())
+    # === MUTATION_END ===
+"""
+
+
+class TestBehavioralIndicatorCoverage:
+    """P2 regression tests: behavioral check exercises all 5 baseline indicators."""
+
+    def _write(self, tmp_path: Path, source: str) -> Path:
+        p = tmp_path / "candidate.py"
+        p.write_text(source, encoding="utf-8")
+        return p
+
+    # --- Test A: path_traversal_indicator only at runtime ---
+
+    def test_path_traversal_only_passes_static_baseline(self) -> None:
+        """Static baseline check must pass (all 5 names present in source text)."""
+        result = check_baseline_symbolic_indicators(_PATH_TRAVERSAL_ONLY_RUNTIME)
+        assert result.passed, (
+            "Static baseline check must pass when all 5 names appear as dead comments"
+        )
+
+    def test_path_traversal_only_passes_static_surface(self) -> None:
+        """Static surface check must pass (uses .items() on query and headers)."""
+        result = check_request_surface_coverage(_PATH_TRAVERSAL_ONLY_RUNTIME)
+        assert result.passed, f"Static surface check must pass: {result.rejection_reasons}"
+
+    def test_path_traversal_only_fails_behavioral(self, tmp_path: Path) -> None:
+        """Candidate that only detects path_traversal_indicator must fail behavioral check."""
+        p = self._write(tmp_path, _PATH_TRAVERSAL_ONLY_RUNTIME)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert not result["passed"]
+        assert not result["harness_error"]
+
+    def test_path_traversal_only_missing_sqli_runtime(self, tmp_path: Path) -> None:
+        """sqli_indicator is never detected — must produce indicator-level rejection reason."""
+        p = self._write(tmp_path, _PATH_TRAVERSAL_ONLY_RUNTIME)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert "missing_baseline_symbolic_indicator_runtime:sqli_indicator" in result["rejection_reasons"]
+
+    def test_path_traversal_only_missing_script_injection_runtime(self, tmp_path: Path) -> None:
+        p = self._write(tmp_path, _PATH_TRAVERSAL_ONLY_RUNTIME)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert "missing_baseline_symbolic_indicator_runtime:script_injection_indicator" in result["rejection_reasons"]
+
+    def test_path_traversal_only_path_traversal_not_missing(self, tmp_path: Path) -> None:
+        """path_traversal_indicator IS detected on all surfaces — no runtime missing reason."""
+        p = self._write(tmp_path, _PATH_TRAVERSAL_ONLY_RUNTIME)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert "missing_baseline_symbolic_indicator_runtime:path_traversal_indicator" not in result["rejection_reasons"]
+
+    def test_path_traversal_only_field_results_nested(self, tmp_path: Path) -> None:
+        """field_results must be a nested {indicator: {surface: bool}} dict."""
+        p = self._write(tmp_path, _PATH_TRAVERSAL_ONLY_RUNTIME)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert isinstance(result["field_results"], dict)
+        for ind in BASELINE_SYMBOLIC_INDICATORS:
+            assert ind in result["field_results"], f"Indicator {ind!r} missing from field_results"
+            for surf in REQUEST_SURFACE_FIELDS:
+                assert surf in result["field_results"][ind], f"Surface {surf!r} missing for {ind!r}"
+
+    def test_path_traversal_only_missing_is_list_of_dicts(self, tmp_path: Path) -> None:
+        """missing must be a list of {'indicator': ..., 'surface': ...} dicts."""
+        p = self._write(tmp_path, _PATH_TRAVERSAL_ONLY_RUNTIME)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert isinstance(result["missing"], list)
+        for item in result["missing"]:
+            assert "indicator" in item
+            assert "surface" in item
+
+    # --- Test B: sqli_indicator blind on header_values only ---
+
+    def test_sqli_header_values_blind_fails_behavioral(self, tmp_path: Path) -> None:
+        """Candidate missing sqli on header_values must fail behavioral check."""
+        p = self._write(tmp_path, _SQLI_HEADER_VALUES_BLIND)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert not result["passed"]
+        assert not result["harness_error"]
+
+    def test_sqli_header_values_blind_indicator_surface_reason(self, tmp_path: Path) -> None:
+        """Failure reason must include missing_request_surface:header_values:sqli_indicator."""
+        p = self._write(tmp_path, _SQLI_HEADER_VALUES_BLIND)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert "missing_request_surface:header_values:sqli_indicator" in result["rejection_reasons"]
+
+    def test_sqli_header_values_blind_no_other_surface_missing(self, tmp_path: Path) -> None:
+        """Only header_values:sqli must be missing — all other 34 cases pass."""
+        p = self._write(tmp_path, _SQLI_HEADER_VALUES_BLIND)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        # Exactly one (indicator, surface) pair missing
+        assert result["missing"] == [{"indicator": "sqli_indicator", "surface": "header_values"}]
+
+    def test_sqli_header_values_blind_no_indicator_level_reason(self, tmp_path: Path) -> None:
+        """sqli_indicator IS detected on other surfaces — no indicator-level runtime reason."""
+        p = self._write(tmp_path, _SQLI_HEADER_VALUES_BLIND)
+        result = run_behavioral_surface_check_subprocess(p, timeout_seconds=30)
+        assert "missing_baseline_symbolic_indicator_runtime:sqli_indicator" not in result["rejection_reasons"]
+
+    # --- Test C: generation 3 detector passes all 35 cases ---
+
+    def test_actual_detector_passes_all_35_cases(self) -> None:
+        """core/detector.py must pass all 5 indicators × 7 surfaces = 35 behavioral cases."""
+        result = run_behavioral_surface_check_subprocess(
+            _PROJECT_ROOT / "core" / "detector.py", timeout_seconds=30
+        )
+        assert result["passed"], (
+            f"Detector fails behavioral indicator matrix: {result['rejection_reasons']}"
+        )
+        assert not result["harness_error"]
+        assert result["missing"] == []
+
+    def test_actual_detector_all_indicator_surface_true(self) -> None:
+        """Every indicator/surface cell in field_results must be True for the real detector."""
+        result = run_behavioral_surface_check_subprocess(
+            _PROJECT_ROOT / "core" / "detector.py", timeout_seconds=30
+        )
+        for ind in BASELINE_SYMBOLIC_INDICATORS:
+            for surf in REQUEST_SURFACE_FIELDS:
+                assert result["field_results"][ind][surf] is True, (
+                    f"Detector fails for indicator={ind!r} surface={surf!r}"
+                )
