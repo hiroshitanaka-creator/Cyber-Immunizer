@@ -38,13 +38,10 @@ from scripts.evaluate_candidate import (
 # Shared test fixtures / helpers
 # ---------------------------------------------------------------------------
 
-_MINIMAL_CANDIDATE = """\
-\"\"\"Minimal valid candidate for tests.\"\"\"
-from core.detector import Detector as _Base
-
-class Detector(_Base):
-    pass
-"""
+# Use the actual detector as the minimal candidate — it passes all offline contract checks.
+# The tests mock validate() and subprocess.run(), so the candidate content is irrelevant
+# to what the tests are asserting; it just needs to clear the contract check gate.
+_MINIMAL_CANDIDATE = (_PROJECT_ROOT / "core" / "detector.py").read_text(encoding="utf-8")
 
 _FAKE_REJECTED_OUTPUT = json.dumps({
     "passed_adoption_gate": False,

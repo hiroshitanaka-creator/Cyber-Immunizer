@@ -44,6 +44,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from scripts.validate_mutation import validate  # noqa: E402
+from scripts.candidate_contract import run_candidate_contract_checks  # noqa: E402
 
 _REPORT_PATH = _PROJECT_ROOT / ".cyber_immunizer" / "fitness_report.json"
 
@@ -191,11 +192,40 @@ def evaluate_candidate(
             "error": "AST validation failed",
             "is_tool_failure": True,  # AST violation is always a hard failure
             "candidate_hash": candidate_hash,
+            "contract_checks": [],
+            "rejection_reasons": val_result["violations"],
         }
         _write_report(result, candidate_hash, report_path)
         return result
 
     # candidate_hash was computed in the pre-step above; no need to re-read.
+
+    # --- Step 2: Offline contract checks (static, fail-closed, no API/network) ---
+    _base_source: str | None = None
+    try:
+        _base_source = (_PROJECT_ROOT / "core" / "detector.py").read_text(encoding="utf-8")
+    except OSError:
+        pass
+    contract_result = run_candidate_contract_checks(
+        candidate_path, reported_hash=candidate_hash, base_source=_base_source
+    )
+    if not contract_result["passed"]:
+        reasons = contract_result["rejection_reasons"]
+        result = {
+            "success": False,
+            "passed_adoption_gate": False,
+            "timed_out": False,
+            "return_code": None,
+            "violations": reasons,
+            "fitness_report": None,
+            "error": f"offline contract check failed: {'; '.join(reasons)}",
+            "is_tool_failure": False,  # contract rejection is a soft rejection
+            "candidate_hash": candidate_hash,
+            "contract_checks": contract_result["contract_checks"],
+            "rejection_reasons": reasons,
+        }
+        _write_report(result, candidate_hash, report_path)
+        return result
 
     # --- Step 3: Build physical resource limiter (fail closed if unsupported) ---
     # On Linux/POSIX, resource limits are mandatory.  We never run untrusted
@@ -214,6 +244,8 @@ def evaluate_candidate(
                 "error": f"resource limit setup failed: {exc}",
                 "is_tool_failure": True,
                 "candidate_hash": candidate_hash,
+                "contract_checks": contract_result["contract_checks"],
+                "rejection_reasons": [],
             }
             _write_report(result, candidate_hash, report_path)
             return result
@@ -233,6 +265,8 @@ def evaluate_candidate(
             ),
             "is_tool_failure": True,
             "candidate_hash": candidate_hash,
+            "contract_checks": contract_result["contract_checks"],
+            "rejection_reasons": [],
         }
         _write_report(result, candidate_hash, report_path)
         return result
@@ -272,6 +306,8 @@ def evaluate_candidate(
             "error": f"evaluation subprocess timed out after {timeout_seconds}s",
             "is_tool_failure": True,  # timeout is a tool failure
             "candidate_hash": candidate_hash,
+            "contract_checks": contract_result["contract_checks"],
+            "rejection_reasons": [],
         }
         _write_report(result, candidate_hash, report_path)
         return result
@@ -286,6 +322,8 @@ def evaluate_candidate(
             "error": f"subprocess launch failed: {exc}",
             "is_tool_failure": True,
             "candidate_hash": candidate_hash,
+            "contract_checks": contract_result["contract_checks"],
+            "rejection_reasons": [],
         }
         _write_report(result, candidate_hash, report_path)
         return result
@@ -309,6 +347,8 @@ def evaluate_candidate(
             "error": parse_error or f"empty fitness output (stderr={stderr!r})",
             "is_tool_failure": True,  # parse failure is a tool failure
             "candidate_hash": candidate_hash,
+            "contract_checks": contract_result["contract_checks"],
+            "rejection_reasons": [],
         }
         _write_report(result, candidate_hash, report_path)
         return result
@@ -326,6 +366,8 @@ def evaluate_candidate(
         "error": "" if passed else "adoption gate not passed",
         "is_tool_failure": False,  # gate evaluated cleanly — not a tool failure
         "candidate_hash": candidate_hash,
+        "contract_checks": contract_result["contract_checks"],
+        "rejection_reasons": list(fitness_report.get("rejection_reasons", [])),
     }
     _write_report(result, candidate_hash, report_path)
     return result
@@ -357,6 +399,8 @@ def _write_report(result: dict, candidate_hash: str | None, report_path: Path) -
         "fitness_report": fitness,
         "metrics": fitness,
         "return_code": result.get("return_code"),
+        "contract_checks": result.get("contract_checks", []),
+        "rejection_reasons": result.get("rejection_reasons", []),
     }
     tmp_path: Path | None = None
     try:
