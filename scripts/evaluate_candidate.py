@@ -50,6 +50,11 @@ from scripts.candidate_contract import (  # noqa: E402
 )
 
 _REPORT_PATH = _PROJECT_ROOT / ".cyber_immunizer" / "fitness_report.json"
+_GENOME_PATH = _PROJECT_ROOT / "data" / "genome.json"
+_SCORE_FORMULA = (
+    "1000*tp_rate - 2000*fp_rate - 1500*fn_rate - "
+    "50*exception_count - 0.02*code_chars"
+)
 
 # ---------------------------------------------------------------------------
 # Physical resource limits for the evaluation subprocess
@@ -409,6 +414,13 @@ def evaluate_candidate(
         _write_report(result, candidate_hash, report_path)
         return result
 
+    previous_best = _load_previous_best_score()
+    fitness_report["score_components"] = _build_score_components(fitness_report)
+    fitness_report["adoption_decision"] = _build_adoption_decision(
+        fitness_report,
+        previous_best=previous_best,
+        baseline_mode=baseline_mode,
+    )
     passed = bool(fitness_report.get("passed_adoption_gate", False))
     fitness_report["candidate_hash"] = candidate_hash
 
@@ -427,6 +439,96 @@ def evaluate_candidate(
     }
     _write_report(result, candidate_hash, report_path)
     return result
+
+
+def _load_previous_best_score(genome_path: Path = _GENOME_PATH) -> float:
+    """Load the current best score without mutating project state."""
+    try:
+        genome = json.loads(genome_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return -1e9
+    try:
+        return float(genome.get("best_score", -1e9))
+    except (TypeError, ValueError):
+        return -1e9
+
+
+def _build_score_components(fitness_report: dict) -> dict:
+    """Return score formula inputs and signed contribution terms.
+
+    This mirrors the existing adoption score formula exactly and keeps
+    changed_lines diagnostic-only.
+    """
+    tp_rate = float(fitness_report.get("tp_rate", 0.0))
+    fp_rate = float(fitness_report.get("fp_rate", 0.0))
+    fn_rate = float(fitness_report.get("fn_rate", 0.0))
+    exception_count = int(fitness_report.get("exception_count", 0))
+    code_chars = int(fitness_report.get("code_chars", 0))
+    changed_lines = int(fitness_report.get("changed_lines", 0))
+    score = float(fitness_report.get("score", 0.0))
+    return {
+        "tp_rate": tp_rate,
+        "fp_rate": fp_rate,
+        "fn_rate": fn_rate,
+        "exception_count": exception_count,
+        "code_chars": code_chars,
+        "changed_lines": changed_lines,
+        "contributions": {
+            "tp_reward": 1000.0 * tp_rate,
+            "fp_penalty": -2000.0 * fp_rate,
+            "fn_penalty": -1500.0 * fn_rate,
+            "exception_penalty": -50.0 * exception_count,
+            "code_size_penalty": -0.02 * code_chars,
+        },
+        "diagnostics": {
+            "changed_lines": changed_lines,
+            "changed_lines_is_score_component": False,
+        },
+        "formula": _SCORE_FORMULA,
+        "score": score,
+    }
+
+
+def _reason_code(reason: str) -> str:
+    if reason.startswith("fp_rate="):
+        return "hard_gate_failed_fp_rate"
+    if reason.startswith("regression_pass_rate="):
+        return "hard_gate_failed_regression_pass_rate"
+    if reason.startswith("avg_latency_ms="):
+        return "hard_gate_failed_avg_latency"
+    if reason.startswith("score=") and "<= previous_best=" in reason:
+        return "candidate_score_not_above_previous_best"
+    return "candidate_evaluation_failed"
+
+
+def _build_adoption_decision(
+    fitness_report: dict,
+    *,
+    previous_best: float,
+    baseline_mode: bool = False,
+) -> dict:
+    """Expose a machine-readable adoption decision without changing gates."""
+    candidate_score = float(fitness_report.get("score", 0.0))
+    strictly_exceeds = candidate_score > previous_best
+    passed_adoption_gate = bool(fitness_report.get("passed_adoption_gate", False))
+    raw_reasons = [str(r) for r in fitness_report.get("rejection_reasons", [])]
+    reason_codes = [_reason_code(reason) for reason in raw_reasons]
+    if not baseline_mode and not strictly_exceeds and "candidate_score_not_above_previous_best" not in reason_codes:
+        reason_codes.append("candidate_score_not_above_previous_best")
+    hard_gates_passed = passed_adoption_gate or (
+        "candidate_score_not_above_previous_best" in reason_codes
+        and all(code == "candidate_score_not_above_previous_best" for code in reason_codes)
+    )
+    if not passed_adoption_gate and not reason_codes:
+        reason_codes.append("candidate_evaluation_failed")
+    return {
+        "previous_best": previous_best,
+        "candidate_score": candidate_score,
+        "strictly_exceeds_previous_best": strictly_exceeds,
+        "hard_gates_passed": hard_gates_passed,
+        "adoption_gate_passed": passed_adoption_gate,
+        "rejection_reasons": reason_codes,
+    }
 
 
 def _write_report(result: dict, candidate_hash: str | None, report_path: Path) -> None:
@@ -454,6 +556,8 @@ def _write_report(result: dict, candidate_hash: str | None, report_path: Path) -
         "error": result.get("error", ""),
         "fitness_report": fitness,
         "metrics": fitness,
+        "score_components": fitness.get("score_components") if isinstance(fitness, dict) else None,
+        "adoption_decision": fitness.get("adoption_decision") if isinstance(fitness, dict) else None,
         "return_code": result.get("return_code"),
         "contract_checks": result.get("contract_checks", []),
         "rejection_reasons": result.get("rejection_reasons", []),
