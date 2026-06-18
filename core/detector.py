@@ -36,48 +36,33 @@ def inspect_request(request: Request) -> DetectionResult:
         DetectionResult — never raises, never returns bool.
     """
     # === MUTATION_START ===
-    # Normalise all textual fields into one lowercase inspection surface.
-    surface_parts = [
-        request.method.lower(),
-        request.path.lower(),
-        " ".join(f"{k}={v}" for k, v in request.query.items()).lower(),
-        " ".join(f"{k}:{v}" for k, v in request.headers.items()).lower(),
-        request.body.lower(),
-    ]
-    surface = " ".join(surface_parts)
+    surface_list = []
+    surface_list.append(request.method.lower())
+    surface_list.append(request.path.lower())
+    for k, v in request.query.items():
+        surface_list.append(k.lower())
+        surface_list.append(v.lower())
+    for k, v in request.headers.items():
+        surface_list.append(k.lower())
+        surface_list.append(v.lower())
+    surface_list.append(request.body.lower())
+    surface = " ".join(surface_list)
 
-    # Neutralized symbolic indicators — not real exploit strings.
-    # These tokens appear in the JSON test corpus (uppercase) and are
-    # lowercased at match time. No double-underscore prefix/suffix.
-    _SUSPICIOUS_TOKENS: tuple[str, ...] = (
-        "path_traversal_indicator",
-        "script_injection_indicator",
-        "sqli_indicator",
-        "command_delimiter_indicator",
-        "encoded_traversal_indicator",
-    )
-
-    matched: list[str] = []
-    for token in _SUSPICIOUS_TOKENS:
+    tokens = ("path_traversal_indicator", "script_injection_indicator", "sqli_indicator", "command_delimiter_indicator", "encoded_traversal_indicator")
+    matched = []
+    for token in tokens:
         if token in surface:
             matched.append(token)
 
     if matched:
-        # Multi-signal matches get progressively higher confidence.
-        base_confidence = 0.5
-        per_signal_boost = 0.12
-        confidence = min(1.0, base_confidence + per_signal_boost * len(matched))
-        return DetectionResult(
-            blocked=True,
-            reason=f"suspicious indicator matched: {matched[0]!r}",
-            confidence=confidence,
-            matched_signals=tuple(matched),
-        )
+        count = len(matched)
+        if count == 1:
+            conf = 0.85
+        elif count == 2:
+            conf = 0.92
+        else:
+            conf = 0.99
+        return DetectionResult(blocked=True, reason="suspicious indicator matched", confidence=conf, matched_signals=tuple(matched))
 
-    return DetectionResult(
-        blocked=False,
-        reason="no suspicious indicator matched",
-        confidence=0.0,
-        matched_signals=(),
-    )
+    return DetectionResult(blocked=False, reason="no suspicious indicator matched", confidence=0.0, matched_signals=())
 # === MUTATION_END ===

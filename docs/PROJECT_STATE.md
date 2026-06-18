@@ -54,17 +54,19 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | apply reached | **Yes** (runs 5, 6 & 8 apply succeeded; S4 run #47 reached apply and failed at G1) |
 | evaluate reached | **Yes** (runs 5, 6 & 8 reached evaluate) |
 | adoption gate passed | **Yes (run 8, 2026-06-17)** — runs 5 & 6 were rejected (score regression under old formula); run 8 passed the adoption gate for the first time |
-| promote reached | **Yes (run 8, 2026-06-17)** — promote was reached but the final push failed (push-race condition; hardened in PR #115) |
-| promote_approved | false — candidate was not promoted (promote push failed; no completed promotion) |
+| promote reached | **Yes (run 8, 2026-06-17)** — promote was reached; original push failed (push-race; hardened in PR #115); candidate recovered via owner-audited recovery 2026-06-18 |
+| promote_approved | **true** — run 8 candidate promoted to generation 3 via owner-audited recovery (2026-06-18); score 947.66; hash c488855e…; this PR pending owner merge |
+| Generation | **3** (promoted 2026-06-18) |
+| best_score | **947.66** (generation 3, hash c488855e…) |
 | Propose/output-contract hardening | Implemented in PR #84; G1 repeat-multiplier gap closure in PR #91 (merged) |
 | run 5 (2026-06-15, Actions run #52 / id 27582285679) | **artifact triage complete** → `evaluate_rejected` (score=494.48 ≤ previous_best=729.34 under old formula — historical record) |
 | run 6 (2026-06-16, Actions run #53 / id 27586892217) | **artifact triage complete** → `evaluate_rejected` (score=478.12 ≤ previous_best=729.34 under old formula — historical record) |
 | run 7 (2026-06-16T06:20:37, untriaged) | API/token success only — no artifact or job-log triage available |
-| run 8 (2026-06-17, id 27683267711) | **artifact triage complete** → `promote_push_failed` — adoption gate passed, promote reached, final push failed (push-race; main advanced after persist-ledger commit). Candidate not promoted. |
+| run 8 (2026-06-17, id 27683267711) | **artifact triage complete** → `promote_push_failed_recovered` — adoption gate passed; promote reached; original push failed (push-race); **candidate recovered and promoted to generation 3 via owner-audited recovery 2026-06-18** |
 | Propose-side baseline-preservation hardening | **Implemented** (Gemini propose prompt now requires preserving all five symbolic indicators, the full request inspection surface, and the non-blocking fallback) |
-| Score-schema migration | **Implemented** — `changed_lines` removed from score formula (generation-invariant scoring). `best_score` migrated from 729.34 (old formula, generation-era baseline) to **939.34** (current detector under new formula). This is a score-schema migration only, not a promotion. |
-| state_id | `phase3_run8_adoption_gate_passed_promote_push_failed_await_owner_recovery` |
-| Next action | Owner-audited candidate recovery after run 8 promote push failure. The candidate from run 8 passed the adoption gate but was not promoted due to a push-race. Candidate recovery is a separate future PR; no paid-credit rerun is the next step. |
+| Score-schema migration | **Implemented** — `changed_lines` removed from score formula (generation-invariant scoring). `best_score` migrated from 729.34 (old formula) to 939.34 (generation 2 under new formula), then to **947.66** (generation 3, run 8 candidate, 2026-06-18). |
+| state_id | `phase3_run8_candidate_recovered_generation3_pending_owner_merge` |
+| Next action | Owner merge review of the run 8 candidate recovery PR — generation 3 promoted to core/detector.py (score 947.66, hash c488855e…); no new paid-credit run required. |
 
 ---
 
@@ -72,14 +74,15 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 
 | Source | What it proves |
 |---|---|
-| `data/genome.json` | `live_model_enabled=true`, `api_mode=gemini_paid_credit`, `model_provider=gemini`, `model_name=gemini-3-flash-preview`, `fallback_model_name=gemini-3.1-flash-lite`, `best_score=939.34` (migrated to generation-invariant formula) |
+| `data/genome.json` | `live_model_enabled=true`, `api_mode=gemini_paid_credit`, `model_provider=gemini`, `model_name=gemini-3-flash-preview`, `fallback_model_name=gemini-3.1-flash-lite`, `generation=3`, `best_score=947.66`, `current_detector_hash=c488855e…` (generation 3 promoted via run 8 recovery 2026-06-18) |
 | `data/api_usage_ledger.json` | **8** primary-model paid-credit success records (`provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true`). Timestamps: 2026-06-03 / 2026-06-04 ×3 / 2026-06-11 / 2026-06-15 / 2026-06-16 ×2 / 2026-06-17. **Proves API/token success count and timestamp/cost fields only.** Does **not** prove apply, evaluate, adoption-gate, or promote stage outcomes — do not infer stage results from ledger success alone. |
 | `docs/audit_gate/PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md` | First 3 runs: no valid mutation patch (propose output-contract failures). S4 run #47: valid mutation_patch.json produced; apply reached and failed at G1 repeat-multiplier runtime allocation risk |
 | GitHub Actions (runs 26919888348 / 26922191264 / 26924388218) | First three runs concluded `failure` at finalize-propose-status; evaluate / promote jobs skipped |
 | GitHub Actions (S4 run #47, 2026-06-11) | Materialize reached; apply reached; apply failed (G1 repeat-multiplier); evaluate / promote not reached |
 | GitHub Actions (run 5, #52 / id 27582285679, 2026-06-15) | propose succeeded; apply succeeded (`success=true`, no violations); evaluate reached → `passed_adoption_gate=false`, score=494.48 ≤ previous_best=729.34, `is_tool_failure=false`; promote job **skipped**. Evidence from job logs (artifact blob download blocked by network egress policy). |
 | GitHub Actions (run 6, #53 / id 27586892217, 2026-06-16) | propose succeeded; apply succeeded; evaluate reached → `passed_adoption_gate=false`, score=478.12 ≤ previous_best=729.34, `is_tool_failure=false`; promote job **skipped**. Evidence from job logs. |
-| GitHub Actions (run 8, id 27683267711, 2026-06-17) | propose succeeded; apply succeeded; evaluate reached → `passed_adoption_gate=true` (first adoption gate pass); promote stage reached; `promote_candidate.py` and README status update succeeded locally; final git push failed — `main` advanced after `persist-ledger` committed the API usage ledger entry (push-race condition). Candidate **not promoted**. `is_tool_failure=true`. Evidence: GitHub Actions run 27683267711 job logs / run context. Push-race hardening merged in PR #115. |
+| GitHub Actions (run 8, id 27683267711, 2026-06-17) | propose succeeded; apply succeeded; evaluate reached → `passed_adoption_gate=true` (first adoption gate pass); promote stage reached; `promote_candidate.py` and README status update succeeded locally; final git push failed — `main` advanced after `persist-ledger` committed the API usage ledger entry (push-race condition). Original promote **failed**. `is_tool_failure=true`. Evidence: GitHub Actions run 27683267711 job logs / run context. Push-race hardening merged in PR #115. |
+| Owner-audited recovery (2026-06-18) | Candidate hash verified (c488855e…) against run 8 job-log fitness report. `promote_candidate.py` re-executed locally. `core/detector.py` updated to generation 3 (score 947.66). `data/genome.json` and `data/evolution_history.json` updated. No Gemini API call; no new paid-credit run. |
 
 `data/project_state.json` mirrors these machine facts and must not contradict `data/genome.json` or `data/api_usage_ledger.json` (API/token success count). Stage outcomes (apply/evaluate/adoption-gate/promote) are derived from GitHub Actions job logs and artifact triage, not from the ledger alone.
 
@@ -123,18 +126,21 @@ The candidate was not promoted to `main`. The push-race hardening was merged sep
 
 ---
 
-## 4. Meaning of promote_approved=false
+## 4. Meaning of promote_approved=true (current state)
+
+`promote_approved` is now `true` as of 2026-06-18 (run 8 candidate recovery PR).
 
 | Claim | Correct? |
 |---|---|
-| `promote_approved=false` means promotion is not approved | ✅ Correct |
-| `promote_approved=false` means the Gemini API call was not executed | ❌ Incorrect |
-| `promote_approved=false` means the paid-credit run has not occurred | ❌ Incorrect |
+| `promote_approved=true` means the run 8 candidate was promoted to `core/detector.py` | ✅ Correct |
+| `promote_approved=true` means generation 3 is now active (score 947.66) | ✅ Correct |
+| `promote_approved=true` means a new paid-credit run was executed | ❌ Incorrect — no new API call was made |
+| `promote_approved=true` means the recovery PR has been merged to main | ❌ Incorrect — this PR is pending owner merge |
 
 The primary-model paid-credit API calls **have been executed** and are recorded in the ledger
-(7 success records). The promotion gate was never reached: in runs 1–3 no valid candidate patch
-was produced, run #47 failed at apply, and runs 5 & 6 were rejected by the adoption gate
-(score regression) before the promote stage.
+(8 success records). Run 8 (2026-06-17) passed the adoption gate. The candidate was recovered
+via owner-audited recovery on 2026-06-18: hash verified against run 8 job-log fitness report,
+`promote_candidate.py` re-executed, generation 3 written. This recovery PR is pending owner merge.
 
 ---
 
@@ -178,47 +184,45 @@ For run 8 (2026-06-17, Actions run id 27683267711):
 * **adoption gate** result: **passed** — first time an adoption gate pass has been recorded.
 * **promote** was **reached** — `promote_candidate.py` succeeded locally and the README status
   update succeeded locally, but the final git push failed. `main` had advanced after
-  `persist-ledger` committed the API usage ledger entry (push-race condition). The candidate
-  was **not promoted** to `main`. The push-race hardening was merged in PR #115.
+  `persist-ledger` committed the API usage ledger entry (push-race condition). The original
+  promote push **failed**. The push-race hardening was merged in PR #115.
 * `is_tool_failure=true` (infrastructure failure, not an evaluate rejection).
+* **Recovery (2026-06-18)**: candidate hash verified (c488855e…) against run 8 job-log fitness
+  report. `promote_candidate.py` re-executed. `core/detector.py` updated to generation 3
+  (score 947.66). No new Gemini API call. `promote_approved` set to `true`.
 
-`promote_approved` remains `false` — no completed promotion has occurred.
+`promote_approved` is now `true` — generation 3 promoted via owner-audited recovery (2026-06-18).
 
 ---
 
 ## 7. Next action
 
-**Run 8 (2026-06-17, id 27683267711) passed the adoption gate** — the first time this has
-occurred. The promote stage was reached. However, the final promote push failed due to a
-push-race condition: `main` had advanced (the `persist-ledger` step committed the API usage
-ledger entry) after the Promote Candidate job started, causing a non-fast-forward push
-rejection. The candidate was not promoted.
-
-The push-race hardening was merged separately in PR #115 (`fix(workflow): fail fast on stale
-promote target`).
+**Run 8 candidate recovered and promoted to generation 3 (2026-06-18).** The candidate from
+run 8 (id 27683267711) passed the adoption gate on 2026-06-17. The original promote push failed
+(push-race; hardened in PR #115). On 2026-06-18, an owner-audited recovery was executed:
+candidate hash verified (c488855e…) against run 8 job-log fitness report; `promote_candidate.py`
+re-executed; `core/detector.py` updated to generation 3 (score 947.66); `data/genome.json` and
+`data/evolution_history.json` updated. No new Gemini API call was made.
 
 The current next action is:
 
-> **Owner-audited candidate recovery after run 8 promote push failure.** The run 8 candidate
-> passed the adoption gate but was lost due to a push-race. The Project Owner must decide
-> whether to recover the run 8 candidate (a separate future PR) or wait for a fresh
-> Owner-approved paid-credit rerun against `previous_best=939.34`. No new paid-credit
-> run is required as an immediate next step.
+> **Owner merge review of the run 8 candidate recovery PR** — generation 3 promoted to
+> `core/detector.py` (score 947.66, hash c488855e…); no new paid-credit run required.
 
-`promote_approved` remains `false` until the Project Owner explicitly approves promotion
-after a candidate passes the adoption gate and a completed promotion PR is merged.
+`promote_approved` is `true`. This PR is pending owner merge. After merge, the next paid-credit
+run (when owner-approved) will target `previous_best=947.66`.
 
 ---
 
-## 8. Non-goals
+## 8. Non-goals of the run 8 recovery PR
 
-The SSOT work that introduced this file does **not**:
+The run 8 candidate recovery PR does **not**:
 
 * make any Gemini API call;
 * trigger any `workflow_dispatch`;
-* execute any paid-credit or paid-credit-preflight run;
-* promote any candidate or set `promote_approved=true`;
-* change `core/**`, `scripts/propose_mutation.py`, `.github/workflows/**`, model names, or budgets.
+* execute any new paid-credit or paid-credit-preflight run;
+* create or duplicate any ledger record in `data/api_usage_ledger.json`;
+* change `scripts/propose_mutation.py`, `.github/workflows/**`, model names, or budgets.
 
 ---
 

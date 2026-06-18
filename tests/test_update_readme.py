@@ -1663,3 +1663,137 @@ class TestRealReadmeFitnessReportState:
             ), (
                 "When no fitness report exists, README must show N/A or 'Not available'"
             )
+
+    def test_real_readme_generation_3_present(self) -> None:
+        """Real README must show generation 3 (promoted via run 8 recovery)."""
+        assert "| Generation | 3 |" in self.block, (
+            "Real README must show Generation 3 after run 8 candidate promotion"
+        )
+
+    def test_real_readme_best_score_947_66_present(self) -> None:
+        """Real README must show best_score 947.66 (run 8 candidate)."""
+        assert "947.66" in self.block, (
+            "Real README must show best_score=947.66 (generation 3 run 8 candidate)"
+        )
+
+    def test_real_readme_no_stale_8_0_7_0_unconditional(self) -> None:
+        """Real README must never contain stale TP/FP/TN/FN=8/0/7/0 values.
+
+        This is unconditional — the committed README must not embed concrete
+        fitness metrics from the local recovery run (which are gitignored).
+        """
+        assert "8 / 0 / 7 / 0" not in self.block, (
+            "README must not contain stale TP/FP/TN/FN=8/0/7/0 from local recovery run"
+        )
+        assert "| Total Test Cases | 15 |" not in self.block, (
+            "README must not contain stale total_cases=15 from local recovery run"
+        )
+
+    def test_real_readme_recovery_wording_present(self) -> None:
+        """Real README must contain generation 3 recovery wording."""
+        assert "generation 3" in self.block.lower() or "Generation 3" in self.block, (
+            "README status block must reference generation 3 after recovery promotion"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests: Phase 3 run-8 candidate recovered state (candidate_promoted=True)
+# ---------------------------------------------------------------------------
+
+class TestPhase3Run8CandidateRecoveredState:
+    """When project_state reflects the completed run-8 recovery
+    (candidate_promoted=True, promote_approved=True), the generated README
+    must show generation 3, score 947.66, owner-merge wording, and must NOT
+    show stale fitness metrics or 'not promoted' language."""
+
+    _LEDGER = [{"model": "gemini-3-flash-preview", "success": True, "api_mode": "gemini_paid_credit"}]
+    _GENOME = {"live_model_enabled": True, "model_name": "gemini-3-flash-preview"}
+
+    def _ps(self) -> dict:
+        return {
+            "paid_credit_api_calls": {
+                "valid_mutation_patch_produced": True,
+                "apply_reached": True,
+                "evaluate_reached": True,
+                "adoption_gate_ever_passed": True,
+                "promote_reached": True,
+                "candidate_promoted": True,
+                "candidate_promoted_generation": 3,
+                "candidate_promoted_score": 947.66,
+                "candidate_promoted_hash": "c488855e44411912a0efee50fcecc2e5575b3b51e6a128a0c6f0b8df4e78a0b6",
+            },
+            "promotion": {
+                "promote_approved": True,
+                "meaning": "run_8_candidate_promoted_to_generation_3_via_recovery",
+            },
+            "next_action": "run8_candidate_recovered_generation3_pending_owner_merge",
+        }
+
+    def test_promote_approved_shows_true(self, tmp_path: Path) -> None:
+        """promote_approved must show true after candidate recovery."""
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "promote_approved" in block, "promote_approved field must appear"
+        assert "true" in block.lower(), "promote_approved must show true after recovery"
+
+    def test_current_phase_shows_generation_3_recovered(self, tmp_path: Path) -> None:
+        """current_phase must mention generation 3 candidate recovery."""
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "generation 3" in block.lower(), (
+            "current_phase must reflect generation 3 after candidate recovery"
+        )
+
+    def test_next_focus_says_owner_merge(self, tmp_path: Path) -> None:
+        """next_focus must direct maintainers to owner merge review."""
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "owner" in block.lower() or "merge" in block.lower(), (
+            "next_focus must reference owner merge review after recovery promotion"
+        )
+
+    def test_no_stale_not_promoted_language(self, tmp_path: Path) -> None:
+        """Must not say 'not promoted' after the candidate has been promoted."""
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "candidate was not promoted" not in block.lower(), (
+            "recovered state must not say 'candidate was not promoted'"
+        )
+
+    def test_no_stale_push_failed_language(self, tmp_path: Path) -> None:
+        """Must not foreground the push failure after successful recovery."""
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "promote push failed" not in block.lower() or "recovered" in block.lower(), (
+            "if push-failure wording remains, recovery context must also appear"
+        )
+
+    def test_no_concrete_fitness_metrics_without_report(self, tmp_path: Path) -> None:
+        """Must not embed concrete TP/FP/TN/FN values when no report is present.
+
+        _run_update_with_ledger sets _REPORT_PATH to a nonexistent file, so
+        the generator must fall back to N/A — not stale hard-coded values.
+        """
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "8 / 0 / 7 / 0" not in block, (
+            "Must not show stale TP/FP/TN/FN=8/0/7/0 when no fitness report is present"
+        )
+        assert "| Total Test Cases | 15 |" not in block, (
+            "Must not show stale total_cases=15 when no fitness report is present"
+        )
+
+    def test_na_or_not_available_when_no_report(self, tmp_path: Path) -> None:
+        """When no fitness report exists, README must use N/A or 'Not available'."""
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "N/A" in block or "Not available" in block, (
+            "Must show N/A or 'Not available' for fitness metrics when no report exists"
+        )

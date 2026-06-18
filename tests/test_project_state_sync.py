@@ -264,11 +264,12 @@ def test_evaluate_reached_and_promote_not_reached() -> None:
 
 
 # 15.
-def test_promote_approved_is_false() -> None:
+def test_promote_approved_is_true_after_recovery() -> None:
     state = _load(_PROJECT_STATE_PATH)
     promo = state.get("promotion", {})
-    assert promo.get("promote_approved") is False, (
-        "promote_approved must be false — no promotion has been approved"
+    assert promo.get("promote_approved") is True, (
+        "promote_approved must be true — run 8 candidate was promoted to "
+        "generation 3 via owner-audited recovery (2026-06-18)"
     )
 
 
@@ -333,22 +334,24 @@ def test_project_state_doc_mentions_runs_5_6_triage_complete() -> None:
 
 
 # 21.
-def test_state_id_is_generation_invariant_score_migrated() -> None:
+def test_state_id_is_run8_candidate_recovered() -> None:
     state = _load(_PROJECT_STATE_PATH)
     assert state.get("state_id") == (
-        "phase3_run8_adoption_gate_passed_promote_push_failed_await_owner_recovery"
+        "phase3_run8_candidate_recovered_generation3_pending_owner_merge"
     ), (
         "state_id must be "
-        "'phase3_run8_adoption_gate_passed_promote_push_failed_await_owner_recovery'"
+        "'phase3_run8_candidate_recovered_generation3_pending_owner_merge'"
+        " — run 8 candidate was recovered and promoted to generation 3"
     )
 
 
 # 22.
-def test_next_action_is_generation_invariant_score_migrated_review() -> None:
+def test_next_action_is_run8_candidate_recovered_pending_merge() -> None:
     state = _load(_PROJECT_STATE_PATH)
     assert state.get("next_action") == (
-        "owner_audited_candidate_recovery_after_run8_promote_push_failure"
+        "run8_candidate_recovered_generation3_pending_owner_merge"
     ), (
         "next_action must be "
-        "'owner_audited_candidate_recovery_after_run8_promote_push_failure'"
+        "'run8_candidate_recovered_generation3_pending_owner_merge'"
+        " — generation 3 promoted; owner merge review is the next step"
     )
