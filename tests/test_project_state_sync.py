@@ -44,6 +44,13 @@ _FORBIDDEN_STALE = [
     # and must not appear in active current-state sources.
     "初回 paid-credit run 待機中",
     "The 3 primary-model paid-credit API calls",
+    # Post-PR-#117-merge: the run 8 recovery PR has merged; pending-merge language
+    # must not appear in active current-state sources.
+    "owner merge review pending",
+    "pending owner merge",
+    "Owner merge review of the run 8 candidate recovery PR",
+    "this PR is pending owner merge",
+    "This PR is pending owner merge",
 ]
 
 # Active current-state surfaces that must never carry a stale claim.
@@ -334,24 +341,54 @@ def test_project_state_doc_mentions_runs_5_6_triage_complete() -> None:
 
 
 # 21.
-def test_state_id_is_run8_candidate_recovered() -> None:
+def test_state_id_is_run8_candidate_recovered_active() -> None:
     state = _load(_PROJECT_STATE_PATH)
     assert state.get("state_id") == (
-        "phase3_run8_candidate_recovered_generation3_pending_owner_merge"
+        "phase3_run8_candidate_recovered_generation3_active"
     ), (
-        "state_id must be "
-        "'phase3_run8_candidate_recovered_generation3_pending_owner_merge'"
-        " — run 8 candidate was recovered and promoted to generation 3"
+        "state_id must be 'phase3_run8_candidate_recovered_generation3_active'"
+        " — PR #117 merged; generation 3 is now active on main"
+    )
+    assert "pending_owner_merge" not in state.get("state_id", ""), (
+        "state_id must not contain 'pending_owner_merge' — PR #117 has merged"
     )
 
 
 # 22.
-def test_next_action_is_run8_candidate_recovered_pending_merge() -> None:
+def test_next_action_is_post_recovery_monitor() -> None:
     state = _load(_PROJECT_STATE_PATH)
     assert state.get("next_action") == (
-        "run8_candidate_recovered_generation3_pending_owner_merge"
+        "post_recovery_monitor_generation3_and_owner_decide_next_phase3_step"
     ), (
         "next_action must be "
-        "'run8_candidate_recovered_generation3_pending_owner_merge'"
-        " — generation 3 promoted; owner merge review is the next step"
+        "'post_recovery_monitor_generation3_and_owner_decide_next_phase3_step'"
+        " — PR #117 merged; generation 3 active on main; post-recovery monitoring is next"
+    )
+    assert "pending_owner_merge" not in state.get("next_action", ""), (
+        "next_action must not contain 'pending_owner_merge' — PR #117 has merged"
+    )
+
+
+# 23.
+def test_readme_status_block_no_pending_merge_language() -> None:
+    block = _status_block()
+    assert "owner merge review pending" not in block, (
+        "README status block must not say 'owner merge review pending' after PR #117 merged"
+    )
+    assert "pending owner merge" not in block, (
+        "README status block must not say 'pending owner merge' after PR #117 merged"
+    )
+    assert "generation 3" in block.lower() or "recovery complete" in block.lower(), (
+        "README status block must say generation 3 is active or recovery is complete"
+    )
+
+
+# 24.
+def test_project_state_doc_no_pending_merge_language() -> None:
+    text = _PROJECT_STATE_DOC.read_text(encoding="utf-8")
+    assert "this PR pending owner merge" not in text.lower(), (
+        "docs/PROJECT_STATE.md must not say 'this PR pending owner merge' after PR #117 merged"
+    )
+    assert "pending owner merge" not in text, (
+        "docs/PROJECT_STATE.md must not say 'pending owner merge' after PR #117 merged"
     )

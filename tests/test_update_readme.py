@@ -1726,7 +1726,7 @@ class TestPhase3Run8CandidateRecoveredState:
                 "promote_approved": True,
                 "meaning": "run_8_candidate_promoted_to_generation_3_via_recovery",
             },
-            "next_action": "run8_candidate_recovered_generation3_pending_owner_merge",
+            "next_action": "post_recovery_monitor_generation3_and_owner_decide_next_phase3_step",
         }
 
     def test_promote_approved_shows_true(self, tmp_path: Path) -> None:
@@ -1737,22 +1737,40 @@ class TestPhase3Run8CandidateRecoveredState:
         assert "promote_approved" in block, "promote_approved field must appear"
         assert "true" in block.lower(), "promote_approved must show true after recovery"
 
-    def test_current_phase_shows_generation_3_recovered(self, tmp_path: Path) -> None:
-        """current_phase must mention generation 3 candidate recovery."""
+    def test_current_phase_shows_generation_3_active(self, tmp_path: Path) -> None:
+        """current_phase must say generation 3 is active on main (post-merge)."""
         _, block = _run_update_with_ledger(
             tmp_path, self._LEDGER, self._GENOME, self._ps()
         )
         assert "generation 3" in block.lower(), (
             "current_phase must reflect generation 3 after candidate recovery"
         )
+        assert (
+            "active on main" in block.lower()
+            or "recovery complete" in block.lower()
+        ), (
+            "current_phase must say generation 3 is active on main or recovery is complete"
+        )
 
-    def test_next_focus_says_owner_merge(self, tmp_path: Path) -> None:
-        """next_focus must direct maintainers to owner merge review."""
+    def test_next_focus_says_post_recovery_monitoring(self, tmp_path: Path) -> None:
+        """next_focus must direct maintainers to post-recovery monitoring (not owner merge review)."""
         _, block = _run_update_with_ledger(
             tmp_path, self._LEDGER, self._GENOME, self._ps()
         )
-        assert "owner" in block.lower() or "merge" in block.lower(), (
-            "next_focus must reference owner merge review after recovery promotion"
+        assert "Post-recovery monitoring" in block or "post-recovery monitoring" in block, (
+            "next_focus must reference post-recovery monitoring after PR #117 merged"
+        )
+
+    def test_next_focus_no_owner_merge_review_pending(self, tmp_path: Path) -> None:
+        """next_focus must NOT say 'owner merge review pending' after PR #117 merged."""
+        _, block = _run_update_with_ledger(
+            tmp_path, self._LEDGER, self._GENOME, self._ps()
+        )
+        assert "owner merge review pending" not in block, (
+            "next_focus must not say 'owner merge review pending' after PR #117 merged"
+        )
+        assert "pending owner merge" not in block, (
+            "next_focus must not say 'pending owner merge' after PR #117 merged"
         )
 
     def test_no_stale_not_promoted_language(self, tmp_path: Path) -> None:

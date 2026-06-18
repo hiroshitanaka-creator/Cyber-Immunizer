@@ -896,13 +896,13 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 
 | Field | Value |
 |---|---|
-| Current Phase | Phase 3 — run 8 candidate recovered and promoted to generation 3 (score 947.66, hash c488855e…); owner merge review pending |
+| Current Phase | Phase 3 — generation 3 active on main after owner-audited run 8 recovery (score 947.66, hash c488855e…); recovery complete |
 | Phase 3 Activation | Complete (PR #58-#62) |
 | Phase 3 Paid-Credit API Calls | Executed (8 successful / 8 attempt(s)) |
 | Gemini Primary Model | gemini-3-flash-preview |
 | Gemini Fallback Model | gemini-3.1-flash-lite |
-| promote_approved | true (run 8 candidate promoted to generation 3 via owner-audited recovery — score 947.66, hash c488855e…; pending owner merge) |
-| Next Focus | Owner merge review of the run 8 candidate recovery PR — generation 3 promoted to core/detector.py (score 947.66, hash c488855e…); no new paid-credit run required |
+| promote_approved | true (run 8 candidate promoted to generation 3 via PR #117; active on main) |
+| Next Focus | Post-recovery monitoring of generation 3 and owner decision for the next Phase 3 experiment; no automatic paid-credit run |
 | live_model_enabled | true |
 | API Mode | gemini_paid_credit |
 | Model Provider | gemini |
@@ -928,6 +928,6 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | Fitness Report | Not available — run baseline fitness to populate TP/FP/TN/FN |
 | Adoption Gate | ✅ Passed (generation 3) |
 | Active Threat IDs | `THREAT-2024-001` `THREAT-2024-002` `THREAT-2024-003` `THREAT-2024-004` `THREAT-2024-005` |
-| Status Block Updated | 2026-06-18 02:42 UTC |
+| Status Block Updated | 2026-06-18 03:41 UTC |
 
 <!-- CYBER_IMMUNIZER_STATUS_END -->
