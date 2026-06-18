@@ -56,11 +56,10 @@ def inspect_request(request: Request) -> DetectionResult:
 
     if matched:
         count = len(matched)
-        if count == 1:
-            conf = 0.85
-        elif count == 2:
-            conf = 0.92
-        else:
+        conf = 0.86
+        if count == 2:
+            conf = 0.94
+        elif count > 2:
             conf = 0.99
         return DetectionResult(blocked=True, reason="suspicious indicator matched", confidence=conf, matched_signals=tuple(matched))
 

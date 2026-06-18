@@ -898,7 +898,7 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 |---|---|
 | Current Phase | Phase 3 — generation 3 active on main after owner-audited run 8 recovery (score 947.66, hash c488855e…); recovery complete |
 | Phase 3 Activation | Complete (PR #58-#62) |
-| Phase 3 Paid-Credit API Calls | Executed (8 successful / 8 attempt(s)) |
+| Phase 3 Paid-Credit API Calls | Executed (9 successful / 9 attempt(s)) |
 | Gemini Primary Model | gemini-3-flash-preview |
 | Gemini Fallback Model | gemini-3.1-flash-lite |
 | promote_approved | true (run 8 candidate promoted to generation 3 via PR #117; active on main) |
@@ -919,15 +919,14 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | Offline Sample Path | Verified |
 | Paid-Credit Preflight | Fail-closed when GEMINI_API_KEY missing |
 | Phase 3 Gate | Project Owner explicit decision required |
-| Generation | 3 |
-| Best Score | 947.66 |
-| Detector Hash | `c488855e44411912…` |
-| Last Updated | 2026-06-18T02:13:36.244170Z |
-| Total Test Cases | N/A |
-| TP / FP / TN / FN | N/A / N/A / N/A / N/A |
-| Fitness Report | Not available — run baseline fitness to populate TP/FP/TN/FN |
-| Adoption Gate | ✅ Passed (generation 3) |
+| Generation | 4 |
+| Best Score | 948.04 |
+| Detector Hash | `ebb8799db748ed3c…` |
+| Last Updated | 2026-06-18T09:26:32.863685Z |
+| Total Test Cases | 15 |
+| TP / FP / TN / FN | 8 / 0 / 7 / 0 |
+| Adoption Gate | ✅ Passed (generation 4) |
 | Active Threat IDs | `THREAT-2024-001` `THREAT-2024-002` `THREAT-2024-003` `THREAT-2024-004` `THREAT-2024-005` |
-| Status Block Updated | 2026-06-18 03:41 UTC |
+| Status Block Updated | 2026-06-18 09:26 UTC |
 
 <!-- CYBER_IMMUNIZER_STATUS_END -->

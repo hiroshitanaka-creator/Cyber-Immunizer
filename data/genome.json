@@ -1,9 +1,9 @@
 {
   "project": "Project Cyber-Immunizer",
-  "generation": 3,
-  "current_detector_hash": "c488855e44411912a0efee50fcecc2e5575b3b51e6a128a0c6f0b8df4e78a0b6",
-  "best_score": 947.66,
-  "last_updated": "2026-06-18T02:13:36.244170Z",
+  "generation": 4,
+  "current_detector_hash": "ebb8799db748ed3c3b38eec0c11cdc423b0e43ca04a374ba7e26a48059c30d3f",
+  "best_score": 948.04,
+  "last_updated": "2026-06-18T09:26:32.863685Z",
   "max_commits_per_run": 1,
   "max_model_requests_per_run": 1,
   "max_fp_rate": 0.05,
