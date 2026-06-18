@@ -47,6 +47,7 @@ from scripts.validate_mutation import validate  # noqa: E402
 from scripts.candidate_contract import (  # noqa: E402
     run_candidate_contract_checks,
     run_behavioral_surface_check_subprocess,
+    run_behavioral_benign_control_check_subprocess,
 )
 
 _REPORT_PATH = _PROJECT_ROOT / ".cyber_immunizer" / "fitness_report.json"
@@ -280,6 +281,56 @@ def evaluate_candidate(
             "violations": reasons,
             "fitness_report": None,
             "error": f"behavioral surface check failed: {'; '.join(reasons)}",
+            "is_tool_failure": False,
+            "candidate_hash": candidate_hash,
+            "contract_checks": all_contract_checks,
+            "rejection_reasons": reasons,
+        }
+        _write_report(result, candidate_hash, report_path)
+        return result
+
+    # --- Step 2c: Behavioral benign-control check (isolated subprocess, no secrets) ---
+    benign_raw = run_behavioral_benign_control_check_subprocess(
+        candidate_path, timeout_seconds=min(float(timeout_seconds), 30.0)
+    )
+    benign_check_entry = {
+        "name": "behavioral_benign_controls",
+        "passed": benign_raw["passed"],
+        "details": {
+            "case_results": benign_raw.get("case_results", {}),
+            "failing_cases": benign_raw.get("failing_cases", []),
+        },
+        "rejection_reasons": benign_raw.get("rejection_reasons", []),
+    }
+    all_contract_checks = all_contract_checks + [benign_check_entry]
+
+    if benign_raw.get("harness_error"):
+        result = {
+            "success": False,
+            "passed_adoption_gate": False,
+            "timed_out": False,
+            "return_code": None,
+            "violations": benign_raw.get("rejection_reasons", []),
+            "fitness_report": None,
+            "error": benign_raw.get("error", "behavioral benign-control check harness error"),
+            "is_tool_failure": True,
+            "candidate_hash": candidate_hash,
+            "contract_checks": all_contract_checks,
+            "rejection_reasons": benign_raw.get("rejection_reasons", []),
+        }
+        _write_report(result, candidate_hash, report_path)
+        return result
+
+    if not benign_raw["passed"]:
+        reasons = benign_raw["rejection_reasons"]
+        result = {
+            "success": False,
+            "passed_adoption_gate": False,
+            "timed_out": False,
+            "return_code": None,
+            "violations": reasons,
+            "fitness_report": None,
+            "error": f"behavioral benign-control check failed: {'; '.join(reasons)}",
             "is_tool_failure": False,
             "candidate_hash": candidate_hash,
             "contract_checks": all_contract_checks,

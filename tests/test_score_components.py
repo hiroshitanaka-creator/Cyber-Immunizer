@@ -160,6 +160,14 @@ def test_evaluation_report_contains_structured_score_components_and_decision(tmp
             "harness_error": False,
             "error": None,
         }), \
+        patch("scripts.evaluate_candidate.run_behavioral_benign_control_check_subprocess", return_value={
+            "passed": True,
+            "case_results": {},
+            "failing_cases": [],
+            "rejection_reasons": [],
+            "harness_error": False,
+            "error": None,
+        }), \
         patch("subprocess.run", return_value=SimpleNamespace(returncode=1, stdout=__import__('json').dumps(fitness_stdout), stderr="")):
         result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
 

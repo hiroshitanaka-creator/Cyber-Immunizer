@@ -35,6 +35,7 @@ from scripts.candidate_contract import (
     check_request_surface_coverage,
     check_request_surface_coverage_behavioral,
     run_behavioral_surface_check_subprocess,
+    run_behavioral_benign_control_check_subprocess,
     run_candidate_contract_checks,
 )
 
@@ -1345,3 +1346,87 @@ class TestBehavioralIndicatorCoverage:
                 assert result["field_results"][ind][surf] is True, (
                     f"Detector fails for indicator={ind!r} surface={surf!r}"
                 )
+
+
+# ===========================================================================
+# I. Behavioral benign-control checks
+# ===========================================================================
+
+_ALWAYS_BLOCKING_BENIGN = """\
+from core.types import Request, DetectionResult
+
+def inspect_request(request: Request) -> DetectionResult:
+    return DetectionResult(blocked=True, reason="always", confidence=1.0, matched_signals=())
+"""
+
+_MATCHED_SIGNAL_BENIGN = """\
+from core.types import Request, DetectionResult
+
+def inspect_request(request: Request) -> DetectionResult:
+    return DetectionResult(blocked=False, reason="clean", confidence=0.0, matched_signals=("benign_signal",))
+"""
+
+_EXCEPTION_BENIGN = """\
+from core.types import Request, DetectionResult
+
+def inspect_request(request: Request) -> DetectionResult:
+    raise RuntimeError("synthetic benign failure")
+"""
+
+_MALFORMED_BENIGN = """\
+from core.types import Request, DetectionResult
+
+def inspect_request(request: Request):
+    return {"blocked": False, "matched_signals": []}
+"""
+
+
+def _write_benign_candidate(tmp_path: Path, source: str) -> Path:
+    p = tmp_path / "benign_candidate.py"
+    p.write_text(source, encoding="utf-8")
+    return p
+
+
+class TestBehavioralBenignControlCheck:
+    """Benign synthetic requests must not be blocked or matched."""
+
+    def test_generation_3_detector_passes_benign_controls(self) -> None:
+        result = run_behavioral_benign_control_check_subprocess(_PROJECT_ROOT / "core" / "detector.py")
+        assert result["passed"] is True
+        assert result["failing_cases"] == []
+        assert result["rejection_reasons"] == []
+
+    def test_always_blocking_candidate_fails(self, tmp_path: Path) -> None:
+        result = run_behavioral_benign_control_check_subprocess(_write_benign_candidate(tmp_path, _ALWAYS_BLOCKING_BENIGN))
+        assert result["passed"] is False
+        assert "benign_control_blocked" in result["rejection_reasons"]
+
+    def test_matched_signal_on_benign_candidate_fails(self, tmp_path: Path) -> None:
+        result = run_behavioral_benign_control_check_subprocess(_write_benign_candidate(tmp_path, _MATCHED_SIGNAL_BENIGN))
+        assert result["passed"] is False
+        assert "benign_control_matched_signal" in result["rejection_reasons"]
+
+    def test_exception_on_benign_candidate_fails(self, tmp_path: Path) -> None:
+        result = run_behavioral_benign_control_check_subprocess(_write_benign_candidate(tmp_path, _EXCEPTION_BENIGN))
+        assert result["passed"] is False
+        assert "benign_control_exception" in result["rejection_reasons"]
+
+    def test_malformed_runtime_result_fails(self, tmp_path: Path) -> None:
+        result = run_behavioral_benign_control_check_subprocess(_write_benign_candidate(tmp_path, _MALFORMED_BENIGN))
+        assert result["passed"] is False
+        assert "benign_control_malformed_result" in result["rejection_reasons"]
+
+    def test_all_benign_surfaces_are_exercised(self) -> None:
+        result = run_behavioral_benign_control_check_subprocess(_PROJECT_ROOT / "core" / "detector.py")
+        assert set(result["case_results"]) == {*REQUEST_SURFACE_FIELDS, "combined"}
+
+    def test_benign_strings_only_are_embedded_in_harness(self) -> None:
+        from scripts import candidate_contract
+        harness = candidate_contract._BEHAVIORAL_BENIGN_CONTROL_SCRIPT
+        for token in [
+            "BENIGN_METHOD", "/safe/path", "benign_query_key", "benign_query_value",
+            "benign_header_key", "benign_header_value", "benign_body_text",
+        ]:
+            assert token in harness
+        for indicator in BASELINE_SYMBOLIC_INDICATORS:
+            assert indicator not in harness
