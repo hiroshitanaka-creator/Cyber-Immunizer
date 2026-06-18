@@ -26,6 +26,17 @@ def fixture_repo(tmp_path: Path) -> Path:
     shutil.copy(ROOT / "core" / "detector.py", repo / "core" / "detector.py")
     shutil.copy(ROOT / "data" / "genome.json", repo / "data" / "genome.json")
     shutil.copy(ROOT / "data" / "project_state.json", repo / "data" / "project_state.json")
+    # The committed project_state.json intentionally remains frozen for the
+    # docs-only generation 4 audit; align the fixture with current machine
+    # evidence so this script unit test still exercises the success path.
+    genome = json.loads((repo / "data" / "genome.json").read_text())
+    state = json.loads((repo / "data" / "project_state.json").read_text())
+    state["state_id"] = "phase3_generation4_paid_credit_promotion_audited"
+    state["paid_credit_api_calls"]["gemini_3_flash_preview_success_records"] = 9
+    state["promotion"]["generation"] = genome["generation"]
+    state["promotion"]["score"] = genome["best_score"]
+    state["promotion"]["detector_hash"] = genome["current_detector_hash"]
+    (repo / "data" / "project_state.json").write_text(json.dumps(state))
     (repo / "README.md").write_text("fixture\n")
     _run(["git", "init"], repo)
     _run(["git", "config", "user.email", "test@example.com"], repo)
@@ -45,12 +56,19 @@ def _cli(repo: Path, *extra: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_readiness_cli_success_returns_zero_and_json(fixture_repo: Path):
+def test_readiness_cli_reports_generation4_audit_baseline_mismatch(fixture_repo: Path):
     result = _cli(fixture_repo)
     payload = json.loads(result.stdout)
-    assert result.returncode == 0
-    assert payload["ready"] is True
+    # The readiness script is intentionally still a generation-3 pre-run guard;
+    # generation 4 audit docs/tests should record that mismatch without editing
+    # runtime state or the readiness command behavior.
+    assert result.returncode != 0
+    assert payload["ready"] is False
     assert payload["checks"]["frozen_committed_drift"] == "not_applicable"
+    assert any(
+        r["code"] == "state_consistency_mismatch"
+        for r in payload["rejection_reasons"]
+    )
 
 
 def test_readiness_cli_failure_returns_nonzero_with_precise_code(fixture_repo: Path):

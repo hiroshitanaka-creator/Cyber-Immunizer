@@ -1640,59 +1640,40 @@ class TestRealReadmeFitnessReportState:
         self.content = readme.read_text(encoding="utf-8")
         self.block = _extract_block(self.content)
 
-    def test_real_readme_no_stale_hard_coded_fitness_values(self) -> None:
-        """Real README must not show stale hard-coded fitness numbers."""
-        # If no fitness report exists, these stale values must not appear
-        fitness_report_path = _PROJECT_ROOT / ".cyber_immunizer" / "fitness_report.json"
-        if not fitness_report_path.exists():
-            assert "| Total Test Cases | 15 |" not in self.block, (
-                "Stale total_cases=15 must not appear when no fitness report exists"
-            )
-            assert "8 / 0 / 7 / 0" not in self.block, (
-                "Stale TP/FP/TN/FN must not appear when no fitness report exists"
-            )
+    def test_real_readme_generation4_fitness_values_present(self) -> None:
+        """Real README may show committed generation 4 promotion metrics."""
+        assert "| Total Test Cases | 15 |" in self.block
+        assert "8 / 0 / 7 / 0" in self.block
 
-    def test_real_readme_fitness_report_row_or_na_with_explanation(self) -> None:
-        """Real README must either show fitness values or a 'Not available' explanation."""
-        fitness_report_path = _PROJECT_ROOT / ".cyber_immunizer" / "fitness_report.json"
-        if not fitness_report_path.exists():
-            # No report: must show explanation
-            assert (
-                "Not available" in self.block
-                or "| Total Test Cases | N/A |" in self.block
-            ), (
-                "When no fitness report exists, README must show N/A or 'Not available'"
-            )
-
-    def test_real_readme_generation_3_present(self) -> None:
-        """Real README must show generation 3 (promoted via run 8 recovery)."""
-        assert "| Generation | 3 |" in self.block, (
-            "Real README must show Generation 3 after run 8 candidate promotion"
+    def test_real_readme_fitness_report_values_or_explanation(self) -> None:
+        """Real README must show generation 4 metrics or a not-available explanation."""
+        assert (
+            "| Total Test Cases | 15 |" in self.block
+            or "Not available" in self.block
+            or "| Total Test Cases | N/A |" in self.block
         )
 
-    def test_real_readme_best_score_947_66_present(self) -> None:
-        """Real README must show best_score 947.66 (run 8 candidate)."""
-        assert "947.66" in self.block, (
-            "Real README must show best_score=947.66 (generation 3 run 8 candidate)"
+    def test_real_readme_generation_4_present(self) -> None:
+        """Real README must show generation 4 (promoted via paid-credit run #59)."""
+        assert "| Generation | 4 |" in self.block, (
+            "Real README must show Generation 4 after paid-credit run #59 promotion"
         )
 
-    def test_real_readme_no_stale_8_0_7_0_unconditional(self) -> None:
-        """Real README must never contain stale TP/FP/TN/FN=8/0/7/0 values.
-
-        This is unconditional — the committed README must not embed concrete
-        fitness metrics from the local recovery run (which are gitignored).
-        """
-        assert "8 / 0 / 7 / 0" not in self.block, (
-            "README must not contain stale TP/FP/TN/FN=8/0/7/0 from local recovery run"
-        )
-        assert "| Total Test Cases | 15 |" not in self.block, (
-            "README must not contain stale total_cases=15 from local recovery run"
+    def test_real_readme_best_score_948_04_present(self) -> None:
+        """Real README must show best_score 948.04 (generation 4)."""
+        assert "948.04" in self.block, (
+            "Real README must show best_score=948.04 (generation 4)"
         )
 
-    def test_real_readme_recovery_wording_present(self) -> None:
-        """Real README must contain generation 3 recovery wording."""
-        assert "generation 3" in self.block.lower() or "Generation 3" in self.block, (
-            "README status block must reference generation 3 after recovery promotion"
+    def test_real_readme_generation4_metrics_present_unconditional(self) -> None:
+        """Real README records the committed generation 4 promotion metrics."""
+        assert "8 / 0 / 7 / 0" in self.block
+        assert "| Total Test Cases | 15 |" in self.block
+
+    def test_real_readme_generation4_wording_present(self) -> None:
+        """Real README must contain generation 4 promotion wording."""
+        assert "generation 4" in self.block.lower() or "Generation 4" in self.block, (
+            "README status block must reference generation 4 after promotion"
         )
 
 
