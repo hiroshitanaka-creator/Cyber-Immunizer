@@ -101,3 +101,4 @@ Generation 4 is now the verified, documented baseline after the owner-approved p
 - This audit did not change `data/genome.json` or `data/evolution_history.json`.
 - This audit did not modify `.github/workflows/**`.
 - This audit records the already-completed generation 4 promotion only.
+- The offline readiness gate now recognizes generation 4 / score 948.04 / hash `ebb8799db748ed3c3b38eec0c11cdc423b0e43ca04a374ba7e26a48059c30d3f` as the expected Phase 3 baseline.

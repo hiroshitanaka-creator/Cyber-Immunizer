@@ -19,9 +19,9 @@ if str(_PROJECT_ROOT) not in sys.path:
 from scripts.offline_validation import hash_consistency_issues, sha256_text  # noqa: E402
 
 EXPECTED_PHASE = 3
-EXPECTED_GENERATION = 3
-EXPECTED_BEST_SCORE = 947.66
-EXPECTED_DETECTOR_HASH = "c488855e44411912a0efee50fcecc2e5575b3b51e6a128a0c6f0b8df4e78a0b6"
+EXPECTED_GENERATION = 4
+EXPECTED_BEST_SCORE = 948.04
+EXPECTED_DETECTOR_HASH = "ebb8799db748ed3c3b38eec0c11cdc423b0e43ca04a374ba7e26a48059c30d3f"
 FROZEN_PATHS = (
     ".github/workflows/",
     "core/detector.py",
@@ -193,7 +193,7 @@ def run_readiness(project_root: Path | None = None, *, base_ref: str | None = No
     state_ok = phase == EXPECTED_PHASE and generation == EXPECTED_GENERATION and best_score == EXPECTED_BEST_SCORE and recorded_hash == EXPECTED_DETECTOR_HASH
     checks["state_consistency"] = "pass" if state_ok else "fail"
     if not state_ok:
-        reasons.append(_reason("state_consistency_mismatch", "Phase, generation, best_score, or recorded detector hash does not match expected generation 3 readiness state."))
+        reasons.append(_reason("state_consistency_mismatch", "Phase, generation, best_score, or recorded detector hash does not match expected generation 4 readiness state."))
 
     detector_hash = sha256_text(detector_source) if detector_source is not None else None
     hash_ok = detector_hash == recorded_hash == EXPECTED_DETECTOR_HASH

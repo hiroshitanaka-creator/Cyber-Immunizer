@@ -66,8 +66,8 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | run #59 (2026-06-18) | **owner-approved paid-credit promotion complete** → API/token success, proposal produced, apply reached, candidate contract checks passed, evaluate reached, adoption gate passed, promote reached, and promoted/merged as generation 4 (score 948.04, hash ebb8799d…). |
 | Propose-side baseline-preservation hardening | **Implemented** (Gemini propose prompt now requires preserving all five symbolic indicators, the full request inspection surface, and the non-blocking fallback) |
 | Score-schema migration | **Implemented** — `changed_lines` removed from score formula (generation-invariant scoring). `best_score` migrated from 729.34 (old formula) to 939.34 (generation 2 under new formula), then to **947.66** (generation 3, run 8 candidate, 2026-06-18). |
-| state_id | `phase3_run8_candidate_recovered_generation3_active` |
-| Next action | Post-recovery monitoring of generation 3 and owner decision for the next Phase 3 experiment; no automatic paid-credit run. |
+| state_id | `phase3_generation4_paid_credit_promotion_audited` (machine evidence baseline; `data/project_state.json` is intentionally unchanged in this audit PR) |
+| Next action | Treat generation 4 as the audited Phase 3 baseline; owner decision required before any next paid-credit experiment. |
 
 ---
 
@@ -86,7 +86,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Owner-audited recovery (2026-06-18) | Historical generation 3 recovery: candidate hash verified (c488855e…) against run 8 job-log fitness report. `promote_candidate.py` re-executed locally. `core/detector.py` updated to generation 3 (score 947.66). `data/genome.json` and `data/evolution_history.json` updated. No Gemini API call; no new paid-credit run. |
 | Generation 4 paid-credit promotion (2026-06-18, run #59) | Current active baseline: API/token success recorded, candidate promoted and merged as generation 4 (score 948.04, hash ebb8799d…). |
 
-`data/project_state.json` mirrors these machine facts and must not contradict `data/genome.json` or `data/api_usage_ledger.json` (API/token success count). Stage outcomes (apply/evaluate/adoption-gate/promote) are derived from GitHub Actions job logs and artifact triage, not from the ledger alone.
+For this audit PR, machine evidence (`data/genome.json`, `data/evolution_history.json`, `data/api_usage_ledger.json`, and current HEAD) establishes generation 4 as the active baseline. `data/project_state.json` still preserves the prior generation-3 recovery state and is intentionally not edited here because this PR does not change runtime/frozen state files. Stage outcomes (apply/evaluate/adoption-gate/promote) are derived from GitHub Actions job logs, promotion path, and committed state, not from the ledger alone.
 
 ---
 
@@ -194,7 +194,7 @@ For run 8 (2026-06-17, Actions run id 27683267711):
   report. `promote_candidate.py` re-executed. `core/detector.py` updated to generation 3
   (score 947.66). No new Gemini API call. `promote_approved` set to `true`. This is historical context; generation 4 is the current active baseline.
 
-`promote_approved` is now `true` — generation 3 promoted via owner-audited recovery (2026-06-18).
+`promote_approved` remains `true`; generation 3 recovery is historical, and generation 4 is now the active audited baseline after run #59.
 
 ---
 
