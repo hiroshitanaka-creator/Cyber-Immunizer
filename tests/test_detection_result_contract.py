@@ -290,3 +290,13 @@ return DetectionResult(
         assert not result["valid"]
         phrase = self._violation_phrase(result)
         assert "missing required keyword field" in phrase
+
+    def test_rejects_confidence_tuple_literal(self):
+        p = _make_candidate(
+            "return DetectionResult(blocked=False, reason='ok', confidence=(0.5,), matched_signals=())"
+        )
+        result = validate(p)
+        assert not result["valid"]
+        phrase = " ".join(result["violations"]).lower()
+        assert "confidence" in phrase
+        assert "collection" in phrase

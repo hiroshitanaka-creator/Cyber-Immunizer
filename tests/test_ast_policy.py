@@ -117,6 +117,57 @@ return DetectionResult(False, '', 0.0, ())
 """)
         _assert_rejected(p, "os")
 
+    def test_rejects_aliased_detectionresult_import(self):
+        """Aliased core.types import must be rejected regardless of what name is used."""
+        source = "\n".join([
+            "from core.types import Request, DetectionResult as DR",
+            "",
+            "def inspect_request(request: Request) -> DR:",
+            "    # === MUTATION_START ===",
+            "    return DR(blocked=False, reason='ok', confidence=0.0, matched_signals=())",
+            "    # === MUTATION_END ===",
+            "",
+        ])
+        p = _write_raw_candidate(source)
+        _assert_rejected(p, "aliased import")
+
+    def test_rejects_aliased_request_import(self):
+        """Aliased import of any core.types name must be rejected."""
+        source = "\n".join([
+            "from core.types import Request as Req, DetectionResult",
+            "",
+            "def inspect_request(request: Req) -> DetectionResult:",
+            "    # === MUTATION_START ===",
+            "    return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())",
+            "    # === MUTATION_END ===",
+            "",
+        ])
+        p = _write_raw_candidate(source)
+        _assert_rejected(p, "aliased import")
+
+    def test_rejects_aliased_detectionresult_positional_args_bypass(self):
+        """Aliased DR(...) positional call must be caught by the alias rejection."""
+        source = "\n".join([
+            "from core.types import Request, DetectionResult as DR",
+            "",
+            "def inspect_request(request: Request) -> DR:",
+            "    # === MUTATION_START ===",
+            "    return DR(False, 'ok', 0.0, ())",
+            "    # === MUTATION_END ===",
+            "",
+        ])
+        p = _write_raw_candidate(source)
+        result = validate(p)
+        assert not result["valid"]
+        assert "aliased import" in " ".join(result["violations"]).lower()
+
+    def test_canonical_import_still_accepted(self):
+        """Non-aliased from core.types import ... must remain valid."""
+        p = _make_candidate(
+            "return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())"
+        )
+        _assert_accepted(p)
+
 
 class TestForbiddenBuiltins:
     def test_rejects_open(self):

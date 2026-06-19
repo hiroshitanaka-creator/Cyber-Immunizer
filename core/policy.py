@@ -148,6 +148,14 @@ def check_imports(tree: ast.Module) -> list[str]:
                     f"non-allowed import-from: {mod!r} "
                     f"(only {ALLOWED_IMPORT_MODULE!r} is allowed)"
                 )
+            else:
+                # mod == ALLOWED_IMPORT_MODULE: reject aliased names
+                for alias in node.names:
+                    if alias.asname is not None:
+                        violations.append(
+                            f"aliased import from {ALLOWED_IMPORT_MODULE} is not allowed: "
+                            f"{alias.name} as {alias.asname}"
+                        )
     return violations
 
 
@@ -956,7 +964,7 @@ def _check_dr_confidence(val: ast.expr, violations: list[str]) -> None:
                     f"DetectionResult contract violation: "
                     f"confidence literal {val.value!r} is not valid: {exc}"
                 )
-    elif isinstance(val, (ast.List, ast.Set, ast.Dict)):
+    elif isinstance(val, (ast.List, ast.Tuple, ast.Set, ast.Dict)):
         violations.append(
             "DetectionResult contract violation: "
             "confidence must not be a collection literal"
