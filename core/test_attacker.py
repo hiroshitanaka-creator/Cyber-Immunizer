@@ -19,8 +19,10 @@ from core.types import DetectionResult, Request, TestCase
 # Default paths — override via function arguments for flexibility.
 _DATA_DIR = Path(__file__).parent.parent / "data"
 
-# Valid kind values for standard corpus files.  Extended by PR-3 for adaptive tiers.
-_VALID_CORPUS_KINDS: frozenset[str] = frozenset({"benign", "attack", "regression"})
+# Valid kind values — includes standard tiers and adaptive floor tiers.
+_VALID_CORPUS_KINDS: frozenset[str] = frozenset(
+    {"benign", "attack", "regression", "holdout", "counterfactual", "drift"}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -160,20 +162,33 @@ def load_test_cases(
     benign_path: Path | None = None,
     attack_path: Path | None = None,
     regression_path: Path | None = None,
+    holdout_path: Path | None = None,
+    counterfactual_path: Path | None = None,
+    drift_path: Path | None = None,
 ) -> list[TestCase]:
     """Load test cases from JSON files and return as TestCase objects.
 
-    Raises ValueError if any file contains malformed JSON, wrong top-level type,
-    schema violations, or duplicate IDs.  expected_blocked must be exactly bool
-    (JSON true/false) — string coercion via bool() is no longer performed.
+    Raises ValueError if any required file contains malformed JSON, wrong
+    top-level type, schema violations, or duplicate IDs.  expected_blocked
+    must be exactly bool (JSON true/false) — string coercion via bool() is
+    not performed.
+
+    Adaptive tier files (holdout, counterfactual, drift) are optional: if the
+    resolved path does not exist, that tier is silently skipped.  This keeps
+    existing benign/attack/regression behaviour unchanged when the tier files
+    are absent.
     """
     benign_path = benign_path or _DATA_DIR / "benign_requests.json"
     attack_path = attack_path or _DATA_DIR / "attack_requests.json"
     regression_path = regression_path or _DATA_DIR / "regression_cases.json"
+    holdout_path = holdout_path or _DATA_DIR / "holdout_requests.json"
+    counterfactual_path = counterfactual_path or _DATA_DIR / "counterfactual_requests.json"
+    drift_path = drift_path or _DATA_DIR / "drift_requests.json"
 
     cases: list[TestCase] = []
     seen_ids: set[str] = set()
 
+    # Required tiers — raise on any schema violation.
     for path, kind, expected_blocked in [
         (benign_path, "benign", False),
         (attack_path, "attack", True),
@@ -190,6 +205,32 @@ def load_test_cases(
                     kind=case_kind,
                     request=req,
                     expected_blocked=case_blocked,  # already validated as bool
+                    tags=tuple(raw.get("tags", [])),
+                    description=raw.get("description", ""),
+                )
+            )
+
+    # Optional adaptive floor tiers — skip silently if file absent.
+    for path, kind in [
+        (holdout_path, "holdout"),
+        (counterfactual_path, "counterfactual"),
+        (drift_path, "drift"),
+    ]:
+        if not path.exists():
+            continue
+        # expected_blocked=None forces each record to supply its own value.
+        raw_list = _load_corpus_file(path, kind, None, seen_ids)
+        for raw in raw_list:
+            req = build_request(raw["request"])
+            case_kind = raw.get("kind", kind)
+            # Validation guarantees expected_blocked is present and bool.
+            case_blocked = raw["expected_blocked"]
+            cases.append(
+                TestCase(
+                    id=raw["id"],
+                    kind=case_kind,
+                    request=req,
+                    expected_blocked=case_blocked,
                     tags=tuple(raw.get("tags", [])),
                     description=raw.get("description", ""),
                 )
