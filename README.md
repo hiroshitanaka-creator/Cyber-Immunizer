@@ -899,7 +899,7 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 |---|---|
 | Current Phase | Phase 3 — generation 4 active on main after owner-approved paid-credit run #59 promotion (score 948.04, hash ebb8799d…); generation 4 audit complete |
 | Phase 3 Activation | Complete (PR #58-#62) |
-| Phase 3 Paid-Credit API Calls | Executed (9 successful / 9 attempt(s)) |
+| Phase 3 Paid-Credit API Calls | Executed (10 successful / 10 attempt(s)) |
 | Gemini Primary Model | gemini-3-flash-preview |
 | Gemini Fallback Model | gemini-3.1-flash-lite |
 | promote_approved | true (generation 4 promoted via owner-approved paid-credit run #59; active on main) |
