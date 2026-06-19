@@ -170,11 +170,13 @@ def _check_corpus_file(
     path: Path,
     default_kind: str | None,
     default_blocked: bool | None,
-    seen_ids: set[str],
+    seen_ids: set[str] | None = None,
     *,
     require_non_empty: bool = False,
 ) -> list[str]:
+    """Validate one corpus file, optionally sharing duplicate-ID state."""
     from core.test_attacker import _load_corpus_file
+    seen_ids = seen_ids if seen_ids is not None else set()
     try:
         _load_corpus_file(
             path, default_kind, default_blocked, seen_ids,
