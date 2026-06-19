@@ -49,7 +49,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Model provider | gemini |
 | Primary model | gemini-3-flash-preview |
 | Fallback model | gemini-3.1-flash-lite |
-| paid-credit API success records (primary model) | **9** |
+| paid-credit API success records (primary model) | **10** |
 | Valid mutation patch produced | **Yes** (S4 run #47 2026-06-11; runs 5, 6 & 8 also produced valid patches) |
 | apply reached | **Yes** (runs 5, 6 & 8 apply succeeded; S4 run #47 reached apply and failed at G1) |
 | evaluate reached | **Yes** (runs 5, 6 & 8 reached evaluate) |
@@ -64,9 +64,10 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | run 7 (2026-06-16T06:20:37, untriaged) | API/token success only — no artifact or job-log triage available |
 | run 8 (2026-06-17, id 27683267711) | **artifact triage complete** → `promote_push_failed_recovered` — adoption gate passed; promote reached; original push failed (push-race); **candidate recovered and promoted to generation 3 via owner-audited recovery 2026-06-18** |
 | run #59 (2026-06-18) | **owner-approved paid-credit promotion complete** → API/token success, proposal produced, apply reached, candidate contract checks passed, evaluate reached, adoption gate passed, promote reached, and promoted/merged as generation 4 (score 948.04, hash ebb8799d…). |
+| run 10 (2026-06-19T14:43:51) | API/token success only — no artifact or job-log triage available in this task; do not infer apply, evaluate, adoption-gate, or promote. |
 | Propose-side baseline-preservation hardening | **Implemented** (Gemini propose prompt now requires preserving all five symbolic indicators, the full request inspection surface, and the non-blocking fallback) |
 | Score-schema migration | **Implemented** — `changed_lines` removed from score formula (generation-invariant scoring). `best_score` migrated from 729.34 (old formula) to 939.34 (generation 2 under new formula), then to **947.66** (generation 3, run 8 candidate, 2026-06-18). |
-| state_id | `phase3_generation4_paid_credit_promotion_audited` (machine evidence baseline; `data/project_state.json` is intentionally unchanged in this audit PR) |
+| state_id | `phase3_generation4_paid_credit_promotion_active` |
 | Next action | Treat generation 4 as the audited Phase 3 baseline; owner decision required before any next paid-credit experiment. |
 
 ---
@@ -76,7 +77,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Source | What it proves |
 |---|---|
 | `data/genome.json` | `live_model_enabled=true`, `api_mode=gemini_paid_credit`, `model_provider=gemini`, `model_name=gemini-3-flash-preview`, `fallback_model_name=gemini-3.1-flash-lite`, `generation=4`, `best_score=948.04`, `current_detector_hash=ebb8799d…` (generation 4 promoted via owner-approved paid-credit run #59 on 2026-06-18) |
-| `data/api_usage_ledger.json` | **9** primary-model paid-credit success records (`provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true`). Timestamps: 2026-06-03 / 2026-06-04 ×3 / 2026-06-11 / 2026-06-15 / 2026-06-16 ×2 / 2026-06-17 / 2026-06-18. **Proves API/token success count and timestamp/cost fields only.** Does **not** prove apply, evaluate, adoption-gate, or promote stage outcomes — do not infer stage results from ledger success alone. |
+| `data/api_usage_ledger.json` | **10** primary-model paid-credit success records (`provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true`). Timestamps: 2026-06-03 / 2026-06-04 ×3 / 2026-06-11 / 2026-06-15 / 2026-06-16 ×2 / 2026-06-17 / 2026-06-18 / 2026-06-19. **Proves API/token success count and timestamp/cost fields only.** Does **not** prove apply, evaluate, adoption-gate, or promote stage outcomes — do not infer stage results from ledger success alone. |
 | `docs/audit_gate/PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md` | First 3 runs: no valid mutation patch (propose output-contract failures). S4 run #47: valid mutation_patch.json produced; apply reached and failed at G1 repeat-multiplier runtime allocation risk |
 | GitHub Actions (runs 26919888348 / 26922191264 / 26924388218) | First three runs concluded `failure` at finalize-propose-status; evaluate / promote jobs skipped |
 | GitHub Actions (S4 run #47, 2026-06-11) | Materialize reached; apply reached; apply failed (G1 repeat-multiplier); evaluate / promote not reached |
@@ -86,7 +87,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Owner-audited recovery (2026-06-18) | Historical generation 3 recovery: candidate hash verified (c488855e…) against run 8 job-log fitness report. `promote_candidate.py` re-executed locally. `core/detector.py` updated to generation 3 (score 947.66). `data/genome.json` and `data/evolution_history.json` updated. No Gemini API call; no new paid-credit run. |
 | Generation 4 paid-credit promotion (2026-06-18, run #59) | Current active baseline: API/token success recorded, candidate promoted and merged as generation 4 (score 948.04, hash ebb8799d…). |
 
-For this audit PR, machine evidence (`data/genome.json`, `data/evolution_history.json`, `data/api_usage_ledger.json`, and current HEAD) establishes generation 4 as the active baseline. `data/project_state.json` still preserves the prior generation-3 recovery state and is intentionally not edited here because this PR does not change runtime/frozen state files. Stage outcomes (apply/evaluate/adoption-gate/promote) are derived from GitHub Actions job logs, promotion path, and committed state, not from the ledger alone.
+For this Task 1 remediation, machine evidence (`data/genome.json`, `data/evolution_history.json`, `data/api_usage_ledger.json`, and current HEAD) establishes generation 4 as the active baseline and 10 primary-model paid-credit API success records. `data/project_state.json` is updated to match the ledger count. Stage outcomes (apply/evaluate/adoption-gate/promote) are derived from GitHub Actions job logs, promotion path, and committed state, not from the ledger alone.
 
 ---
 
@@ -126,11 +127,20 @@ and the README status update succeeded locally, but the final git push failed be
 had advanced after `persist-ledger` committed the API usage ledger entry (push-race condition).
 The candidate was not promoted to `main` via the original run 8 workflow (push-race). The push-race hardening was merged separately in PR #115. The candidate was subsequently recovered via owner-audited PR #117 and promoted to generation 3 on main.
 
+A 9th primary-model `success=true` ledger record is present (2026-06-18T09:25:49+00:00,
+GitHub Actions run #59). This is the owner-approved paid-credit promotion that promoted and
+merged generation 4 (score 948.04, hash ebb8799d...) to main.
+
+A 10th primary-model `success=true` ledger record is present (2026-06-19T14:43:51+00:00,
+`model=gemini-3-flash-preview`). This Task 1 reconciliation treats it as API/token success
+only. No artifact or job-log triage is available in this task, so it must not be treated as
+evidence that apply, evaluate, adoption-gate, or promote were reached.
+
 ---
 
 ## 4. Meaning of promote_approved=true (current state)
 
-`promote_approved` is now `true` as of 2026-06-18 (run 8 candidate recovery PR).
+`promote_approved` is now `true` for the active generation 4 baseline as of 2026-06-18 (run #59 promotion).
 
 | Claim | Correct? |
 |---|---|
@@ -140,10 +150,10 @@ The candidate was not promoted to `main` via the original run 8 workflow (push-r
 | `promote_approved=true` means the generation 4 promotion has been merged to main | ✅ Correct — run #59 promotion merged on 2026-06-18; generation 4 is now active on main |
 
 The primary-model paid-credit API calls **have been executed** and are recorded in the ledger
-(9 success records). Run 8 (2026-06-17) passed the adoption gate. The candidate was recovered
+(10 success records). Run 8 (2026-06-17) passed the adoption gate. The candidate was recovered
 via owner-audited recovery on 2026-06-18: hash verified against run 8 job-log fitness report,
 `promote_candidate.py` re-executed, generation 3 written. Recovery was completed via
-owner-audited PR #117 (merged 2026-06-18). That recovery is historical; generation 4 is now active on main after run #59 promotion.
+owner-audited PR #117 (merged 2026-06-18). That recovery is historical; generation 4 is now active on main after run #59 promotion. The 10th record is API/token success only in this reconciliation and does not change the generation 4 baseline.
 
 ---
 
