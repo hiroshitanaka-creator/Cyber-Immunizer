@@ -91,6 +91,11 @@ def _validate_corpus_record(
     _validate_request_dict(req, id_val)
 
     kind = raw.get("kind", default_kind)
+    if not isinstance(kind, str):
+        raise ValueError(
+            f"Corpus record {id_val!r}: 'kind' must be str, "
+            f"got {type(kind).__name__!r} {kind!r}"
+        )
     if kind not in valid_kinds:
         raise ValueError(
             f"Corpus record {id_val!r}: 'kind' must be one of {sorted(valid_kinds)}, "
@@ -258,29 +263,28 @@ def summarize_results(results: list[dict]) -> dict:
     latencies: list[float] = []
 
     for r in results:
-        latencies.append(r["latency_ms"])
         if r["exception"]:
             exceptions += 1
+            continue
         exp = r["expected_blocked"]
         act = r["actual_blocked"]
         if exp and act:
             tp += 1
-        elif not exp and act:
+        elif (not exp) and act:
             fp += 1
-        elif not exp and not act:
-            tn += 1
-        else:
+        elif exp and (not act):
             fn += 1
+        else:
+            tn += 1
+        latencies.append(float(r["latency_ms"]))
 
-    total = len(results)
-    avg_latency = sum(latencies) / total if total else 0.0
-
+    total = tp + fp + tn + fn + exceptions
     return {
         "true_positive": tp,
         "false_positive": fp,
         "true_negative": tn,
         "false_negative": fn,
-        "total_cases": total,
         "exception_count": exceptions,
-        "avg_latency_ms": avg_latency,
+        "total_cases": total,
+        "avg_latency_ms": (sum(latencies) / len(latencies)) if latencies else 0.0,
     }
