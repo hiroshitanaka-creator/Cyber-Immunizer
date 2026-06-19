@@ -118,6 +118,11 @@ def _load_active_threats_strict(path: Path) -> list[ThreatRecord]:
             )
 
         df = raw.get("defensive_focus", "generic")
+        if not isinstance(df, str):
+            raise ValueError(
+                f"Threat feed {path} record {id_val!r}: "
+                f"'defensive_focus' must be str, got {type(df).__name__!r} {df!r}"
+            )
         if df not in ThreatRecord._ALLOWED_FOCUSES:
             raise ValueError(
                 f"Threat feed {path} record {id_val!r}: "
