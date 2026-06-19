@@ -6,6 +6,7 @@ even the *contents* of those mappings are read-only at runtime.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal, Mapping
@@ -40,12 +41,56 @@ class DetectionResult:
     """Result returned by the detector for a single request.
 
     confidence is intended to be in the range [0.0, 1.0].
+    __post_init__ enforces strict runtime type and value constraints so that
+    wrong-type fields cannot silently flow through scoring.
     """
 
     blocked: bool
     reason: str
     confidence: float  # [0.0, 1.0]
     matched_signals: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.blocked) is not bool:
+            raise TypeError(
+                f"DetectionResult contract violation: "
+                f"blocked must be bool, got {type(self.blocked).__name__!r}"
+            )
+        if type(self.reason) is not str:
+            raise TypeError(
+                f"DetectionResult contract violation: "
+                f"reason must be str, got {type(self.reason).__name__!r}"
+            )
+        # bool is a subclass of int, so check bool first to reject it explicitly
+        if type(self.confidence) is bool or type(self.confidence) not in (int, float):
+            raise TypeError(
+                f"DetectionResult contract violation: "
+                f"confidence must be int or float (not bool), "
+                f"got {type(self.confidence).__name__!r}"
+            )
+        if not math.isfinite(self.confidence):
+            raise ValueError(
+                f"DetectionResult contract violation: "
+                f"confidence must be finite, got {self.confidence!r}"
+            )
+        if not (0.0 <= self.confidence <= 1.0):
+            raise ValueError(
+                f"DetectionResult contract violation: "
+                f"confidence must be in [0.0, 1.0], got {self.confidence!r}"
+            )
+        if type(self.matched_signals) is not tuple:
+            raise TypeError(
+                f"DetectionResult contract violation: "
+                f"matched_signals must be tuple, "
+                f"got {type(self.matched_signals).__name__!r}"
+            )
+        for i, sig in enumerate(self.matched_signals):
+            if type(sig) is not str:
+                raise TypeError(
+                    f"DetectionResult contract violation: "
+                    f"matched_signals[{i}] must be str, "
+                    f"got {type(sig).__name__!r}"
+                )
 
 
 @dataclass(frozen=True)
