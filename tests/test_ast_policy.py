@@ -260,6 +260,56 @@ return DetectionResult(
         result = validate(p)
         assert result["valid"], f"Expected valid but got: {result['violations']}"
 
+    def test_rejects_tuple_subscript_detectionresult_alias(self):
+        p = _make_candidate("""\
+DR = (DetectionResult,)[0]
+return DR(False, "ok", 0.0, ())
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_rejects_list_subscript_detectionresult_alias(self):
+        p = _make_candidate("""\
+DR = [DetectionResult][0]
+return DR(False, "ok", 0.0, ())
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_rejects_ifexp_detectionresult_alias(self):
+        p = _make_candidate("""\
+DR = DetectionResult if True else DetectionResult
+return DR(False, "ok", 0.0, ())
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_rejects_dict_subscript_detectionresult_alias(self):
+        p = _make_candidate("""\
+DR = {"ctor": DetectionResult}["ctor"]
+return DR(False, "ok", 0.0, ())
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_canonical_detectionresult_result_assignment_allowed(self):
+        """Assigning the result of a canonical constructor call must be accepted."""
+        p = _make_candidate("""\
+result = DetectionResult(
+    blocked=False,
+    reason="ok",
+    confidence=0.0,
+    matched_signals=(),
+)
+return result
+""")
+        result = validate(p)
+        assert result["valid"], f"Expected valid but got: {result['violations']}"
+
 
 class TestForbiddenBuiltins:
     def test_rejects_open(self):

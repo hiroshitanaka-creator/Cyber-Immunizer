@@ -1007,43 +1007,62 @@ def _check_dr_matched_signals(val: ast.expr, violations: list[str]) -> None:
                 )
 
 
-def _is_detectionresult_name(node: ast.expr) -> bool:
-    """Return True if node is a bare Name reference to DetectionResult."""
-    return isinstance(node, ast.Name) and node.id == "DetectionResult"
+def _expr_contains_detectionresult_reference(expr: ast.expr | None) -> bool:
+    """Return True if expr contains a bare DetectionResult Name reference.
+
+    Canonical constructor calls (DetectionResult(...)) are allowed as RHS values
+    — only the callee Name is skipped, but args/keywords are still inspected for
+    nested weirdness.
+
+    This covers wrapper-expression patterns such as:
+        (DetectionResult,)[0]
+        [DetectionResult][0]
+        DetectionResult if cond else DetectionResult
+        {"ctor": DetectionResult}["ctor"]
+        (DetectionResult or DetectionResult)
+    """
+    if expr is None:
+        return False
+    if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name) and expr.func.id == "DetectionResult":
+        # Skip the callee itself; only flag if args or keyword values carry a reference.
+        return any(_expr_contains_detectionresult_reference(arg) for arg in expr.args) or any(
+            _expr_contains_detectionresult_reference(kw.value)
+            for kw in expr.keywords
+            if kw.value is not None
+        )
+    if isinstance(expr, ast.Name) and expr.id == "DetectionResult":
+        return True
+    return any(
+        _expr_contains_detectionresult_reference(child)
+        for child in ast.iter_child_nodes(expr)
+        if isinstance(child, ast.expr)
+    )
 
 
 def check_detection_result_aliases(tree: ast.Module) -> list[str]:
     """Reject local alias creation for DetectionResult.
 
-    Catches patterns such as:
+    Catches direct and wrapper-expression patterns such as:
         DR = DetectionResult
         DR: object = DetectionResult
         a = b = DetectionResult
-        DR, x = DetectionResult, None  (tuple unpacking)
+        DR, x = DetectionResult, None
+        DR = (DetectionResult,)[0]
+        DR = [DetectionResult][0]
+        DR = DetectionResult if cond else DetectionResult
+        DR = {"ctor": DetectionResult}["ctor"]
 
     Import-level aliasing is handled separately by check_imports().
     Violation messages contain the phrase "DetectionResult alias creation is not allowed".
     """
     violations: list[str] = []
 
-    def _check_value(val: ast.expr | None) -> bool:
-        """Return True (and append a violation) if val is or contains DetectionResult."""
-        if val is None:
-            return False
-        if _is_detectionresult_name(val):
+    def _check_value(val: ast.expr | None) -> None:
+        if _expr_contains_detectionresult_reference(val):
             violations.append(
                 "DetectionResult alias creation is not allowed: "
                 "do not assign DetectionResult to a local name"
             )
-            return True
-        # Handle tuple/list RHS for unpacking: a, b = DetectionResult, None
-        if isinstance(val, (ast.Tuple, ast.List)):
-            found = False
-            for elt in val.elts:
-                if _check_value(elt):
-                    found = True
-            return found
-        return False
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
