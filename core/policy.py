@@ -1007,6 +1007,55 @@ def _check_dr_matched_signals(val: ast.expr, violations: list[str]) -> None:
                 )
 
 
+def _is_detectionresult_name(node: ast.expr) -> bool:
+    """Return True if node is a bare Name reference to DetectionResult."""
+    return isinstance(node, ast.Name) and node.id == "DetectionResult"
+
+
+def check_detection_result_aliases(tree: ast.Module) -> list[str]:
+    """Reject local alias creation for DetectionResult.
+
+    Catches patterns such as:
+        DR = DetectionResult
+        DR: object = DetectionResult
+        a = b = DetectionResult
+        DR, x = DetectionResult, None  (tuple unpacking)
+
+    Import-level aliasing is handled separately by check_imports().
+    Violation messages contain the phrase "DetectionResult alias creation is not allowed".
+    """
+    violations: list[str] = []
+
+    def _check_value(val: ast.expr | None) -> bool:
+        """Return True (and append a violation) if val is or contains DetectionResult."""
+        if val is None:
+            return False
+        if _is_detectionresult_name(val):
+            violations.append(
+                "DetectionResult alias creation is not allowed: "
+                "do not assign DetectionResult to a local name"
+            )
+            return True
+        # Handle tuple/list RHS for unpacking: a, b = DetectionResult, None
+        if isinstance(val, (ast.Tuple, ast.List)):
+            found = False
+            for elt in val.elts:
+                if _check_value(elt):
+                    found = True
+            return found
+        return False
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            _check_value(node.value)
+        elif isinstance(node, ast.AnnAssign):
+            _check_value(node.value)
+        elif isinstance(node, ast.NamedExpr):
+            _check_value(node.value)
+
+    return violations
+
+
 def check_detection_result_static_values(tree: ast.Module) -> list[str]:
     """Reject positional-arg calls, missing required fields, **kwargs, unknown fields,
     and obvious invalid literal values in DetectionResult(...) calls.
@@ -1172,7 +1221,10 @@ def run_full_policy(candidate_path: Path) -> dict:
     # 9. inspect_request signature
     violations.extend(check_inspect_request_signature(tree))
 
-    # 10. DetectionResult static value checks (contract enforcement — before any import)
+    # 10. DetectionResult local alias creation check
+    violations.extend(check_detection_result_aliases(tree))
+
+    # 10b. DetectionResult static value checks (contract enforcement)
     violations.extend(check_detection_result_static_values(tree))
 
     # 11. Extra definitions

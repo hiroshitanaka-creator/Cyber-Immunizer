@@ -169,6 +169,98 @@ return DetectionResult(False, '', 0.0, ())
         _assert_accepted(p)
 
 
+class TestDetectionResultLocalAliases:
+    """DR = DetectionResult (local alias creation) must be rejected."""
+
+    def test_rejects_local_detectionresult_alias_assignment(self):
+        p = _make_candidate("""\
+DR = DetectionResult
+return DetectionResult(
+    blocked=False,
+    reason="ok",
+    confidence=0.0,
+    matched_signals=(),
+)
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_rejects_local_detectionresult_alias_positional_bypass(self):
+        p = _make_candidate("""\
+DR = DetectionResult
+return DR(False, "ok", 0.0, ())
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_rejects_annotated_detectionresult_alias_assignment(self):
+        p = _make_candidate("""\
+DR: object = DetectionResult
+return DetectionResult(
+    blocked=False,
+    reason="ok",
+    confidence=0.0,
+    matched_signals=(),
+)
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_rejects_chained_alias_assignment(self):
+        p = _make_candidate("""\
+a = b = DetectionResult
+return DetectionResult(
+    blocked=False,
+    reason="ok",
+    confidence=0.0,
+    matched_signals=(),
+)
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_rejects_tuple_unpacking_alias(self):
+        p = _make_candidate("""\
+DR, x = DetectionResult, None
+return DetectionResult(
+    blocked=False,
+    reason="ok",
+    confidence=0.0,
+    matched_signals=(),
+)
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_canonical_detectionresult_call_not_rejected(self):
+        """Canonical return statement must not trigger alias check."""
+        p = _make_candidate(
+            "return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())"
+        )
+        result = validate(p)
+        assert result["valid"], f"Expected valid but got: {result['violations']}"
+
+    def test_dynamic_canonical_call_not_rejected(self):
+        """Dynamic values via canonical keyword call must remain accepted."""
+        p = _make_candidate("""\
+signals = []
+blocked = bool(signals)
+return DetectionResult(
+    blocked=blocked,
+    reason="ok",
+    confidence=min(1.0, 0.5),
+    matched_signals=tuple(signals),
+)
+""")
+        result = validate(p)
+        assert result["valid"], f"Expected valid but got: {result['violations']}"
+
+
 class TestForbiddenBuiltins:
     def test_rejects_open(self):
         p = _make_candidate("""\
