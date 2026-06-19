@@ -861,6 +861,205 @@ def check_disallowed_ast_constructs(tree: ast.Module) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# DetectionResult static value checks (X-007 / contract enforcement)
+# ---------------------------------------------------------------------------
+
+_DR_VALID_FIELDS: frozenset[str] = frozenset({"blocked", "reason", "confidence", "matched_signals"})
+
+
+def _check_dr_blocked(val: ast.expr, violations: list[str]) -> None:
+    """blocked must be bool literal (True/False) or a dynamic expression."""
+    if isinstance(val, ast.Constant):
+        if not isinstance(val.value, bool):
+            violations.append(
+                f"DetectionResult contract violation: "
+                f"blocked must be bool (True/False), "
+                f"got {type(val.value).__name__!r} literal {val.value!r}"
+            )
+    elif isinstance(val, (ast.List, ast.Tuple, ast.Set, ast.Dict)):
+        violations.append(
+            "DetectionResult contract violation: "
+            "blocked must not be a collection literal"
+        )
+
+
+def _check_dr_reason(val: ast.expr, violations: list[str]) -> None:
+    """reason must be str constant or a dynamic expression."""
+    if isinstance(val, ast.Constant):
+        if not isinstance(val.value, str):
+            violations.append(
+                f"DetectionResult contract violation: "
+                f"reason must be str, "
+                f"got {type(val.value).__name__!r} literal {val.value!r}"
+            )
+    elif isinstance(val, (ast.List, ast.Tuple, ast.Set, ast.Dict)):
+        violations.append(
+            "DetectionResult contract violation: "
+            "reason must not be a collection literal"
+        )
+
+
+def _check_dr_confidence(val: ast.expr, violations: list[str]) -> None:
+    """confidence must be a numeric literal in [0.0, 1.0] or a dynamic expression.
+    bool literals are rejected even though bool is a subclass of int.
+    Negative numeric literals (e.g. -0.1 = UnaryOp(USub, Constant)) are folded
+    and range-checked.
+    """
+    # Fold simple negated numeric literals: -0.1 is UnaryOp(USub, Constant(0.1))
+    if (
+        isinstance(val, ast.UnaryOp)
+        and isinstance(val.op, ast.USub)
+        and isinstance(val.operand, ast.Constant)
+        and isinstance(val.operand.value, (int, float))
+        and not isinstance(val.operand.value, bool)
+    ):
+        try:
+            neg = -float(val.operand.value)
+            if not (0.0 <= neg <= 1.0):
+                violations.append(
+                    f"DetectionResult contract violation: "
+                    f"confidence literal {neg!r} is outside [0.0, 1.0]"
+                )
+        except (ValueError, TypeError) as exc:
+            violations.append(
+                f"DetectionResult contract violation: "
+                f"confidence literal is not valid: {exc}"
+            )
+        return
+
+    if isinstance(val, ast.Constant):
+        if isinstance(val.value, bool):
+            violations.append(
+                "DetectionResult contract violation: "
+                "confidence must not be bool literal (True/False)"
+            )
+        elif val.value is None:
+            violations.append(
+                "DetectionResult contract violation: "
+                "confidence must not be None"
+            )
+        elif isinstance(val.value, str):
+            violations.append(
+                f"DetectionResult contract violation: "
+                f"confidence must not be str literal {val.value!r}"
+            )
+        elif isinstance(val.value, (int, float)):
+            try:
+                fv = float(val.value)
+                if not (0.0 <= fv <= 1.0):
+                    violations.append(
+                        f"DetectionResult contract violation: "
+                        f"confidence literal {val.value!r} is outside [0.0, 1.0]"
+                    )
+            except (ValueError, TypeError) as exc:
+                violations.append(
+                    f"DetectionResult contract violation: "
+                    f"confidence literal {val.value!r} is not valid: {exc}"
+                )
+    elif isinstance(val, (ast.List, ast.Set, ast.Dict)):
+        violations.append(
+            "DetectionResult contract violation: "
+            "confidence must not be a collection literal"
+        )
+
+
+def _check_dr_matched_signals(val: ast.expr, violations: list[str]) -> None:
+    """matched_signals must be a tuple of str constants or a dynamic expression.
+    String scalars, lists, dicts, and sets are rejected.
+    Tuple literals are inspected: non-string constant elements are rejected.
+    """
+    if isinstance(val, ast.Constant):
+        violations.append(
+            "DetectionResult contract violation: "
+            "matched_signals must not be a scalar literal "
+            "(expected tuple or dynamic expression)"
+        )
+    elif isinstance(val, ast.List):
+        violations.append(
+            "DetectionResult contract violation: "
+            "matched_signals must not be a list literal (use tuple)"
+        )
+    elif isinstance(val, ast.Dict):
+        violations.append(
+            "DetectionResult contract violation: "
+            "matched_signals must not be a dict literal"
+        )
+    elif isinstance(val, ast.Set):
+        violations.append(
+            "DetectionResult contract violation: "
+            "matched_signals must not be a set literal"
+        )
+    elif isinstance(val, ast.Tuple):
+        for i, elt in enumerate(val.elts):
+            if isinstance(elt, ast.Constant) and not isinstance(elt.value, str):
+                violations.append(
+                    f"DetectionResult contract violation: "
+                    f"matched_signals tuple element [{i}] must be str, "
+                    f"got {type(elt.value).__name__!r} literal {elt.value!r}"
+                )
+
+
+def check_detection_result_static_values(tree: ast.Module) -> list[str]:
+    """Reject obvious invalid literal values in DetectionResult(...) calls.
+
+    Only keyword-argument calls are fully inspected for per-field literal
+    violations. Dynamic expressions (Call, Name, Attribute, JoinedStr, etc.)
+    that are not obvious invalid literals are not rejected.
+
+    Always rejects **kwargs expansion and unknown keyword field names regardless
+    of whether args are positional or keyword.
+
+    Violation messages contain the stable phrase "DetectionResult contract violation".
+    """
+    violations: list[str] = []
+    try:
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "DetectionResult"
+            ):
+                continue
+
+            # Reject **kwargs expansion (kw.arg is None for **expr)
+            for kw in node.keywords:
+                if kw.arg is None:
+                    violations.append(
+                        "DetectionResult contract violation: "
+                        "**kwargs expansion is not permitted in DetectionResult call"
+                    )
+
+            # Collect present keyword field names (excluding **kwargs)
+            kw_field_names = {kw.arg for kw in node.keywords if kw.arg is not None}
+
+            # Reject unknown / extra keyword fields
+            extra = kw_field_names - _DR_VALID_FIELDS
+            for field in sorted(extra):
+                violations.append(
+                    f"DetectionResult contract violation: "
+                    f"unknown keyword field {field!r}"
+                )
+
+            # Per-field literal checks for each keyword arg present
+            for kw in node.keywords:
+                if kw.arg is None:
+                    continue
+                if kw.arg == "blocked":
+                    _check_dr_blocked(kw.value, violations)
+                elif kw.arg == "reason":
+                    _check_dr_reason(kw.value, violations)
+                elif kw.arg == "confidence":
+                    _check_dr_confidence(kw.value, violations)
+                elif kw.arg == "matched_signals":
+                    _check_dr_matched_signals(kw.value, violations)
+    except Exception as exc:  # noqa: BLE001
+        violations.append(
+            f"DetectionResult contract violation: check failed (fail-closed): {exc}"
+        )
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Unified policy runner
 # ---------------------------------------------------------------------------
 
@@ -940,7 +1139,10 @@ def run_full_policy(candidate_path: Path) -> dict:
     # 9. inspect_request signature
     violations.extend(check_inspect_request_signature(tree))
 
-    # 10. Extra definitions
+    # 10. DetectionResult static value checks (contract enforcement — before any import)
+    violations.extend(check_detection_result_static_values(tree))
+
+    # 11. Extra definitions
     violations.extend(check_extra_defs(tree))
 
     return {"valid": len(violations) == 0, "violations": violations}
