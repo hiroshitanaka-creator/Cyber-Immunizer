@@ -61,6 +61,10 @@ _NEXT_ACTION_TEXT = {
         "Post-recovery monitoring of generation 3 and owner decision"
         " for the next Phase 3 experiment; no automatic paid-credit run"
     ),
+    "generation4_audited_baseline_owner_decide_next_phase3_step": (
+        "Generation 4 is the audited Phase 3 baseline; owner decision required"
+        " before any next paid-credit experiment"
+    ),
 }
 
 _STATUS_START = "<!-- CYBER_IMMUNIZER_STATUS_START -->"
@@ -172,7 +176,17 @@ def _apply_project_state(
         )
     elif patch_produced and apply_reached and evaluate_reached and adoption_gate_ever_passed and candidate_promoted:
         _next_action_peek = state.get("next_action", "")
-        if _next_action_peek == "post_recovery_monitor_generation3_and_owner_decide_next_phase3_step":
+        if _next_action_peek == "generation4_audited_baseline_owner_decide_next_phase3_step":
+            _promo = state.get("promotion", {})
+            _gen = _promo.get("generation", "?")
+            _score = _promo.get("score", "?")
+            _hash_short = str(_promo.get("detector_hash", ""))[:8]
+            current_phase = (
+                f"Phase 3 — generation {_gen} active on main after owner-approved"
+                f" paid-credit run #59 promotion (score {_score},"
+                f" hash {_hash_short}…); generation {_gen} audit complete"
+            )
+        elif _next_action_peek == "post_recovery_monitor_generation3_and_owner_decide_next_phase3_step":
             current_phase = (
                 "Phase 3 — generation 3 active on main after owner-audited run 8 recovery"
                 " (score 947.66, hash c488855e…); recovery complete"
@@ -194,7 +208,14 @@ def _apply_project_state(
     ):
         if candidate_promoted:
             _next_action_promo = state.get("next_action", "")
-            if _next_action_promo == "post_recovery_monitor_generation3_and_owner_decide_next_phase3_step":
+            if _next_action_promo == "generation4_audited_baseline_owner_decide_next_phase3_step":
+                _promo2 = state.get("promotion", {})
+                _gen2 = _promo2.get("generation", "?")
+                promote_note = (
+                    f"true (generation {_gen2} promoted via owner-approved"
+                    f" paid-credit run #59; active on main)"
+                )
+            elif _next_action_promo == "post_recovery_monitor_generation3_and_owner_decide_next_phase3_step":
                 promote_note = (
                     "true (run 8 candidate promoted to generation 3"
                     " via PR #117; active on main)"

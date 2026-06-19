@@ -45,12 +45,35 @@ def _cli(repo: Path, *extra: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_readiness_cli_success_returns_zero_and_json(fixture_repo: Path):
+def test_readiness_cli_success_returns_zero_and_generation4_json(fixture_repo: Path):
     result = _cli(fixture_repo)
     payload = json.loads(result.stdout)
     assert result.returncode == 0
     assert payload["ready"] is True
+    assert payload["checks"]["state_consistency"] == "pass"
+    assert payload["checks"]["detector_hash"] == "pass"
     assert payload["checks"]["frozen_committed_drift"] == "not_applicable"
+    assert payload["metadata"]["generation"] == 4
+    assert payload["metadata"]["best_score"] == 948.04
+    assert payload["metadata"]["detector_hash"] == (
+        "ebb8799db748ed3c3b38eec0c11cdc423b0e43ca04a374ba7e26a48059c30d3f"
+    )
+
+
+def test_readiness_fails_if_fixture_regresses_to_generation3(fixture_repo: Path):
+    genome = json.loads((fixture_repo / "data" / "genome.json").read_text())
+    genome["generation"] = 3
+    genome["best_score"] = 947.66
+    genome["current_detector_hash"] = (
+        "c488855e44411912a0efee50fcecc2e5575b3b51e6a128a0c6f0b8df4e78a0b6"
+    )
+    (fixture_repo / "data" / "genome.json").write_text(json.dumps(genome))
+    result = _cli(fixture_repo)
+    payload = json.loads(result.stdout)
+    assert result.returncode != 0
+    assert payload["ready"] is False
+    codes = {r["code"] for r in payload["rejection_reasons"]}
+    assert "state_consistency_mismatch" in codes or "detector_hash_mismatch" in codes
 
 
 def test_readiness_cli_failure_returns_nonzero_with_precise_code(fixture_repo: Path):

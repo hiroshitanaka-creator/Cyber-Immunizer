@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "state_id": "phase3_run8_candidate_recovered_generation3_active",
+  "state_id": "phase3_generation4_paid_credit_promotion_active",
   "current_phase": "phase_3",
   "phase_3_activation": "complete",
   "live_model_enabled": true,
@@ -9,7 +9,7 @@
   "primary_model": "gemini-3-flash-preview",
   "fallback_model": "gemini-3.1-flash-lite",
   "paid_credit_api_calls": {
-    "gemini_3_flash_preview_success_records": 8,
+    "gemini_3_flash_preview_success_records": 9,
     "api_success_meaning": "http_200_and_token_usage_recorded",
     "valid_mutation_patch_produced": true,
     "apply_reached": true,
@@ -60,11 +60,11 @@
       "evidence_source": "untriaged — API/token success recorded; no artifact or job-log triage available for this record"
     },
     "candidate_promoted": true,
-    "candidate_promoted_meaning": "run_8_candidate_recovered_and_promoted_to_core_detector_py_generation_3",
-    "candidate_promoted_generation": 3,
-    "candidate_promoted_score": 947.66,
-    "candidate_promoted_hash": "c488855e44411912a0efee50fcecc2e5575b3b51e6a128a0c6f0b8df4e78a0b6",
-    "candidate_promoted_by": "owner_audited_recovery_2026-06-18",
+    "candidate_promoted_meaning": "run_9_owner_approved_paid_credit_promoted_to_core_detector_py_generation_4",
+    "candidate_promoted_generation": 4,
+    "candidate_promoted_score": 948.04,
+    "candidate_promoted_hash": "ebb8799db748ed3c3b38eec0c11cdc423b0e43ca04a374ba7e26a48059c30d3f",
+    "candidate_promoted_by": "owner_approved_paid_credit_run_59_2026-06-18",
     "run_8_triage": {
       "github_actions_run_id": "27683267711",
       "ledger_timestamp": "2026-06-17T10:43:08.894275+00:00",
@@ -81,7 +81,23 @@
       "is_tool_failure": false,
       "evidence_source": "GitHub Actions run 27683267711 job/artifact triage; candidate_hash verified against fitness report from job logs"
     },
-    "note": "apply_reached/evaluate_reached/adoption_gate_ever_passed/promote_reached/candidate_promoted reflect the best-known cumulative state across all triaged runs 1-8. data/api_usage_ledger.json records 8 primary-model success records. Runs 5 and 6 are triaged as evaluate_rejected. Run 7 (2026-06-16T06:20:37) is API/token success only and remains untriaged. Run 8 (2026-06-17, id=27683267711) passed the adoption gate and reached promote; the original promote push failed (push-race); candidate was recovered via owner-audited recovery on 2026-06-18 — hash verified, promote_candidate.py re-executed, generation 3 written to core/detector.py. Run 8 candidate recovered via owner-audited PR #117 and is now active on main as generation 3. Original run 8 workflow result remains promote_push_failed; recovery completed through PR #117 without a new API call, workflow_dispatch, or paid-credit run."
+    "run_9_triage": {
+      "github_actions_run_number": 59,
+      "ledger_timestamp": "2026-06-18T09:25:49.444409+00:00",
+      "classification": "promoted",
+      "apply_reached": true,
+      "evaluate_reached": true,
+      "passed_adoption_gate": true,
+      "promote_reached": true,
+      "promote_completed": true,
+      "candidate_promoted": true,
+      "candidate_promoted_generation": 4,
+      "score": 948.04,
+      "previous_best": 947.66,
+      "is_tool_failure": false,
+      "evidence_source": "promotion commit 3a480ef934b1d4e25ec9f3a27af8f16c1373993a; data/genome.json generation=4, best_score=948.04, detector_hash=ebb8799d…; data/evolution_history.json generation 4 entry passed_adoption_gate=true; data/api_usage_ledger.json 9th success record timestamped 2026-06-18T09:25:49.444409+00:00"
+    },
+    "note": "apply_reached/evaluate_reached/adoption_gate_ever_passed/promote_reached/candidate_promoted reflect the best-known cumulative state across all triaged runs 1-9. data/api_usage_ledger.json records 9 primary-model success records. Runs 5 and 6 are triaged as evaluate_rejected. Run 7 (2026-06-16T06:20:37) is API/token success only and remains untriaged. Run 8 (2026-06-17, id=27683267711) passed the adoption gate and reached promote; the original promote push failed (push-race); candidate was recovered via owner-audited recovery on 2026-06-18 — hash verified, promote_candidate.py re-executed, generation 3 written to core/detector.py. Run 9 (2026-06-18, run #59) is the owner-approved paid-credit run that successfully promoted generation 4 (score 948.04, hash ebb8799d…) to core/detector.py via the standard workflow promote path."
   },
   "propose_side_hardening": {
     "baseline_preservation_contract_added": true,
@@ -103,13 +119,13 @@
   },
   "promotion": {
     "promote_approved": true,
-    "promote_approved_by": "owner_audited_recovery_2026-06-18",
-    "meaning": "run_8_candidate_promoted_to_generation_3_via_recovery",
-    "generation": 3,
-    "score": 947.66,
-    "detector_hash": "c488855e44411912a0efee50fcecc2e5575b3b51e6a128a0c6f0b8df4e78a0b6"
+    "promote_approved_by": "owner_approved_paid_credit_run_59_2026-06-18",
+    "meaning": "run_9_owner_approved_paid_credit_promoted_to_generation_4",
+    "generation": 4,
+    "score": 948.04,
+    "detector_hash": "ebb8799db748ed3c3b38eec0c11cdc423b0e43ca04a374ba7e26a48059c30d3f"
   },
-  "next_action": "post_recovery_monitor_generation3_and_owner_decide_next_phase3_step",
+  "next_action": "generation4_audited_baseline_owner_decide_next_phase3_step",
   "fresh_verification_policy": {
     "paid_credit_run_in_this_pr": "forbidden",
     "workflow_dispatch_in_this_pr": "forbidden",

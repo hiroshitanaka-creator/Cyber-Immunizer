@@ -148,10 +148,10 @@ def test_project_state_matches_ledger_success_count() -> None:
     )
     declared = state["paid_credit_api_calls"]["gemini_3_flash_preview_success_records"]
     assert actual == declared, (
-        f"project_state declares {declared} primary-model success records "
+        f"data/project_state.json declares {declared} success records "
         f"but ledger has {actual}"
     )
-    assert actual == 8, "ledger must contain exactly 8 primary-model paid-credit success records"
+    assert actual == 9, "ledger must contain exactly 9 primary-model paid-credit success records"
 
 
 # 5.
@@ -323,10 +323,10 @@ def test_project_state_doc_no_stale_3_calls_claim() -> None:
 
 
 # 19.
-def test_project_state_doc_shows_6_success_records() -> None:
+def test_project_state_doc_shows_9_success_records() -> None:
     text = _PROJECT_STATE_DOC.read_text(encoding="utf-8")
-    assert "**8**" in text, (
-        "docs/PROJECT_STATE.md must show 8 primary-model paid-credit success records"
+    assert "**9**" in text, (
+        "docs/PROJECT_STATE.md must show 9 primary-model paid-credit success records"
     )
 
 
@@ -344,31 +344,31 @@ def test_project_state_doc_mentions_runs_5_6_triage_complete() -> None:
 
 
 # 21.
-def test_state_id_is_run8_candidate_recovered_active() -> None:
+def test_state_id_is_generation4_promotion_active() -> None:
     state = _load(_PROJECT_STATE_PATH)
     assert state.get("state_id") == (
-        "phase3_run8_candidate_recovered_generation3_active"
+        "phase3_generation4_paid_credit_promotion_active"
     ), (
-        "state_id must be 'phase3_run8_candidate_recovered_generation3_active'"
-        " — PR #117 merged; generation 3 is now active on main"
+        "state_id must be 'phase3_generation4_paid_credit_promotion_active'"
+        " — generation 4 promoted via owner-approved paid-credit run #59 on 2026-06-18"
     )
-    assert "pending_owner_merge" not in state.get("state_id", ""), (
-        "state_id must not contain 'pending_owner_merge' — PR #117 has merged"
+    assert "generation3" not in state.get("state_id", ""), (
+        "state_id must not reference generation 3 after generation 4 has been promoted"
     )
 
 
 # 22.
-def test_next_action_is_post_recovery_monitor() -> None:
+def test_next_action_is_generation4_audited_baseline() -> None:
     state = _load(_PROJECT_STATE_PATH)
     assert state.get("next_action") == (
-        "post_recovery_monitor_generation3_and_owner_decide_next_phase3_step"
+        "generation4_audited_baseline_owner_decide_next_phase3_step"
     ), (
-        "next_action must be "
-        "'post_recovery_monitor_generation3_and_owner_decide_next_phase3_step'"
-        " — PR #117 merged; generation 3 active on main; post-recovery monitoring is next"
+        "next_action must be 'generation4_audited_baseline_owner_decide_next_phase3_step'"
+        " — generation 4 is the audited Phase 3 baseline; owner decision required"
+        " before any next paid-credit experiment"
     )
-    assert "pending_owner_merge" not in state.get("next_action", ""), (
-        "next_action must not contain 'pending_owner_merge' — PR #117 has merged"
+    assert "generation3" not in state.get("next_action", ""), (
+        "next_action must not reference generation 3 after generation 4 has been promoted"
     )
 
 
@@ -381,8 +381,8 @@ def test_readme_status_block_no_pending_merge_language() -> None:
     assert "pending owner merge" not in block, (
         "README status block must not say 'pending owner merge' after PR #117 merged"
     )
-    assert "generation 3" in block.lower() or "recovery complete" in block.lower(), (
-        "README status block must say generation 3 is active or recovery is complete"
+    assert "generation 4" in block.lower() or "audit complete" in block.lower(), (
+        "README status block must say generation 4 is active or audit is complete"
     )
 
 
