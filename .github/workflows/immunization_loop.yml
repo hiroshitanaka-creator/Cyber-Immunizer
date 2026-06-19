@@ -431,8 +431,24 @@ jobs:
           if-no-files-found: warn
 
       - name: Prepare Docker sandbox image
+        id: docker_image
         if: steps.apply.outcome == 'success'
-        run: docker pull python:3.11-slim
+        run: |
+          APPROVED_IMAGE="python:3.11-slim"
+          APPROVED_DIGEST="python@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca"
+          docker pull "$APPROVED_DIGEST"
+          DIGEST=$(docker image inspect "$APPROVED_DIGEST" --format='{{index .RepoDigests 0}}')
+          if [ -z "$DIGEST" ]; then
+            echo "::error::Could not resolve Docker image repo digest for $APPROVED_DIGEST"
+            exit 1
+          fi
+          if [ "$DIGEST" != "$APPROVED_DIGEST" ]; then
+            echo "::error::Resolved Docker digest $DIGEST does not match approved digest $APPROVED_DIGEST"
+            exit 1
+          fi
+          docker tag "$APPROVED_DIGEST" "$APPROVED_IMAGE"
+          echo "image=$APPROVED_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Evaluate candidate (Docker sandbox + timeout)
         id: evaluate
@@ -455,6 +471,21 @@ jobs:
             echo "passed_adoption_gate=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Write evaluation promotion attestation
+        if: steps.apply.outcome == 'success' && steps.evaluate.outcome == 'success'
+        run: |
+          python scripts/promotion_attestation.py write \
+            --candidate .cyber_immunizer/candidate_detector.py \
+            --report .cyber_immunizer/fitness_report.json \
+            --out .cyber_immunizer/evaluation_promotion_attestation.json \
+            --evaluated-sha "${{ github.sha }}" \
+            --base-main-sha "${{ github.sha }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --docker-image "${{ steps.docker_image.outputs.image }}" \
+            --docker-image-digest "${{ steps.docker_image.outputs.digest }}" \
+            --digest-allowlist security/docker_digest_allowlist.json
+
       - name: Upload candidate detector artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -470,6 +501,15 @@ jobs:
         with:
           name: fitness-report
           path: .cyber_immunizer/fitness_report.json
+          retention-days: 1
+          if-no-files-found: warn
+
+      - name: Upload evaluation promotion attestation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-promotion-attestation
+          path: .cyber_immunizer/evaluation_promotion_attestation.json
           retention-days: 1
           if-no-files-found: warn
 
@@ -538,6 +578,23 @@ jobs:
         with:
           name: fitness-report
           path: .cyber_immunizer/
+
+      - name: Download evaluation promotion attestation
+        uses: actions/download-artifact@v4
+        with:
+          name: evaluation-promotion-attestation
+          path: .cyber_immunizer/
+
+      - name: Verify evaluation promotion attestation
+        run: |
+          python scripts/promotion_attestation.py verify \
+            --attestation .cyber_immunizer/evaluation_promotion_attestation.json \
+            --candidate .cyber_immunizer/candidate_detector.py \
+            --report .cyber_immunizer/fitness_report.json \
+            --expected-evaluated-sha "${{ github.sha }}" \
+            --expected-base-main-sha "${{ github.sha }}" \
+            --digest-allowlist security/docker_digest_allowlist.json \
+            --json
 
       - name: Verify main drift since evaluation
         run: |

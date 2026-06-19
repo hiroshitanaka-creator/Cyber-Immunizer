@@ -2243,3 +2243,47 @@ class TestPromotionConditionsNotRelaxed:
             "REGRESSION: workflow_dispatch check removed from promote if condition. "
             "Schedule runs must never be able to trigger promotion."
         )
+
+
+# ---------------------------------------------------------------------------
+# 18. Evaluation / promotion attestation gate
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluationPromotionAttestationGate:
+    """Promotion must verify an evaluate-job attestation before copying artifacts."""
+
+    def test_evaluate_writes_attestation(self, evaluate_section: str) -> None:
+        assert "Write evaluation promotion attestation" in evaluate_section
+        assert "evaluation_promotion_attestation.json" in evaluate_section
+        assert "scripts/promotion_attestation.py write" in evaluate_section
+        assert "--docker-image-digest" in evaluate_section
+        assert "--digest-allowlist security/docker_digest_allowlist.json" in evaluate_section
+        assert "--base-main-sha" in evaluate_section
+
+    def test_evaluate_uploads_attestation_artifact(self, evaluate_section: str) -> None:
+        assert "Upload evaluation promotion attestation artifact" in evaluate_section
+        assert "name: evaluation-promotion-attestation" in evaluate_section
+        assert "path: .cyber_immunizer/evaluation_promotion_attestation.json" in evaluate_section
+
+    def test_promote_downloads_attestation_artifact(self, promote_section: str) -> None:
+        assert "Download evaluation promotion attestation" in promote_section
+        assert "name: evaluation-promotion-attestation" in promote_section
+
+    def test_promote_verifies_attestation_before_promote(self, promote_section: str) -> None:
+        verify_pos = promote_section.find("Verify evaluation promotion attestation")
+        promote_pos = promote_section.find("name: Promote candidate")
+        assert verify_pos != -1, "promote job must verify the evaluation attestation"
+        assert promote_pos != -1, "promote job must still run promote_candidate.py"
+        assert verify_pos < promote_pos, "attestation must be verified before promotion"
+        assert "scripts/promotion_attestation.py verify" in promote_section
+        assert "--expected-evaluated-sha" in promote_section
+        assert "--expected-base-main-sha" in promote_section
+        assert "--digest-allowlist security/docker_digest_allowlist.json" in promote_section
+
+    def test_workflow_pins_and_checks_approved_docker_digest(self, evaluate_section: str) -> None:
+        assert 'APPROVED_DIGEST="python@sha256:' in evaluate_section
+        assert 'docker pull "$APPROVED_DIGEST"' in evaluate_section
+        assert 'docker tag "$APPROVED_DIGEST" "$APPROVED_IMAGE"' in evaluate_section
+        assert 'DIGEST" != "$APPROVED_DIGEST"' in evaluate_section
+        assert 'Resolved Docker digest $DIGEST does not match approved digest $APPROVED_DIGEST' in evaluate_section
