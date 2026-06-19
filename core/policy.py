@@ -180,6 +180,37 @@ def check_dunder_access(tree: ast.Module) -> list[str]:
     return violations
 
 
+def check_forbidden_name_references(tree: ast.Module) -> list[str]:
+    """Reject ast.Name references to forbidden capability names or dunder-style names.
+
+    Closes the alias-bypass class: 'f = open; f(x)' is rejected because the
+    'open' Name node on the right-hand side is itself a violation even when not
+    in direct call position.  Catches every alias pattern including chains:
+
+        f = open          → 'open' is ast.Name in FORBIDDEN_BUILTINS
+        a = __import__    → '__import__' is ast.Name in FORBIDDEN_BUILTINS
+        b = __builtins__  → dunder Name pattern
+
+    check_forbidden_calls() is kept active (fail-closed): it independently
+    rejects direct calls.  This check covers the assignment / alias-creation
+    vectors that check_forbidden_calls() does not reach.
+
+    Dunder Names (__init__, __builtins__, etc.) are rejected by name-pattern
+    because check_dunder_access() only covers ast.Attribute nodes, leaving
+    bare dunder Name references unchecked.  A minimum length of 5 chars
+    (e.g. __x__) excludes the bare '__' throwaway variable.
+    """
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            name = node.id
+            if name in FORBIDDEN_BUILTINS:
+                violations.append(f"forbidden name reference: {name!r}")
+            elif name.startswith("__") and name.endswith("__") and len(name) >= 5:
+                violations.append(f"forbidden dunder name reference: {name!r}")
+    return violations
+
+
 def check_top_level_structure(tree: ast.Module) -> list[str]:
     """Only docstring, allowed import, and inspect_request def at top level."""
     violations: list[str] = []
@@ -894,6 +925,11 @@ def run_full_policy(candidate_path: Path) -> dict:
 
     # 6. Forbidden calls (eval, exec, type, dir, super, …)
     violations.extend(check_forbidden_calls(tree))
+
+    # 6b. Forbidden name references — alias-bypass closure
+    # Rejects any ast.Name whose id is a forbidden builtin or dunder-style name,
+    # even when the name is not in direct call position (e.g. f = open; f(...)).
+    violations.extend(check_forbidden_name_references(tree))
 
     # 7. Any dunder attribute access
     violations.extend(check_dunder_access(tree))

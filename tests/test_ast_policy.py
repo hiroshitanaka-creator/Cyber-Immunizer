@@ -765,6 +765,98 @@ return DetectionResult(False, "", 0.0, ())
 
 
 # ---------------------------------------------------------------------------
+# Tests: alias-bypass closure (AST alias hardening)
+# ---------------------------------------------------------------------------
+
+class TestAliasAndDunderNameBypassClosure:
+    """Alias-based bypasses of forbidden builtins must be rejected.
+
+    These tests verify that the alias-bypass class is closed in core/policy.py:
+    binding a forbidden capability to a local name and calling through that
+    alias must be rejected because the forbidden Name reference itself is a
+    violation even before the alias is called.
+    """
+
+    def test_rejects_alias_to_open_call(self):
+        p = _make_candidate("""\
+f = open
+f("/tmp/x")
+return DetectionResult(False, "", 0.0, ())
+""")
+        _assert_rejected(p, "forbidden name reference")
+
+    def test_rejects_alias_to_eval_call(self):
+        p = _make_candidate("""\
+e = eval
+e("1 + 1")
+return DetectionResult(False, "", 0.0, ())
+""")
+        _assert_rejected(p, "forbidden name reference")
+
+    def test_rejects_alias_to_exec_call(self):
+        p = _make_candidate("""\
+x = exec
+x("pass")
+return DetectionResult(False, "", 0.0, ())
+""")
+        _assert_rejected(p, "forbidden name reference")
+
+    def test_rejects_alias_to_compile_call(self):
+        p = _make_candidate("""\
+c = compile
+c("pass", "<s>", "exec")
+return DetectionResult(False, "", 0.0, ())
+""")
+        _assert_rejected(p, "forbidden name reference")
+
+    def test_rejects_alias_to_import_call(self):
+        p = _make_candidate("""\
+imp = __import__
+m = imp("os")
+return DetectionResult(False, "", 0.0, ())
+""")
+        _assert_rejected(p, "forbidden name reference")
+
+    def test_rejects_alias_chain_to_import_call(self):
+        p = _make_candidate("""\
+a = __import__
+b = a
+m = b("os")
+return DetectionResult(False, "", 0.0, ())
+""")
+        _assert_rejected(p, "forbidden name reference")
+
+    def test_rejects_builtins_name_reference(self):
+        p = _make_candidate("""\
+b = __builtins__
+return DetectionResult(False, "", 0.0, ())
+""")
+        _assert_rejected(p, "dunder name reference")
+
+    def test_rejects_dunder_name_reference(self):
+        p = _make_candidate("""\
+x = __import__
+return DetectionResult(False, "", 0.0, ())
+""")
+        _assert_rejected(p, "forbidden name reference")
+
+    def test_rejects_alias_import_then_attribute_call(self):
+        p = _make_candidate("""\
+imp = __import__
+os_mod = imp("os")
+os_mod.system("id")
+return DetectionResult(False, "", 0.0, ())
+""")
+        _assert_rejected(p, "forbidden name reference")
+
+    def test_baseline_detector_still_valid_after_alias_hardening(self):
+        """core/detector.py must still pass validation after alias hardening."""
+        _PROJECT_ROOT = Path(__file__).parent.parent
+        baseline = _PROJECT_ROOT / "core" / "detector.py"
+        _assert_accepted(baseline)
+
+
+# ---------------------------------------------------------------------------
 # Tests: structural disallowed AST construct guard (Phase 2.5 Stage A)
 # ---------------------------------------------------------------------------
 
