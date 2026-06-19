@@ -84,7 +84,7 @@ class TestAllBlockingDetector:
 
     def _make_all_blocking(self) -> Path:
         body = textwrap.dedent("""\
-            return DetectionResult(True, "blocked everything", 1.0, ("all",))
+            return DetectionResult(blocked=True, reason="blocked everything", confidence=1.0, matched_signals=("all",))
         """)
         return _write_candidate(body)
 
@@ -116,7 +116,7 @@ class TestAllAllowingDetector:
 
     def _make_all_allowing(self) -> Path:
         body = textwrap.dedent("""\
-            return DetectionResult(False, "allowed everything", 0.0, ())
+            return DetectionResult(blocked=False, reason="allowed everything", confidence=0.0, matched_signals=())
         """)
         return _write_candidate(body)
 

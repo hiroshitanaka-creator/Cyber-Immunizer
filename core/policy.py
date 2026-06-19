@@ -148,6 +148,14 @@ def check_imports(tree: ast.Module) -> list[str]:
                     f"non-allowed import-from: {mod!r} "
                     f"(only {ALLOWED_IMPORT_MODULE!r} is allowed)"
                 )
+            else:
+                # mod == ALLOWED_IMPORT_MODULE: reject aliased names
+                for alias in node.names:
+                    if alias.asname is not None:
+                        violations.append(
+                            f"aliased import from {ALLOWED_IMPORT_MODULE} is not allowed: "
+                            f"{alias.name} as {alias.asname}"
+                        )
     return violations
 
 
@@ -861,6 +869,298 @@ def check_disallowed_ast_constructs(tree: ast.Module) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# DetectionResult static value checks (X-007 / contract enforcement)
+# ---------------------------------------------------------------------------
+
+_DR_VALID_FIELDS: frozenset[str] = frozenset({"blocked", "reason", "confidence", "matched_signals"})
+
+
+def _check_dr_blocked(val: ast.expr, violations: list[str]) -> None:
+    """blocked must be bool literal (True/False) or a dynamic expression."""
+    if isinstance(val, ast.Constant):
+        if not isinstance(val.value, bool):
+            violations.append(
+                f"DetectionResult contract violation: "
+                f"blocked must be bool (True/False), "
+                f"got {type(val.value).__name__!r} literal {val.value!r}"
+            )
+    elif isinstance(val, (ast.List, ast.Tuple, ast.Set, ast.Dict)):
+        violations.append(
+            "DetectionResult contract violation: "
+            "blocked must not be a collection literal"
+        )
+
+
+def _check_dr_reason(val: ast.expr, violations: list[str]) -> None:
+    """reason must be str constant or a dynamic expression."""
+    if isinstance(val, ast.Constant):
+        if not isinstance(val.value, str):
+            violations.append(
+                f"DetectionResult contract violation: "
+                f"reason must be str, "
+                f"got {type(val.value).__name__!r} literal {val.value!r}"
+            )
+    elif isinstance(val, (ast.List, ast.Tuple, ast.Set, ast.Dict)):
+        violations.append(
+            "DetectionResult contract violation: "
+            "reason must not be a collection literal"
+        )
+
+
+def _check_dr_confidence(val: ast.expr, violations: list[str]) -> None:
+    """confidence must be a numeric literal in [0.0, 1.0] or a dynamic expression.
+    bool literals are rejected even though bool is a subclass of int.
+    Negative numeric literals (e.g. -0.1 = UnaryOp(USub, Constant)) are folded
+    and range-checked.
+    """
+    # Fold simple negated numeric literals: -0.1 is UnaryOp(USub, Constant(0.1))
+    if (
+        isinstance(val, ast.UnaryOp)
+        and isinstance(val.op, ast.USub)
+        and isinstance(val.operand, ast.Constant)
+        and isinstance(val.operand.value, (int, float))
+        and not isinstance(val.operand.value, bool)
+    ):
+        try:
+            neg = -float(val.operand.value)
+            if not (0.0 <= neg <= 1.0):
+                violations.append(
+                    f"DetectionResult contract violation: "
+                    f"confidence literal {neg!r} is outside [0.0, 1.0]"
+                )
+        except (ValueError, TypeError) as exc:
+            violations.append(
+                f"DetectionResult contract violation: "
+                f"confidence literal is not valid: {exc}"
+            )
+        return
+
+    if isinstance(val, ast.Constant):
+        if isinstance(val.value, bool):
+            violations.append(
+                "DetectionResult contract violation: "
+                "confidence must not be bool literal (True/False)"
+            )
+        elif val.value is None:
+            violations.append(
+                "DetectionResult contract violation: "
+                "confidence must not be None"
+            )
+        elif isinstance(val.value, str):
+            violations.append(
+                f"DetectionResult contract violation: "
+                f"confidence must not be str literal {val.value!r}"
+            )
+        elif isinstance(val.value, (int, float)):
+            try:
+                fv = float(val.value)
+                if not (0.0 <= fv <= 1.0):
+                    violations.append(
+                        f"DetectionResult contract violation: "
+                        f"confidence literal {val.value!r} is outside [0.0, 1.0]"
+                    )
+            except (ValueError, TypeError) as exc:
+                violations.append(
+                    f"DetectionResult contract violation: "
+                    f"confidence literal {val.value!r} is not valid: {exc}"
+                )
+    elif isinstance(val, (ast.List, ast.Tuple, ast.Set, ast.Dict)):
+        violations.append(
+            "DetectionResult contract violation: "
+            "confidence must not be a collection literal"
+        )
+
+
+def _check_dr_matched_signals(val: ast.expr, violations: list[str]) -> None:
+    """matched_signals must be a tuple of str constants or a dynamic expression.
+    String scalars, lists, dicts, and sets are rejected.
+    Tuple literals are inspected: non-string constant elements are rejected.
+    """
+    if isinstance(val, ast.Constant):
+        violations.append(
+            "DetectionResult contract violation: "
+            "matched_signals must not be a scalar literal "
+            "(expected tuple or dynamic expression)"
+        )
+    elif isinstance(val, ast.List):
+        violations.append(
+            "DetectionResult contract violation: "
+            "matched_signals must not be a list literal (use tuple)"
+        )
+    elif isinstance(val, ast.Dict):
+        violations.append(
+            "DetectionResult contract violation: "
+            "matched_signals must not be a dict literal"
+        )
+    elif isinstance(val, ast.Set):
+        violations.append(
+            "DetectionResult contract violation: "
+            "matched_signals must not be a set literal"
+        )
+    elif isinstance(val, ast.Tuple):
+        for i, elt in enumerate(val.elts):
+            if isinstance(elt, ast.Constant) and not isinstance(elt.value, str):
+                violations.append(
+                    f"DetectionResult contract violation: "
+                    f"matched_signals tuple element [{i}] must be str, "
+                    f"got {type(elt.value).__name__!r} literal {elt.value!r}"
+                )
+
+
+def _expr_contains_detectionresult_reference(expr: ast.expr | None) -> bool:
+    """Return True if expr contains a bare DetectionResult Name reference.
+
+    Canonical constructor calls (DetectionResult(...)) are allowed as RHS values
+    — only the callee Name is skipped, but args/keywords are still inspected for
+    nested weirdness.
+
+    This covers wrapper-expression patterns such as:
+        (DetectionResult,)[0]
+        [DetectionResult][0]
+        DetectionResult if cond else DetectionResult
+        {"ctor": DetectionResult}["ctor"]
+        (DetectionResult or DetectionResult)
+    """
+    if expr is None:
+        return False
+    if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name) and expr.func.id == "DetectionResult":
+        # Skip the callee itself; only flag if args or keyword values carry a reference.
+        return any(_expr_contains_detectionresult_reference(arg) for arg in expr.args) or any(
+            _expr_contains_detectionresult_reference(kw.value)
+            for kw in expr.keywords
+            if kw.value is not None
+        )
+    if isinstance(expr, ast.Name) and expr.id == "DetectionResult":
+        return True
+    return any(
+        _expr_contains_detectionresult_reference(child)
+        for child in ast.iter_child_nodes(expr)
+        if isinstance(child, ast.expr)
+    )
+
+
+def check_detection_result_aliases(tree: ast.Module) -> list[str]:
+    """Reject local alias creation for DetectionResult.
+
+    Catches direct and wrapper-expression patterns such as:
+        DR = DetectionResult
+        DR: object = DetectionResult
+        a = b = DetectionResult
+        DR, x = DetectionResult, None
+        DR = (DetectionResult,)[0]
+        DR = [DetectionResult][0]
+        DR = DetectionResult if cond else DetectionResult
+        DR = {"ctor": DetectionResult}["ctor"]
+
+    Import-level aliasing is handled separately by check_imports().
+    Violation messages contain the phrase "DetectionResult alias creation is not allowed".
+    """
+    violations: list[str] = []
+
+    def _check_value(val: ast.expr | None) -> None:
+        if _expr_contains_detectionresult_reference(val):
+            violations.append(
+                "DetectionResult alias creation is not allowed: "
+                "do not assign DetectionResult to a local name"
+            )
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            _check_value(node.value)
+        elif isinstance(node, ast.AnnAssign):
+            _check_value(node.value)
+        elif isinstance(node, ast.NamedExpr):
+            _check_value(node.value)
+
+    return violations
+
+
+def check_detection_result_static_values(tree: ast.Module) -> list[str]:
+    """Reject positional-arg calls, missing required fields, **kwargs, unknown fields,
+    and obvious invalid literal values in DetectionResult(...) calls.
+
+    The canonical call form requires all four fields as explicit keyword arguments:
+        DetectionResult(blocked=..., reason=..., confidence=..., matched_signals=...)
+
+    Rules (applied in order; each node is skipped after the first structural violation):
+      1. Reject any positional args — all four fields must be keyword args.
+      2. Reject **kwargs expansion.
+      3. Reject any missing required fields from _DR_VALID_FIELDS.
+      4. Reject unknown / extra keyword fields.
+      5. Reject obvious invalid literals for each present field.
+
+    Dynamic expressions (Call, Name, Attribute, JoinedStr, etc.) that are not
+    obvious invalid literals are not rejected for field-value checks.
+    Violation messages contain the stable phrase "DetectionResult contract violation".
+    """
+    violations: list[str] = []
+    try:
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "DetectionResult"
+            ):
+                continue
+
+            # 1. Reject positional args — all fields must be named keyword args.
+            if node.args:
+                violations.append(
+                    "DetectionResult contract violation: "
+                    "positional arguments are not allowed — "
+                    "all four fields must be explicit keyword arguments: "
+                    "DetectionResult(blocked=..., reason=..., "
+                    "confidence=..., matched_signals=...)"
+                )
+                continue  # structural violation — skip per-field checks for this node
+
+            # 2. Reject **kwargs expansion (kw.arg is None for **expr).
+            if any(kw.arg is None for kw in node.keywords):
+                violations.append(
+                    "DetectionResult contract violation: "
+                    "**kwargs expansion is not permitted in DetectionResult call"
+                )
+                continue  # structural violation — fields are unknown; skip further checks
+
+            # Collect present keyword field names.
+            kw_field_names = {kw.arg for kw in node.keywords}
+
+            # 3. Reject missing required keyword fields.
+            missing = _DR_VALID_FIELDS - kw_field_names
+            if missing:
+                violations.append(
+                    "DetectionResult contract violation: "
+                    f"missing required keyword field(s): {sorted(missing)} — "
+                    "all four fields must be present: "
+                    "blocked, reason, confidence, matched_signals"
+                )
+
+            # 4. Reject unknown / extra keyword fields.
+            extra = kw_field_names - _DR_VALID_FIELDS
+            for field in sorted(extra):
+                violations.append(
+                    f"DetectionResult contract violation: "
+                    f"unknown keyword field {field!r}"
+                )
+
+            # 5. Per-field literal checks for each keyword arg present.
+            for kw in node.keywords:
+                if kw.arg == "blocked":
+                    _check_dr_blocked(kw.value, violations)
+                elif kw.arg == "reason":
+                    _check_dr_reason(kw.value, violations)
+                elif kw.arg == "confidence":
+                    _check_dr_confidence(kw.value, violations)
+                elif kw.arg == "matched_signals":
+                    _check_dr_matched_signals(kw.value, violations)
+    except Exception as exc:  # noqa: BLE001
+        violations.append(
+            f"DetectionResult contract violation: check failed (fail-closed): {exc}"
+        )
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Unified policy runner
 # ---------------------------------------------------------------------------
 
@@ -940,7 +1240,13 @@ def run_full_policy(candidate_path: Path) -> dict:
     # 9. inspect_request signature
     violations.extend(check_inspect_request_signature(tree))
 
-    # 10. Extra definitions
+    # 10. DetectionResult local alias creation check
+    violations.extend(check_detection_result_aliases(tree))
+
+    # 10b. DetectionResult static value checks (contract enforcement)
+    violations.extend(check_detection_result_static_values(tree))
+
+    # 11. Extra definitions
     violations.extend(check_extra_defs(tree))
 
     return {"valid": len(violations) == 0, "violations": violations}

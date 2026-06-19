@@ -151,7 +151,12 @@ def _count_changed_lines(candidate_source: str, base_path: Path) -> int:
 # ---------------------------------------------------------------------------
 
 def _contract_ok(module: Any) -> tuple[bool, str]:
-    """Verify the candidate module exposes the correct interface."""
+    """Verify the candidate module exposes the correct interface.
+
+    Performs explicit field-type checks in addition to the isinstance guard so
+    that diagnostics are clear and do not rely on truthiness.  DetectionResult
+    __post_init__ provides a first layer; these checks are defense-in-depth.
+    """
     if not hasattr(module, "inspect_request"):
         return False, "inspect_request not found"
     fn = module.inspect_request
@@ -164,8 +169,42 @@ def _contract_ok(module: Any) -> tuple[bool, str]:
         return False, f"inspect_request raised on smoke test: {exc}"
     if not isinstance(result, DetectionResult):
         return False, f"inspect_request returned {type(result)!r}, not DetectionResult"
+    # Explicit field-type checks — do not rely on truthiness
+    if type(result.blocked) is not bool:
+        return (
+            False,
+            f"DetectionResult contract violation: "
+            f"blocked must be bool, got {type(result.blocked).__name__!r}",
+        )
+    if type(result.reason) is not str:
+        return (
+            False,
+            f"DetectionResult contract violation: "
+            f"reason must be str, got {type(result.reason).__name__!r}",
+        )
+    if type(result.confidence) is bool or type(result.confidence) not in (int, float):
+        return (
+            False,
+            f"DetectionResult contract violation: "
+            f"confidence must be int or float (not bool), "
+            f"got {type(result.confidence).__name__!r}",
+        )
     if not (0.0 <= result.confidence <= 1.0):
         return False, f"confidence={result.confidence} out of [0.0, 1.0]"
+    if type(result.matched_signals) is not tuple:
+        return (
+            False,
+            f"DetectionResult contract violation: "
+            f"matched_signals must be tuple, "
+            f"got {type(result.matched_signals).__name__!r}",
+        )
+    for i, sig in enumerate(result.matched_signals):
+        if type(sig) is not str:
+            return (
+                False,
+                f"DetectionResult contract violation: "
+                f"matched_signals[{i}] must be str, got {type(sig).__name__!r}",
+            )
     return True, ""
 
 

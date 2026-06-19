@@ -117,6 +117,199 @@ return DetectionResult(False, '', 0.0, ())
 """)
         _assert_rejected(p, "os")
 
+    def test_rejects_aliased_detectionresult_import(self):
+        """Aliased core.types import must be rejected regardless of what name is used."""
+        source = "\n".join([
+            "from core.types import Request, DetectionResult as DR",
+            "",
+            "def inspect_request(request: Request) -> DR:",
+            "    # === MUTATION_START ===",
+            "    return DR(blocked=False, reason='ok', confidence=0.0, matched_signals=())",
+            "    # === MUTATION_END ===",
+            "",
+        ])
+        p = _write_raw_candidate(source)
+        _assert_rejected(p, "aliased import")
+
+    def test_rejects_aliased_request_import(self):
+        """Aliased import of any core.types name must be rejected."""
+        source = "\n".join([
+            "from core.types import Request as Req, DetectionResult",
+            "",
+            "def inspect_request(request: Req) -> DetectionResult:",
+            "    # === MUTATION_START ===",
+            "    return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())",
+            "    # === MUTATION_END ===",
+            "",
+        ])
+        p = _write_raw_candidate(source)
+        _assert_rejected(p, "aliased import")
+
+    def test_rejects_aliased_detectionresult_positional_args_bypass(self):
+        """Aliased DR(...) positional call must be caught by the alias rejection."""
+        source = "\n".join([
+            "from core.types import Request, DetectionResult as DR",
+            "",
+            "def inspect_request(request: Request) -> DR:",
+            "    # === MUTATION_START ===",
+            "    return DR(False, 'ok', 0.0, ())",
+            "    # === MUTATION_END ===",
+            "",
+        ])
+        p = _write_raw_candidate(source)
+        result = validate(p)
+        assert not result["valid"]
+        assert "aliased import" in " ".join(result["violations"]).lower()
+
+    def test_canonical_import_still_accepted(self):
+        """Non-aliased from core.types import ... must remain valid."""
+        p = _make_candidate(
+            "return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())"
+        )
+        _assert_accepted(p)
+
+
+class TestDetectionResultLocalAliases:
+    """DR = DetectionResult (local alias creation) must be rejected."""
+
+    def test_rejects_local_detectionresult_alias_assignment(self):
+        p = _make_candidate("""\
+DR = DetectionResult
+return DetectionResult(
+    blocked=False,
+    reason="ok",
+    confidence=0.0,
+    matched_signals=(),
+)
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_rejects_local_detectionresult_alias_positional_bypass(self):
+        p = _make_candidate("""\
+DR = DetectionResult
+return DR(False, "ok", 0.0, ())
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_rejects_annotated_detectionresult_alias_assignment(self):
+        p = _make_candidate("""\
+DR: object = DetectionResult
+return DetectionResult(
+    blocked=False,
+    reason="ok",
+    confidence=0.0,
+    matched_signals=(),
+)
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_rejects_chained_alias_assignment(self):
+        p = _make_candidate("""\
+a = b = DetectionResult
+return DetectionResult(
+    blocked=False,
+    reason="ok",
+    confidence=0.0,
+    matched_signals=(),
+)
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_rejects_tuple_unpacking_alias(self):
+        p = _make_candidate("""\
+DR, x = DetectionResult, None
+return DetectionResult(
+    blocked=False,
+    reason="ok",
+    confidence=0.0,
+    matched_signals=(),
+)
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_canonical_detectionresult_call_not_rejected(self):
+        """Canonical return statement must not trigger alias check."""
+        p = _make_candidate(
+            "return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())"
+        )
+        result = validate(p)
+        assert result["valid"], f"Expected valid but got: {result['violations']}"
+
+    def test_dynamic_canonical_call_not_rejected(self):
+        """Dynamic values via canonical keyword call must remain accepted."""
+        p = _make_candidate("""\
+signals = []
+blocked = bool(signals)
+return DetectionResult(
+    blocked=blocked,
+    reason="ok",
+    confidence=min(1.0, 0.5),
+    matched_signals=tuple(signals),
+)
+""")
+        result = validate(p)
+        assert result["valid"], f"Expected valid but got: {result['violations']}"
+
+    def test_rejects_tuple_subscript_detectionresult_alias(self):
+        p = _make_candidate("""\
+DR = (DetectionResult,)[0]
+return DR(False, "ok", 0.0, ())
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_rejects_list_subscript_detectionresult_alias(self):
+        p = _make_candidate("""\
+DR = [DetectionResult][0]
+return DR(False, "ok", 0.0, ())
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_rejects_ifexp_detectionresult_alias(self):
+        p = _make_candidate("""\
+DR = DetectionResult if True else DetectionResult
+return DR(False, "ok", 0.0, ())
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_rejects_dict_subscript_detectionresult_alias(self):
+        p = _make_candidate("""\
+DR = {"ctor": DetectionResult}["ctor"]
+return DR(False, "ok", 0.0, ())
+""")
+        result = validate(p)
+        assert not result["valid"]
+        assert "detectionresult alias" in " ".join(result["violations"]).lower()
+
+    def test_canonical_detectionresult_result_assignment_allowed(self):
+        """Assigning the result of a canonical constructor call must be accepted."""
+        p = _make_candidate("""\
+result = DetectionResult(
+    blocked=False,
+    reason="ok",
+    confidence=0.0,
+    matched_signals=(),
+)
+return result
+""")
+        result = validate(p)
+        assert result["valid"], f"Expected valid but got: {result['violations']}"
+
 
 class TestForbiddenBuiltins:
     def test_rejects_open(self):
@@ -310,8 +503,8 @@ class TestAcceptedPatterns:
     def test_accepts_simple_safe_body(self):
         p = _make_candidate("""\
 if "../" in request.path:
-    return DetectionResult(True, "traversal", 0.9, ("../",))
-return DetectionResult(False, "ok", 0.0, ())
+    return DetectionResult(blocked=True, reason="traversal", confidence=0.9, matched_signals=("../",))
+return DetectionResult(blocked=False, reason="ok", confidence=0.0, matched_signals=())
 """)
         _assert_accepted(p)
 
@@ -321,10 +514,24 @@ surface = request.path.lower()
 tokens = ["<script", "union select"]
 for t in tokens:
     if t in surface:
-        return DetectionResult(True, "match", 0.8, (t,))
-return DetectionResult(False, "no match", 0.0, ())
+        return DetectionResult(blocked=True, reason="match", confidence=0.8, matched_signals=(t,))
+return DetectionResult(blocked=False, reason="no match", confidence=0.0, matched_signals=())
 """)
         _assert_accepted(p)
+
+    def test_rejects_detectionresult_positional_args(self):
+        """DetectionResult called with positional args must be rejected by AST policy."""
+        p = _make_candidate(
+            "return DetectionResult(False, 'ok', 0.0, ())"
+        )
+        _assert_rejected(p, "positional arguments")
+
+    def test_rejects_detectionresult_missing_required_field(self):
+        """DetectionResult missing a required keyword field must be rejected by AST policy."""
+        p = _make_candidate(
+            "return DetectionResult(blocked=False, reason='ok', confidence=0.0)"
+        )
+        _assert_rejected(p, "missing required keyword field")
 
 
 # ---------------------------------------------------------------------------
@@ -346,8 +553,8 @@ class TestComplexityGuardAcceptsNormalCode:
         """Normal candidate well within all limits must still be accepted."""
         p = _make_candidate("""\
 if "drop table" in request.path.lower():
-    return DetectionResult(True, "sqli", 0.9, ("drop table",))
-return DetectionResult(False, "ok", 0.0, ())
+    return DetectionResult(blocked=True, reason="sqli", confidence=0.9, matched_signals=("drop table",))
+return DetectionResult(blocked=False, reason="ok", confidence=0.0, matched_signals=())
 """)
         _assert_accepted(p)
 
@@ -613,8 +820,8 @@ return DetectionResult(False, "", 0.0, ())
 tokens = ["a", "b", "c"]
 for t in tokens:
     if t in request.path:
-        return DetectionResult(True, "match", 0.8, (t,))
-return DetectionResult(False, "", 0.0, ())
+        return DetectionResult(blocked=True, reason="match", confidence=0.8, matched_signals=(t,))
+return DetectionResult(blocked=False, reason="", confidence=0.0, matched_signals=())
 """)
         _assert_accepted(p)
 
@@ -623,7 +830,7 @@ return DetectionResult(False, "", 0.0, ())
         p = _make_candidate("""\
 for i in range(10):
     pass
-return DetectionResult(False, "", 0.0, ())
+return DetectionResult(blocked=False, reason="", confidence=0.0, matched_signals=())
 """)
         _assert_accepted(p)
 
@@ -1067,8 +1274,8 @@ indicators = [
 ]
 for token in indicators:
     if token in surface:
-        return DetectionResult(True, f"matched {token}", 0.8, (token,))
-return DetectionResult(False, "ok", 0.0, ())
+        return DetectionResult(blocked=True, reason=f"matched {token}", confidence=0.8, matched_signals=(token,))
+return DetectionResult(blocked=False, reason="ok", confidence=0.0, matched_signals=())
 """)
         _assert_accepted(p)
 
@@ -1079,7 +1286,7 @@ q = " ".join(f"{k}={v}" for k, v in request.query.items()).lower()
 h = " ".join(f"{k}:{v}" for k, v in request.headers.items()).lower()
 surface = request.path.lower() + " " + q + " " + h
 if "path_traversal_indicator" in surface:
-    return DetectionResult(True, "traversal", 0.8, ("path_traversal_indicator",))
-return DetectionResult(False, "ok", 0.0, ())
+    return DetectionResult(blocked=True, reason="traversal", confidence=0.8, matched_signals=("path_traversal_indicator",))
+return DetectionResult(blocked=False, reason="ok", confidence=0.0, matched_signals=())
 """)
         _assert_accepted(p)
