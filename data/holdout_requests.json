@@ -1,0 +1,77 @@
+[
+  {
+    "id": "holdout-001",
+    "kind": "holdout",
+    "expected_blocked": true,
+    "description": "Holdout: path traversal category — symbolic indicator only",
+    "tags": ["holdout", "path-traversal"],
+    "request": {
+      "method": "GET",
+      "path": "/holdout/PATH_TRAVERSAL_INDICATOR",
+      "query": {},
+      "headers": {},
+      "body": "",
+      "source_ip": "192.168.2.100"
+    }
+  },
+  {
+    "id": "holdout-002",
+    "kind": "holdout",
+    "expected_blocked": true,
+    "description": "Holdout: SQL-like token category — symbolic indicator only",
+    "tags": ["holdout", "sqli"],
+    "request": {
+      "method": "POST",
+      "path": "/holdout/query",
+      "query": {},
+      "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "body": "input=SQLI_INDICATOR",
+      "source_ip": "192.168.2.101"
+    }
+  },
+  {
+    "id": "holdout-003",
+    "kind": "holdout",
+    "expected_blocked": false,
+    "description": "Holdout: benign request that should not be blocked",
+    "tags": ["holdout", "benign"],
+    "request": {
+      "method": "GET",
+      "path": "/holdout/products",
+      "query": {"category": "electronics"},
+      "headers": {"User-Agent": "Mozilla/5.0"},
+      "body": "",
+      "source_ip": "203.0.113.10"
+    }
+  },
+  {
+    "id": "holdout-004",
+    "kind": "holdout",
+    "expected_blocked": true,
+    "description": "Holdout: encoded traversal category — symbolic indicator only",
+    "tags": ["holdout", "path-traversal-encoded"],
+    "request": {
+      "method": "GET",
+      "path": "/holdout/files",
+      "query": {"path": "ENCODED_TRAVERSAL_INDICATOR"},
+      "headers": {},
+      "body": "",
+      "source_ip": "192.168.2.102"
+    }
+  },
+  {
+    "id": "holdout-005",
+    "kind": "holdout",
+    "expected_blocked": false,
+    "description": "Holdout: benign API call that must not be blocked",
+    "tags": ["holdout", "benign"],
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/status",
+      "query": {},
+      "headers": {"Accept": "application/json"},
+      "body": "",
+      "source_ip": "10.0.1.5"
+    }
+  }
+]

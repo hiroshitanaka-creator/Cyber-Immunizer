@@ -75,6 +75,62 @@ def _compute_score(
 
 
 # ---------------------------------------------------------------------------
+# Adaptive floor helpers
+# ---------------------------------------------------------------------------
+
+_MAIN_EVAL_KINDS: frozenset[str] = frozenset({"benign", "attack", "regression"})
+
+
+def _compute_tier_pass_rate(results: list[dict], kind: str) -> float | None:
+    """Return the pass rate for a specific test kind, or None if no cases.
+
+    A case passes when actual_blocked == expected_blocked and no exception.
+    Returns None when there are no cases of the given kind so the caller
+    can distinguish 'not evaluated' from 'evaluated and scored 0'.
+    """
+    tier = [r for r in results if r.get("kind") == kind]
+    if not tier:
+        return None
+    passed = sum(
+        1
+        for r in tier
+        if r["actual_blocked"] == r["expected_blocked"] and not r["exception"]
+    )
+    return passed / len(tier)
+
+
+def _adaptive_floor_gate(
+    *,
+    holdout_rate: float | None,
+    counterfactual_rate: float | None,
+    drift_rate: float | None,
+    min_holdout_pass_rate: float,
+    min_counterfactual_pass_rate: float,
+    min_drift_pass_rate: float,
+) -> tuple[bool, list[str]]:
+    """Return (passed, reasons) for the adaptive floor gate.
+
+    A tier is only checked when its rate is not None (i.e., cases exist).
+    Missing tiers (None) trivially pass — floor only applies when evaluated.
+    """
+    reasons: list[str] = []
+    if holdout_rate is not None and holdout_rate < min_holdout_pass_rate:
+        reasons.append(
+            f"holdout_pass_rate={holdout_rate:.3f} < min={min_holdout_pass_rate:.3f}"
+        )
+    if counterfactual_rate is not None and counterfactual_rate < min_counterfactual_pass_rate:
+        reasons.append(
+            f"counterfactual_pass_rate={counterfactual_rate:.3f} "
+            f"< min={min_counterfactual_pass_rate:.3f}"
+        )
+    if drift_rate is not None and drift_rate < min_drift_pass_rate:
+        reasons.append(
+            f"drift_pass_rate={drift_rate:.3f} < min={min_drift_pass_rate:.3f}"
+        )
+    return len(reasons) == 0, reasons
+
+
+# ---------------------------------------------------------------------------
 # Adoption gate
 # ---------------------------------------------------------------------------
 
@@ -228,6 +284,9 @@ def evaluate(
     min_regression_pass_rate: float = float(genome.get("min_regression_pass_rate", 1.0))
     previous_best_score: float = float(genome.get("best_score", -1e9))
     max_avg_latency_ms: float = float(genome.get("max_avg_latency_ms", 100.0))
+    min_holdout_pass_rate: float = float(genome.get("min_holdout_pass_rate", 1.0))
+    min_cf_pass_rate: float = float(genome.get("min_counterfactual_pass_rate", 1.0))
+    min_drift_pass_rate: float = float(genome.get("min_drift_pass_rate", 1.0))
 
     source = candidate_path.read_text(encoding="utf-8")
     code_chars = len(source)
@@ -340,9 +399,14 @@ def evaluate(
             rejection_reasons=(c_reason,),
         )
 
-    # --- Run evaluation ---
+    # --- Run evaluation (all tiers including adaptive floor tiers) ---
     results = evaluate_detector(module.inspect_request, cases)
-    summary = summarize_results(results)
+
+    # Partition: main tiers drive the score; adaptive tiers drive the floor gate.
+    # Keeping them separate ensures the score is unaffected by the presence or
+    # absence of adaptive tier files (score determinism / generation invariance).
+    main_results = [r for r in results if r.get("kind") in _MAIN_EVAL_KINDS]
+    summary = summarize_results(main_results)
 
     tp = summary["true_positive"]
     fp = summary["false_positive"]
@@ -352,8 +416,8 @@ def evaluate(
     exception_count = summary["exception_count"]
     avg_latency_ms = summary["avg_latency_ms"]
 
-    # Regression pass rate
-    regression_results = [r for r in results if r.get("kind") == "regression"]
+    # Regression pass rate (from main tiers only)
+    regression_results = [r for r in main_results if r.get("kind") == "regression"]
     reg_pass = sum(
         1
         for r in regression_results
@@ -363,7 +427,7 @@ def evaluate(
         reg_pass / len(regression_results) if regression_results else 1.0
     )
 
-    # Rates
+    # Rates (from main tiers)
     attack_total = tp + fn
     benign_total = tn + fp
     tp_rate = tp / attack_total if attack_total else 0.0
@@ -393,6 +457,20 @@ def evaluate(
         "gate_score": score,
     }
 
+    # --- Adaptive floor pass rates (from all results, not just main tiers) ---
+    holdout_rate = _compute_tier_pass_rate(results, "holdout")
+    cf_rate = _compute_tier_pass_rate(results, "counterfactual")
+    drift_rate = _compute_tier_pass_rate(results, "drift")
+
+    floor_passed, floor_reasons = _adaptive_floor_gate(
+        holdout_rate=holdout_rate,
+        counterfactual_rate=cf_rate,
+        drift_rate=drift_rate,
+        min_holdout_pass_rate=min_holdout_pass_rate,
+        min_counterfactual_pass_rate=min_cf_pass_rate,
+        min_drift_pass_rate=min_drift_pass_rate,
+    )
+
     gate_passed, gate_reasons = _adoption_gate(
         syntax_ok=True,
         ast_policy_ok=True,
@@ -409,6 +487,9 @@ def evaluate(
         min_regression_pass_rate=min_regression_pass_rate,
         max_avg_latency_ms=max_avg_latency_ms,
     )
+
+    all_reasons = gate_reasons + floor_reasons
+    overall_passed = gate_passed and floor_passed
 
     return FitnessReport(
         syntax_ok=True,
@@ -428,9 +509,14 @@ def evaluate(
         code_chars=code_chars,
         changed_lines=changed_lines,
         score=score,
-        passed_adoption_gate=gate_passed,
-        rejection_reasons=tuple(gate_reasons),
+        passed_adoption_gate=overall_passed,
+        rejection_reasons=tuple(all_reasons),
         score_components=score_components,
+        holdout_pass_rate=holdout_rate if holdout_rate is not None else 1.0,
+        counterfactual_pass_rate=cf_rate if cf_rate is not None else 1.0,
+        drift_pass_rate=drift_rate if drift_rate is not None else 1.0,
+        adaptive_floor_passed=floor_passed,
+        adaptive_floor_rejection_reasons=tuple(floor_reasons),
     )
 
 
@@ -460,6 +546,11 @@ def _report_to_dict(report: FitnessReport) -> dict:
         "passed_adoption_gate": report.passed_adoption_gate,
         "rejection_reasons": list(report.rejection_reasons),
         "score_components": report.score_components,
+        "holdout_pass_rate": report.holdout_pass_rate,
+        "counterfactual_pass_rate": report.counterfactual_pass_rate,
+        "drift_pass_rate": report.drift_pass_rate,
+        "adaptive_floor_passed": report.adaptive_floor_passed,
+        "adaptive_floor_rejection_reasons": list(report.adaptive_floor_rejection_reasons),
     }
 
 

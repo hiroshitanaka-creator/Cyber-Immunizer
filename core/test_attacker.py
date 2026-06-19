@@ -19,8 +19,10 @@ from core.types import DetectionResult, Request, TestCase
 # Default paths — override via function arguments for flexibility.
 _DATA_DIR = Path(__file__).parent.parent / "data"
 
-# Valid kind values for standard corpus files.  Extended by PR-3 for adaptive tiers.
-_VALID_CORPUS_KINDS: frozenset[str] = frozenset({"benign", "attack", "regression"})
+# Valid kind values — includes standard tiers and adaptive floor tiers.
+_VALID_CORPUS_KINDS: frozenset[str] = frozenset(
+    {"benign", "attack", "regression", "holdout", "counterfactual", "drift"}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -131,11 +133,14 @@ def _load_corpus_file(
     default_blocked: bool | None,
     seen_ids: set[str],
     valid_kinds: frozenset[str] = _VALID_CORPUS_KINDS,
+    *,
+    require_non_empty: bool = False,
 ) -> list[dict]:
     """Read and strictly validate a corpus JSON file.
 
     Raises ValueError if the file is missing, malformed JSON, wrong top-level
-    type, or any record fails schema validation.
+    type, or any record fails schema validation.  When require_non_empty=True,
+    an empty list ([]) is also rejected (fail-closed for adaptive tier files).
     """
     try:
         raw_text = path.read_text(encoding="utf-8")
@@ -150,6 +155,10 @@ def _load_corpus_file(
             f"Corpus file {path} top-level must be a JSON list, "
             f"got {type(raw_list).__name__!r}"
         )
+    if require_non_empty and not raw_list:
+        raise ValueError(
+            f"Corpus file {path} must contain at least one record"
+        )
     for raw in raw_list:
         _validate_corpus_record(raw, default_kind, default_blocked, seen_ids, valid_kinds)
     return raw_list
@@ -160,20 +169,35 @@ def load_test_cases(
     benign_path: Path | None = None,
     attack_path: Path | None = None,
     regression_path: Path | None = None,
+    holdout_path: Path | None = None,
+    counterfactual_path: Path | None = None,
+    drift_path: Path | None = None,
+    require_adaptive_tiers: bool = True,
 ) -> list[TestCase]:
     """Load test cases from JSON files and return as TestCase objects.
 
-    Raises ValueError if any file contains malformed JSON, wrong top-level type,
-    schema violations, or duplicate IDs.  expected_blocked must be exactly bool
-    (JSON true/false) — string coercion via bool() is no longer performed.
+    Raises ValueError if any required file contains malformed JSON, wrong
+    top-level type, schema violations, or duplicate IDs.  expected_blocked
+    must be exactly bool (JSON true/false) — string coercion via bool() is
+    not performed.
+
+    Adaptive tier files (holdout, counterfactual, drift) are required by
+    default (require_adaptive_tiers=True).  When a tier file is absent and
+    require_adaptive_tiers=True, a ValueError is raised (fail-closed).  Pass
+    require_adaptive_tiers=False to silently skip missing tier files (useful
+    in tests or legacy contexts that predate the adaptive tiers).
     """
     benign_path = benign_path or _DATA_DIR / "benign_requests.json"
     attack_path = attack_path or _DATA_DIR / "attack_requests.json"
     regression_path = regression_path or _DATA_DIR / "regression_cases.json"
+    holdout_path = holdout_path or _DATA_DIR / "holdout_requests.json"
+    counterfactual_path = counterfactual_path or _DATA_DIR / "counterfactual_requests.json"
+    drift_path = drift_path or _DATA_DIR / "drift_requests.json"
 
     cases: list[TestCase] = []
     seen_ids: set[str] = set()
 
+    # Required tiers — raise on any schema violation.
     for path, kind, expected_blocked in [
         (benign_path, "benign", False),
         (attack_path, "attack", True),
@@ -190,6 +214,38 @@ def load_test_cases(
                     kind=case_kind,
                     request=req,
                     expected_blocked=case_blocked,  # already validated as bool
+                    tags=tuple(raw.get("tags", [])),
+                    description=raw.get("description", ""),
+                )
+            )
+
+    # Adaptive floor tiers — fail-closed when require_adaptive_tiers=True.
+    for path, kind in [
+        (holdout_path, "holdout"),
+        (counterfactual_path, "counterfactual"),
+        (drift_path, "drift"),
+    ]:
+        if not path.exists():
+            if require_adaptive_tiers:
+                raise ValueError(
+                    f"Required adaptive tier file not found: {path}. "
+                    f"Pass require_adaptive_tiers=False to skip missing tiers."
+                )
+            continue
+        # expected_blocked=None forces each record to supply its own value.
+        # require_non_empty=True: an empty file disables the floor silently, which is fail-open.
+        raw_list = _load_corpus_file(path, kind, None, seen_ids, require_non_empty=True)
+        for raw in raw_list:
+            req = build_request(raw["request"])
+            case_kind = raw.get("kind", kind)
+            # Validation guarantees expected_blocked is present and bool.
+            case_blocked = raw["expected_blocked"]
+            cases.append(
+                TestCase(
+                    id=raw["id"],
+                    kind=case_kind,
+                    request=req,
+                    expected_blocked=case_blocked,
                     tags=tuple(raw.get("tags", [])),
                     description=raw.get("description", ""),
                 )
