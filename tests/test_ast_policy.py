@@ -310,8 +310,8 @@ class TestAcceptedPatterns:
     def test_accepts_simple_safe_body(self):
         p = _make_candidate("""\
 if "../" in request.path:
-    return DetectionResult(True, "traversal", 0.9, ("../",))
-return DetectionResult(False, "ok", 0.0, ())
+    return DetectionResult(blocked=True, reason="traversal", confidence=0.9, matched_signals=("../",))
+return DetectionResult(blocked=False, reason="ok", confidence=0.0, matched_signals=())
 """)
         _assert_accepted(p)
 
@@ -321,10 +321,24 @@ surface = request.path.lower()
 tokens = ["<script", "union select"]
 for t in tokens:
     if t in surface:
-        return DetectionResult(True, "match", 0.8, (t,))
-return DetectionResult(False, "no match", 0.0, ())
+        return DetectionResult(blocked=True, reason="match", confidence=0.8, matched_signals=(t,))
+return DetectionResult(blocked=False, reason="no match", confidence=0.0, matched_signals=())
 """)
         _assert_accepted(p)
+
+    def test_rejects_detectionresult_positional_args(self):
+        """DetectionResult called with positional args must be rejected by AST policy."""
+        p = _make_candidate(
+            "return DetectionResult(False, 'ok', 0.0, ())"
+        )
+        _assert_rejected(p, "positional arguments")
+
+    def test_rejects_detectionresult_missing_required_field(self):
+        """DetectionResult missing a required keyword field must be rejected by AST policy."""
+        p = _make_candidate(
+            "return DetectionResult(blocked=False, reason='ok', confidence=0.0)"
+        )
+        _assert_rejected(p, "missing required keyword field")
 
 
 # ---------------------------------------------------------------------------
@@ -346,8 +360,8 @@ class TestComplexityGuardAcceptsNormalCode:
         """Normal candidate well within all limits must still be accepted."""
         p = _make_candidate("""\
 if "drop table" in request.path.lower():
-    return DetectionResult(True, "sqli", 0.9, ("drop table",))
-return DetectionResult(False, "ok", 0.0, ())
+    return DetectionResult(blocked=True, reason="sqli", confidence=0.9, matched_signals=("drop table",))
+return DetectionResult(blocked=False, reason="ok", confidence=0.0, matched_signals=())
 """)
         _assert_accepted(p)
 
@@ -613,8 +627,8 @@ return DetectionResult(False, "", 0.0, ())
 tokens = ["a", "b", "c"]
 for t in tokens:
     if t in request.path:
-        return DetectionResult(True, "match", 0.8, (t,))
-return DetectionResult(False, "", 0.0, ())
+        return DetectionResult(blocked=True, reason="match", confidence=0.8, matched_signals=(t,))
+return DetectionResult(blocked=False, reason="", confidence=0.0, matched_signals=())
 """)
         _assert_accepted(p)
 
@@ -623,7 +637,7 @@ return DetectionResult(False, "", 0.0, ())
         p = _make_candidate("""\
 for i in range(10):
     pass
-return DetectionResult(False, "", 0.0, ())
+return DetectionResult(blocked=False, reason="", confidence=0.0, matched_signals=())
 """)
         _assert_accepted(p)
 
@@ -1067,8 +1081,8 @@ indicators = [
 ]
 for token in indicators:
     if token in surface:
-        return DetectionResult(True, f"matched {token}", 0.8, (token,))
-return DetectionResult(False, "ok", 0.0, ())
+        return DetectionResult(blocked=True, reason=f"matched {token}", confidence=0.8, matched_signals=(token,))
+return DetectionResult(blocked=False, reason="ok", confidence=0.0, matched_signals=())
 """)
         _assert_accepted(p)
 
@@ -1079,7 +1093,7 @@ q = " ".join(f"{k}={v}" for k, v in request.query.items()).lower()
 h = " ".join(f"{k}:{v}" for k, v in request.headers.items()).lower()
 surface = request.path.lower() + " " + q + " " + h
 if "path_traversal_indicator" in surface:
-    return DetectionResult(True, "traversal", 0.8, ("path_traversal_indicator",))
-return DetectionResult(False, "ok", 0.0, ())
+    return DetectionResult(blocked=True, reason="traversal", confidence=0.8, matched_signals=("path_traversal_indicator",))
+return DetectionResult(blocked=False, reason="ok", confidence=0.0, matched_signals=())
 """)
         _assert_accepted(p)

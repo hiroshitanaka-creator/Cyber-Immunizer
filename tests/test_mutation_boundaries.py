@@ -49,7 +49,7 @@ class TestBoundaryReplacement:
         """Lines outside the mutation markers must remain byte-for-byte identical."""
         output_root = tmp_path / ".cyber_immunizer"
         out_path = output_root / "candidate_detector.py"
-        replacement = "    return DetectionResult(False, 'test', 0.0, ())\n"
+        replacement = "    return DetectionResult(blocked=False, reason='test', confidence=0.0, matched_signals=())\n"
         patch_path = _make_patch(replacement)
 
         result = apply_mutation(patch_path, _BASE_DETECTOR, out_path, output_root=output_root)
@@ -79,7 +79,7 @@ class TestBoundaryReplacement:
         # replacement_code is the verbatim function body — must use 4-space indent
         # so the generated file is syntactically valid inside inspect_request().
         replacement = textwrap.dedent("""\
-            return DetectionResult(False, "mutated", 0.5, ())
+            return DetectionResult(blocked=False, reason="mutated", confidence=0.5, matched_signals=())
         """)
         # Add 4-space indent so replacement sits correctly inside the function
         replacement = textwrap.indent(replacement.strip(), "    ") + "\n"
@@ -109,7 +109,7 @@ class TestBoundaryReplacement:
         """Both markers must exist in the output file."""
         output_root = tmp_path / ".cyber_immunizer"
         out_path = output_root / "candidate_detector.py"
-        replacement = "    return DetectionResult(False, 'ok', 0.0, ())\n"
+        replacement = "    return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
         patch_path = _make_patch(replacement)
 
         result = apply_mutation(patch_path, _BASE_DETECTOR, out_path, output_root=output_root)
@@ -124,7 +124,7 @@ class TestBoundaryReplacement:
         output_root = tmp_path / ".cyber_immunizer"
         out_path = output_root / "candidate_detector.py"
         magic = "# MAGIC_REPLACEMENT_TOKEN_12345"
-        replacement = f"{magic}\n    return DetectionResult(False, 'ok', 0.0, ())\n"
+        replacement = f"{magic}\n    return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
         patch_path = _make_patch(replacement)
 
         result = apply_mutation(patch_path, _BASE_DETECTOR, out_path, output_root=output_root)
@@ -281,8 +281,8 @@ class TestApplyMutationSourceSizeGuard:
         out_path = output_root / "candidate.py"
         patch_path = _make_patch(
             "    if '../' in request.path:\n"
-            "        return DetectionResult(True, 'traversal', 0.9, ('../',))\n"
-            "    return DetectionResult(False, 'ok', 0.0, ())\n"
+            "        return DetectionResult(blocked=True, reason='traversal', confidence=0.9, matched_signals=('../',))\n"
+            "    return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
         )
 
         result = apply_mutation(patch_path, _BASE_DETECTOR, out_path, output_root=output_root)
@@ -330,8 +330,8 @@ class TestApplyMutationParserStackOverflow:
         out_path = output_root / "candidate.py"
         patch_path = _make_patch(
             "    if 'xss' in request.path.lower():\n"
-            "        return DetectionResult(True, 'xss', 0.9, ('xss',))\n"
-            "    return DetectionResult(False, 'ok', 0.0, ())\n"
+            "        return DetectionResult(blocked=True, reason='xss', confidence=0.9, matched_signals=('xss',))\n"
+            "    return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
         )
 
         result = apply_mutation(patch_path, _BASE_DETECTOR, out_path, output_root=output_root)
@@ -349,8 +349,8 @@ class TestSafeOutputPath:
 
     _GOOD_REPLACEMENT = (
         "    if '../' in request.path:\n"
-        "        return DetectionResult(True, 'traversal', 0.9, ('../',))\n"
-        "    return DetectionResult(False, 'ok', 0.0, ())\n"
+        "        return DetectionResult(blocked=True, reason='traversal', confidence=0.9, matched_signals=('../',))\n"
+        "    return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
     )
 
     def test_safe_output_path_accepted(self, tmp_path):
@@ -545,8 +545,8 @@ class TestOutputRootSymlinkRejection:
 
     _GOOD_REPLACEMENT = (
         "    if '../' in request.path:\n"
-        "        return DetectionResult(True, 'traversal', 0.9, ('../',))\n"
-        "    return DetectionResult(False, 'ok', 0.0, ())\n"
+        "        return DetectionResult(blocked=True, reason='traversal', confidence=0.9, matched_signals=('../',))\n"
+        "    return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
     )
 
     def _try_symlink(self, link: Path, target: Path) -> bool:
@@ -655,13 +655,13 @@ class TestApplyMutationAtomicWrite:
 
     _VALID_REPLACEMENT = (
         "    if '../' in request.path:\n"
-        "        return DetectionResult(True, 'traversal', 0.9, ('../',))\n"
-        "    return DetectionResult(False, 'ok', 0.0, ())\n"
+        "        return DetectionResult(blocked=True, reason='traversal', confidence=0.9, matched_signals=('../',))\n"
+        "    return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
     )
     _VALID_REPLACEMENT_ALT = (
         "    if 'xss' in request.path.lower():\n"
-        "        return DetectionResult(True, 'xss', 0.9, ('xss',))\n"
-        "    return DetectionResult(False, 'ok', 0.0, ())\n"
+        "        return DetectionResult(blocked=True, reason='xss', confidence=0.9, matched_signals=('xss',))\n"
+        "    return DetectionResult(blocked=False, reason='ok', confidence=0.0, matched_signals=())\n"
     )
     _INVALID_REPLACEMENT = (
         "    eval('1+1')\n"
