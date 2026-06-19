@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "purpose": "Approved Docker image repo digests for promotion-capable evaluation attestations.",
+  "allowed_digests": []
+}

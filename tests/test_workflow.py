@@ -2256,9 +2256,10 @@ class TestEvaluationPromotionAttestationGate:
     def test_evaluate_writes_attestation(self, evaluate_section: str) -> None:
         assert "Write evaluation promotion attestation" in evaluate_section
         assert "evaluation_promotion_attestation.json" in evaluate_section
-        assert "candidate_sha256" in evaluate_section
-        assert "fitness_report_sha256" in evaluate_section
-        assert "evaluated_sha" in evaluate_section
+        assert "scripts/promotion_attestation.py write" in evaluate_section
+        assert "--docker-image-digest" in evaluate_section
+        assert "--digest-allowlist security/docker_digest_allowlist.json" in evaluate_section
+        assert "--base-main-sha" in evaluate_section
 
     def test_evaluate_uploads_attestation_artifact(self, evaluate_section: str) -> None:
         assert "Upload evaluation promotion attestation artifact" in evaluate_section
@@ -2275,7 +2276,7 @@ class TestEvaluationPromotionAttestationGate:
         assert verify_pos != -1, "promote job must verify the evaluation attestation"
         assert promote_pos != -1, "promote job must still run promote_candidate.py"
         assert verify_pos < promote_pos, "attestation must be verified before promotion"
-        assert "candidate_sha256" in promote_section
-        assert "fitness_report_sha256" in promote_section
-        assert "evaluated_sha" in promote_section
-        assert "sys.exit(1)" in promote_section
+        assert "scripts/promotion_attestation.py verify" in promote_section
+        assert "--expected-evaluated-sha" in promote_section
+        assert "--expected-base-main-sha" in promote_section
+        assert "--digest-allowlist security/docker_digest_allowlist.json" in promote_section

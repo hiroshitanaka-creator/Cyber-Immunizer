@@ -431,8 +431,17 @@ jobs:
           if-no-files-found: warn
 
       - name: Prepare Docker sandbox image
+        id: docker_image
         if: steps.apply.outcome == 'success'
-        run: docker pull python:3.11-slim
+        run: |
+          docker pull python:3.11-slim
+          DIGEST=$(docker image inspect python:3.11-slim --format='{{index .RepoDigests 0}}')
+          if [ -z "$DIGEST" ]; then
+            echo "::error::Could not resolve Docker image repo digest for python:3.11-slim"
+            exit 1
+          fi
+          echo "image=python:3.11-slim" >> "$GITHUB_OUTPUT"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Evaluate candidate (Docker sandbox + timeout)
         id: evaluate
@@ -458,29 +467,17 @@ jobs:
       - name: Write evaluation promotion attestation
         if: steps.apply.outcome == 'success' && steps.evaluate.outcome == 'success'
         run: |
-          python - <<'PY'
-          import hashlib
-          import json
-          from pathlib import Path
-
-          candidate = Path('.cyber_immunizer/candidate_detector.py')
-          report = Path('.cyber_immunizer/fitness_report.json')
-          attestation = {
-              'schema_version': 1,
-              'stage': 'evaluation_promotion_attestation',
-              'evaluated_sha': '${{ github.sha }}',
-              'run_id': '${{ github.run_id }}',
-              'run_attempt': '${{ github.run_attempt }}',
-              'candidate_path': str(candidate),
-              'fitness_report_path': str(report),
-              'candidate_sha256': hashlib.sha256(candidate.read_bytes()).hexdigest(),
-              'fitness_report_sha256': hashlib.sha256(report.read_bytes()).hexdigest(),
-          }
-          Path('.cyber_immunizer/evaluation_promotion_attestation.json').write_text(
-              json.dumps(attestation, indent=2) + '\n',
-              encoding='utf-8',
-          )
-          PY
+          python scripts/promotion_attestation.py write \
+            --candidate .cyber_immunizer/candidate_detector.py \
+            --report .cyber_immunizer/fitness_report.json \
+            --out .cyber_immunizer/evaluation_promotion_attestation.json \
+            --evaluated-sha "${{ github.sha }}" \
+            --base-main-sha "${{ github.sha }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --docker-image "${{ steps.docker_image.outputs.image }}" \
+            --docker-image-digest "${{ steps.docker_image.outputs.digest }}" \
+            --digest-allowlist security/docker_digest_allowlist.json
 
       - name: Upload candidate detector artifact
         if: always()
@@ -583,55 +580,14 @@ jobs:
 
       - name: Verify evaluation promotion attestation
         run: |
-          python - <<'PY'
-          import hashlib
-          import json
-          import sys
-          from pathlib import Path
-
-          attestation_path = Path('.cyber_immunizer/evaluation_promotion_attestation.json')
-          candidate_path = Path('.cyber_immunizer/candidate_detector.py')
-          report_path = Path('.cyber_immunizer/fitness_report.json')
-          expected_sha = '${{ github.sha }}'
-          errors = []
-
-          if not attestation_path.exists():
-              errors.append(f'missing attestation: {attestation_path}')
-          else:
-              try:
-                  attestation = json.loads(attestation_path.read_text(encoding='utf-8'))
-              except json.JSONDecodeError as exc:
-                  errors.append(f'attestation is malformed JSON: {exc}')
-                  attestation = {}
-
-              if attestation.get('schema_version') != 1:
-                  errors.append('attestation schema_version must be 1')
-              if attestation.get('stage') != 'evaluation_promotion_attestation':
-                  errors.append('attestation stage is invalid')
-              if attestation.get('evaluated_sha') != expected_sha:
-                  errors.append('attestation evaluated_sha does not match this workflow run SHA')
-              if attestation.get('candidate_path') != str(candidate_path):
-                  errors.append('attestation candidate_path is invalid')
-              if attestation.get('fitness_report_path') != str(report_path):
-                  errors.append('attestation fitness_report_path is invalid')
-
-              for artifact_path, key in (
-                  (candidate_path, 'candidate_sha256'),
-                  (report_path, 'fitness_report_sha256'),
-              ):
-                  if not artifact_path.exists():
-                      errors.append(f'missing attested artifact: {artifact_path}')
-                      continue
-                  actual = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
-                  if attestation.get(key) != actual:
-                      errors.append(f'attestation {key} mismatch for {artifact_path}')
-
-          if errors:
-              for error in errors:
-                  print(f'::error::{error}')
-              sys.exit(1)
-          print('Evaluation promotion attestation verified.')
-          PY
+          python scripts/promotion_attestation.py verify \
+            --attestation .cyber_immunizer/evaluation_promotion_attestation.json \
+            --candidate .cyber_immunizer/candidate_detector.py \
+            --report .cyber_immunizer/fitness_report.json \
+            --expected-evaluated-sha "${{ github.sha }}" \
+            --expected-base-main-sha "${{ github.sha }}" \
+            --digest-allowlist security/docker_digest_allowlist.json \
+            --json
 
       - name: Verify main drift since evaluation
         run: |
