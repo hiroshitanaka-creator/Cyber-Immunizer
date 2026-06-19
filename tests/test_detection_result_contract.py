@@ -272,3 +272,21 @@ return DetectionResult(
         assert result["valid"], (
             f"Expected valid but got violations: {result['violations']}"
         )
+
+    def test_rejects_positional_args(self):
+        """Positional-arg DetectionResult call must be rejected at AST level."""
+        p = _make_candidate("return DetectionResult(False, 'ok', 0.0, ())")
+        result = validate(p)
+        assert not result["valid"]
+        phrase = self._violation_phrase(result)
+        assert "positional argument" in phrase
+
+    def test_rejects_missing_required_field(self):
+        """DetectionResult missing a required keyword field must be rejected at AST level."""
+        p = _make_candidate(
+            "return DetectionResult(blocked=False, reason='ok', confidence=0.0)"
+        )
+        result = validate(p)
+        assert not result["valid"]
+        phrase = self._violation_phrase(result)
+        assert "missing required keyword field" in phrase

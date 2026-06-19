@@ -1000,15 +1000,21 @@ def _check_dr_matched_signals(val: ast.expr, violations: list[str]) -> None:
 
 
 def check_detection_result_static_values(tree: ast.Module) -> list[str]:
-    """Reject obvious invalid literal values in DetectionResult(...) calls.
+    """Reject positional-arg calls, missing required fields, **kwargs, unknown fields,
+    and obvious invalid literal values in DetectionResult(...) calls.
 
-    Only keyword-argument calls are fully inspected for per-field literal
-    violations. Dynamic expressions (Call, Name, Attribute, JoinedStr, etc.)
-    that are not obvious invalid literals are not rejected.
+    The canonical call form requires all four fields as explicit keyword arguments:
+        DetectionResult(blocked=..., reason=..., confidence=..., matched_signals=...)
 
-    Always rejects **kwargs expansion and unknown keyword field names regardless
-    of whether args are positional or keyword.
+    Rules (applied in order; each node is skipped after the first structural violation):
+      1. Reject any positional args — all four fields must be keyword args.
+      2. Reject **kwargs expansion.
+      3. Reject any missing required fields from _DR_VALID_FIELDS.
+      4. Reject unknown / extra keyword fields.
+      5. Reject obvious invalid literals for each present field.
 
+    Dynamic expressions (Call, Name, Attribute, JoinedStr, etc.) that are not
+    obvious invalid literals are not rejected for field-value checks.
     Violation messages contain the stable phrase "DetectionResult contract violation".
     """
     violations: list[str] = []
@@ -1021,18 +1027,39 @@ def check_detection_result_static_values(tree: ast.Module) -> list[str]:
             ):
                 continue
 
-            # Reject **kwargs expansion (kw.arg is None for **expr)
-            for kw in node.keywords:
-                if kw.arg is None:
-                    violations.append(
-                        "DetectionResult contract violation: "
-                        "**kwargs expansion is not permitted in DetectionResult call"
-                    )
+            # 1. Reject positional args — all fields must be named keyword args.
+            if node.args:
+                violations.append(
+                    "DetectionResult contract violation: "
+                    "positional arguments are not allowed — "
+                    "all four fields must be explicit keyword arguments: "
+                    "DetectionResult(blocked=..., reason=..., "
+                    "confidence=..., matched_signals=...)"
+                )
+                continue  # structural violation — skip per-field checks for this node
 
-            # Collect present keyword field names (excluding **kwargs)
-            kw_field_names = {kw.arg for kw in node.keywords if kw.arg is not None}
+            # 2. Reject **kwargs expansion (kw.arg is None for **expr).
+            if any(kw.arg is None for kw in node.keywords):
+                violations.append(
+                    "DetectionResult contract violation: "
+                    "**kwargs expansion is not permitted in DetectionResult call"
+                )
+                continue  # structural violation — fields are unknown; skip further checks
 
-            # Reject unknown / extra keyword fields
+            # Collect present keyword field names.
+            kw_field_names = {kw.arg for kw in node.keywords}
+
+            # 3. Reject missing required keyword fields.
+            missing = _DR_VALID_FIELDS - kw_field_names
+            if missing:
+                violations.append(
+                    "DetectionResult contract violation: "
+                    f"missing required keyword field(s): {sorted(missing)} — "
+                    "all four fields must be present: "
+                    "blocked, reason, confidence, matched_signals"
+                )
+
+            # 4. Reject unknown / extra keyword fields.
             extra = kw_field_names - _DR_VALID_FIELDS
             for field in sorted(extra):
                 violations.append(
@@ -1040,10 +1067,8 @@ def check_detection_result_static_values(tree: ast.Module) -> list[str]:
                     f"unknown keyword field {field!r}"
                 )
 
-            # Per-field literal checks for each keyword arg present
+            # 5. Per-field literal checks for each keyword arg present.
             for kw in node.keywords:
-                if kw.arg is None:
-                    continue
                 if kw.arg == "blocked":
                     _check_dr_blocked(kw.value, violations)
                 elif kw.arg == "reason":
