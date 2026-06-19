@@ -82,7 +82,23 @@ Behavioral candidate failures remain soft rejections when the Docker harness run
 
 ## CI Result
 
-Final GitHub Actions CI success has not been observed from this local container because the checkout has no configured `origin` remote and cannot push/inspect the PR run here. The workflow now includes explicit `docker version`, `docker pull python:3.11-slim`, and the default Docker-backed evaluate_candidate smoke path.
+Final GitHub Actions CI succeeded.
+
+- Run id: `27805863171`
+- Workflow: `CI`
+- Conclusion: `success`
+
+Relevant successful steps:
+
+- `Run pytest`: success
+- `Validate baseline detector (AST policy)`: success
+- `Evaluate baseline detector fitness`: success
+- `Smoke test: propose_mutation --noop`: success
+- `Smoke test: propose_mutation --offline-sample`: success
+- `Smoke test: apply_mutation (offline sample patch)`: success
+- `Verify Docker sandbox availability`: success
+- `Prepare Docker sandbox image`: success
+- `Smoke test: evaluate_candidate (soft-reject)`: success
 
 ## Residual Risk
 
