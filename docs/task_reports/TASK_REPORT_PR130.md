@@ -65,8 +65,8 @@ python -m pytest tests/ -q
 → 2464 passed, 5 warnings
 ```
 
-Verification head: 03f0ce6 (pre-this-fix) → commit 後は同一ブランチの次 SHA  
-Latest PR head at report time: 本 commit の SHA（下記 commit 後に確定）
+Verification head: 87f6018  
+Latest PR head at report time: 87f6018
 
 ## Codex alias thread
 
