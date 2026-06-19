@@ -1,0 +1,121 @@
+personality = "pragmatic"
+model = "gpt-5.5"
+model_reasoning_effort = "xhigh"
+
+notify = [ "C:\\Users\\tanak\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\a89897d3d9baa117\\bin\\node_modules\\@oai\\sky\\bin\\windows\\codex-computer-use.exe", "turn-ended" ]
+sandbox_mode = "workspace-write"
+service_tier = "default"
+[windows]
+sandbox = "elevated"
+
+[marketplaces.openai-bundled]
+last_updated = "2026-06-19T15:26:15Z"
+source_type = "local"
+source = '\\?\C:\Users\tanak\.codex\.tmp\bundled-marketplaces\openai-bundled'
+
+[marketplaces.openai-primary-runtime]
+last_updated = "2026-06-19T09:50:48Z"
+source_type = "local"
+source = '\\?\C:\Users\tanak\.cache\codex-runtimes\codex-primary-runtime\plugins\openai-primary-runtime'
+
+[plugins."browser@openai-bundled"]
+enabled = true
+
+[plugins."openai-developers@openai-curated"]
+enabled = true
+
+[plugins."documents@openai-primary-runtime"]
+enabled = true
+
+[plugins."spreadsheets@openai-primary-runtime"]
+enabled = true
+
+[plugins."presentations@openai-primary-runtime"]
+enabled = true
+
+[plugins."pdf@openai-primary-runtime"]
+enabled = true
+
+[plugins."computer-use@openai-bundled"]
+enabled = true
+
+[plugins."latex@openai-bundled"]
+enabled = true
+
+[plugins."chrome@openai-bundled"]
+enabled = true
+
+[features]
+memories = true
+js_repl = false
+
+[memories]
+generate_memories = true
+use_memories = true
+disable_on_external_context = true
+
+[desktop]
+ambient-suggestions-enabled = true
+sansFontSize = 14
+codeFontSize = 13
+usePointerCursors = true
+localeOverride = "ja-JP"
+git-show-sidebar-pr-icons = true
+notifications-turn-mode = "always"
+conversationDetailMode = "STEPS_COMMANDS"
+show-context-window-usage = true
+keepRemoteControlAwakeWhilePluggedIn = true
+git-always-force-push = true
+reviewDelivery = "inline"
+hotkey-window-projectless-default-enabled = true
+
+[desktop.open-in-target-preferences]
+global = "vscode"
+
+[mcp_servers.node_repl]
+args = []
+command = 'C:\Users\tanak\AppData\Local\OpenAI\Codex\runtimes\cua_node\a89897d3d9baa117\bin\node_repl.exe'
+startup_timeout_sec = 120
+
+[mcp_servers.node_repl.env]
+NODE_REPL_NATIVE_PIPE_CONNECT_TIMEOUT_MS = "1000"
+NODE_REPL_NODE_MODULE_DIRS = 'C:\Users\tanak\AppData\Local\OpenAI\Codex\runtimes\cua_node\a89897d3d9baa117\bin\node_modules'
+NODE_REPL_NODE_PATH = 'C:\Users\tanak\AppData\Local\OpenAI\Codex\runtimes\cua_node\a89897d3d9baa117\bin\node.exe'
+NODE_REPL_TRUSTED_CODE_PATHS = 'C:\Users\tanak\.codex'
+CODEX_HOME = 'C:\Users\tanak\.codex'
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "566be6ef352eb3de899adc56a9cd7b5e46c8f65b00e56b5630dd7a580e10cbea,feca4d852d7d18eab5e217b18c8c80099fe667c330e836640fd7a48f362de525"
+BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
+NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = "Control the in-app browser in conjunction with the Browser Plugin."
+NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = "Control the Chrome browser in conjunction with the Chrome Plugin. Prefer this method of controlling Chrome over alternatives (such as Computer Use) unless the user explicitly mentions an alternative."
+BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
+BROWSER_USE_CODEX_APP_VERSION = "26.616.32156"
+SKY_CUA_NATIVE_PIPE = "1"
+SKY_CUA_NATIVE_PIPE_DIRECTORY = '\\.\pipe\codex-computer-use-827bd669-4991-4a62-9ffa-dd782a138f7e'
+CODEX_CLI_PATH = 'C:\Users\tanak\AppData\Local\OpenAI\Codex\bin\5d35d2790d1d3d7b\codex.exe'
+
+[sandbox_workspace_write]
+network_access = true
+
+[projects.'c:\users\tanak\documents\codex\2026-06-19\skill-creator-c-users-tanak-codex']
+trust_level = "trusted"
+
+[projects.'c:\users\tanak\documents\codex\2026-06-19\goal-skill-installer-c-users-tanak']
+trust_level = "trusted"
+
+[projects.'c:\users\tanak\documents\codex\2026-06-19\resolve-pr-129-merge-conflicts-locally']
+trust_level = "trusted"
+
+[projects.'c:\users\tanak\documents\codex\2026-06-19\prior-conversation-with-codex-conversation-role']
+trust_level = "trusted"
+
+[projects.'c:\users\tanak\documents\codex\2026-06-20\goal-hatch-pet-c-users-tanak']
+trust_level = "trusted"
+
+[projects.'c:\users\tanak\documents\codex\2026-06-20\plugin-browser-openai-bundled']
+trust_level = "trusted"
+
+[projects.'c:\users\tanak\documents\codex\2026-06-20\chrome-plugin-chrome-openai-bundled-file']
+trust_level = "trusted"
+
+[projects.'c:\users\tanak\documents\codex\2026-06-20\use-meta-dev-flow-security-ultra']
+trust_level = "trusted"
