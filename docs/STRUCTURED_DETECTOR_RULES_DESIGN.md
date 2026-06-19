@@ -41,7 +41,9 @@ Future mutations could produce a JSON or YAML document instead of Python source.
     "surface": {
       "fields": ["method", "path", "query.keys", "query.values", "headers.keys", "headers.values", "body"],
       "normalization": ["lowercase"],
-      "max_joined_length": 8192
+      "max_collection_entries": {"query": 100, "headers": 100},
+      "max_scalar_bytes": {"method": 64, "path": 4096, "query.item": 4096, "header.item": 4096},
+      "body_scan": {"mode": "full", "max_bytes": 524288}
     }
   },
   "rules": [
@@ -98,7 +100,17 @@ features:
       - body
     normalization:
       - lowercase
-    max_joined_length: 8192
+    max_collection_entries:
+      query: 100
+      headers: 100
+    max_scalar_bytes:
+      method: 64
+      path: 4096
+      query.item: 4096
+      header.item: 4096
+    body_scan:
+      mode: full
+      max_bytes: 524288
 rules:
   - id: symbolic_path_traversal
     field: surface
@@ -136,7 +148,9 @@ fallback:
 
 - Allowed fields only: `method`, `path`, `query.keys`, `query.values`, `headers.keys`, `headers.values`, and `body`.
 - Allowed normalization only: deterministic string transforms such as `lowercase`.
-- Required bounds for joined surface length and per-field string length.
+- Required bounds for collection traversal and per-field string length, while preserving full-body scanning up to the current tested payload budget.
+
+The structured evaluator should not implement equivalence by truncating a single joined surface before rule matching. The current generation-4 detector scans the full request body included in the request surface, and `tests/test_detector_performance.py::test_indicator_near_end_of_large_body_is_detected` requires detecting `path_traversal_indicator` after an approximately 256 KiB benign prefix. Bounds should therefore be expressed as explicit collection, scalar-field, and body-scan budgets; body matching must cover the entire configured body budget rather than only the first few KiB of a concatenated surface.
 
 ### `rules`
 
@@ -185,7 +199,7 @@ Any future implementation should enforce these invariants before a structured ru
 3. **Allowed request fields only** — rule documents may reference only approved `Request` fields and derived features.
 4. **Allowed operators only** — rule documents may use only a fixed operator allowlist implemented by reviewed evaluator code.
 5. **Deterministic evaluation** — evaluation must be order-stable, side-effect-free, time-bounded, and independent of wall-clock time, randomness, files, network, environment variables, and external services.
-6. **Bounded input processing** — feature extraction must cap string lengths and collection traversal to avoid memory or runtime expansion.
+6. **Bounded input processing without coverage regression** — feature extraction must cap scalar string lengths and collection traversal to avoid memory or runtime expansion, but it must not silently truncate the body below the current regression budget. Equivalent structured rules must still detect a symbolic indicator near the end of a large body, including the existing approximately 256 KiB body-performance case.
 7. **Non-blocking fallback** — unsupported schemas, validation failures, evaluator errors, and no-match cases must return a deterministic non-blocking fallback result.
 8. **Stable output contract** — evaluator output must remain a `DetectionResult`, never a bare boolean or exception-driven result.
 9. **No privilege expansion** — structured rules must not modify files, ledgers, model names, budgets, promotion state, workflow configuration, or any code outside the approved integration path.
@@ -205,6 +219,7 @@ Any future implementation should enforce these invariants before a structured ru
    - Add a fixed evaluator for validated structured rules.
    - Enforce safety invariants in code.
    - Test determinism, bounds, fallback behavior, and output contract preservation.
+   - Include a large-body equivalence test showing that an indicator near the end of the configured body-scan budget is still matched.
 
 4. **Mutation-output PR**
    - Update proposal tooling to emit structured rule documents instead of Python replacement code.
@@ -213,7 +228,7 @@ Any future implementation should enforce these invariants before a structured ru
 5. **Integration PR**
    - Wire validated structured rules into the detector pipeline through reviewed code.
    - Preserve `inspect_request`'s public contract and non-blocking fallback.
-   - Include regression tests comparing current symbolic-token behavior to equivalent structured rules.
+   - Include regression tests comparing current symbolic-token behavior to equivalent structured rules, including the large-body near-end indicator coverage already required by `tests/test_detector_performance.py`.
 
 6. **Retirement PR**
    - Remove or permanently disable raw Python detector mutation once structured rules are validated, evaluated, tested, and adopted.
