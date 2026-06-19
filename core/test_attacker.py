@@ -133,11 +133,14 @@ def _load_corpus_file(
     default_blocked: bool | None,
     seen_ids: set[str],
     valid_kinds: frozenset[str] = _VALID_CORPUS_KINDS,
+    *,
+    require_non_empty: bool = False,
 ) -> list[dict]:
     """Read and strictly validate a corpus JSON file.
 
     Raises ValueError if the file is missing, malformed JSON, wrong top-level
-    type, or any record fails schema validation.
+    type, or any record fails schema validation.  When require_non_empty=True,
+    an empty list ([]) is also rejected (fail-closed for adaptive tier files).
     """
     try:
         raw_text = path.read_text(encoding="utf-8")
@@ -151,6 +154,10 @@ def _load_corpus_file(
         raise ValueError(
             f"Corpus file {path} top-level must be a JSON list, "
             f"got {type(raw_list).__name__!r}"
+        )
+    if require_non_empty and not raw_list:
+        raise ValueError(
+            f"Corpus file {path} must contain at least one record"
         )
     for raw in raw_list:
         _validate_corpus_record(raw, default_kind, default_blocked, seen_ids, valid_kinds)
@@ -226,7 +233,8 @@ def load_test_cases(
                 )
             continue
         # expected_blocked=None forces each record to supply its own value.
-        raw_list = _load_corpus_file(path, kind, None, seen_ids)
+        # require_non_empty=True: an empty file disables the floor silently, which is fail-open.
+        raw_list = _load_corpus_file(path, kind, None, seen_ids, require_non_empty=True)
         for raw in raw_list:
             req = build_request(raw["request"])
             case_kind = raw.get("kind", kind)

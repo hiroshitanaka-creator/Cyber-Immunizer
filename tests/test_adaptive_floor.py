@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -416,3 +417,138 @@ class TestFitnessReportAdaptiveFloorDefaults:
         assert r.drift_pass_rate == 0.8
         assert r.adaptive_floor_passed is False
         assert "holdout too low" in r.adaptive_floor_rejection_reasons
+
+
+# ---------------------------------------------------------------------------
+# Tests: Empty adaptive tier files are rejected (fail-closed)
+# ---------------------------------------------------------------------------
+
+class TestEmptyAdaptiveTierFile:
+    """Empty ([]) adaptive tier files must be rejected, never silently disable the floor."""
+
+    _DATA_DIR = Path(__file__).parent.parent / "data"
+
+    def test_empty_holdout_raises_in_load_test_cases(self, tmp_path):
+        """An empty holdout file raises ValueError even with require_adaptive_tiers=False."""
+        empty = tmp_path / "empty_holdout.json"
+        empty.write_text("[]")
+        with pytest.raises(ValueError, match="must contain at least one record"):
+            load_test_cases(
+                benign_path=self._DATA_DIR / "benign_requests.json",
+                attack_path=self._DATA_DIR / "attack_requests.json",
+                regression_path=self._DATA_DIR / "regression_cases.json",
+                holdout_path=empty,
+                counterfactual_path=tmp_path / "nonexistent_cf.json",
+                drift_path=tmp_path / "nonexistent_drift.json",
+                require_adaptive_tiers=False,
+            )
+
+    def test_empty_counterfactual_raises_in_load_test_cases(self, tmp_path):
+        """An empty counterfactual file raises ValueError."""
+        empty = tmp_path / "empty_cf.json"
+        empty.write_text("[]")
+        with pytest.raises(ValueError, match="must contain at least one record"):
+            load_test_cases(
+                benign_path=self._DATA_DIR / "benign_requests.json",
+                attack_path=self._DATA_DIR / "attack_requests.json",
+                regression_path=self._DATA_DIR / "regression_cases.json",
+                holdout_path=tmp_path / "nonexistent.json",
+                counterfactual_path=empty,
+                drift_path=tmp_path / "nonexistent.json",
+                require_adaptive_tiers=False,
+            )
+
+    def test_empty_drift_raises_in_load_test_cases(self, tmp_path):
+        """An empty drift file raises ValueError."""
+        empty = tmp_path / "empty_drift.json"
+        empty.write_text("[]")
+        with pytest.raises(ValueError, match="must contain at least one record"):
+            load_test_cases(
+                benign_path=self._DATA_DIR / "benign_requests.json",
+                attack_path=self._DATA_DIR / "attack_requests.json",
+                regression_path=self._DATA_DIR / "regression_cases.json",
+                holdout_path=tmp_path / "nonexistent.json",
+                counterfactual_path=tmp_path / "nonexistent.json",
+                drift_path=empty,
+                require_adaptive_tiers=False,
+            )
+
+    def test_empty_holdout_fails_validate_state(self, tmp_path):
+        """validate_state._check_corpus_file reports a violation for an empty holdout file."""
+        from scripts.validate_state import _check_corpus_file
+        empty = tmp_path / "holdout_requests.json"
+        empty.write_text("[]")
+        violations = _check_corpus_file(empty, "holdout", None, require_non_empty=True)
+        assert len(violations) == 1
+        assert "must contain at least one record" in violations[0]
+
+
+# ---------------------------------------------------------------------------
+# Tests: End-to-end evaluate() proves adaptive floor gate is enforced
+# ---------------------------------------------------------------------------
+
+class TestAdaptiveFloorEndToEnd:
+    """evaluate() must set adaptive_floor_passed=False and passed_adoption_gate=False
+    when a pathological candidate fails adaptive tier thresholds."""
+
+    def _write_candidate(self, body: str) -> Path:
+        preamble = "from core.types import Request, DetectionResult\n"
+        source = (
+            preamble
+            + "\ndef inspect_request(request: Request) -> DetectionResult:\n"
+            + "    # === MUTATION_START ===\n"
+            + textwrap.indent(body.strip(), "    ") + "\n"
+            + "    # === MUTATION_END ===\n"
+        )
+        tmp = tempfile.NamedTemporaryFile(suffix=".py", delete=False, mode="w")
+        tmp.write(source)
+        tmp.flush()
+        return Path(tmp.name)
+
+    def test_never_blocking_fails_adaptive_floor(self):
+        """Never-blocking candidate: holdout has blocked cases → holdout_pass_rate < 1.0."""
+        from core.fitness import evaluate
+        body = (
+            'return DetectionResult('
+            'blocked=False, reason="allowed", confidence=0.0, matched_signals=())\n'
+        )
+        p = self._write_candidate(body)
+        try:
+            report = evaluate(p, baseline_mode=True)
+            # holdout_requests.json has 3 expected_blocked=True records;
+            # a never-blocking detector misses all three → pass_rate < 1.0.
+            assert report.holdout_pass_rate < 1.0, (
+                f"Expected holdout_pass_rate < 1.0, got {report.holdout_pass_rate}"
+            )
+            assert not report.adaptive_floor_passed, (
+                "Never-blocking detector must fail adaptive floor"
+            )
+            assert not report.passed_adoption_gate, (
+                "Never-blocking detector must fail adoption gate"
+            )
+        finally:
+            p.unlink(missing_ok=True)
+
+    def test_always_blocking_fails_adaptive_floor(self):
+        """Always-blocking candidate: counterfactual has expected_blocked=False → pass_rate=0.0."""
+        from core.fitness import evaluate
+        body = (
+            'return DetectionResult('
+            'blocked=True, reason="blocked", confidence=1.0, matched_signals=("all",))\n'
+        )
+        p = self._write_candidate(body)
+        try:
+            report = evaluate(p, baseline_mode=True)
+            # counterfactual_requests.json has 5 expected_blocked=False records;
+            # an always-blocking detector blocks them all → pass_rate=0.0 < 1.0.
+            assert report.counterfactual_pass_rate < 1.0, (
+                f"Expected counterfactual_pass_rate < 1.0, got {report.counterfactual_pass_rate}"
+            )
+            assert not report.adaptive_floor_passed, (
+                "Always-blocking detector must fail adaptive floor"
+            )
+            assert not report.passed_adoption_gate, (
+                "Always-blocking detector must fail adoption gate"
+            )
+        finally:
+            p.unlink(missing_ok=True)

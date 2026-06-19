@@ -171,10 +171,15 @@ def _check_corpus_file(
     default_kind: str | None,
     default_blocked: bool | None,
     seen_ids: set[str],
+    *,
+    require_non_empty: bool = False,
 ) -> list[str]:
     from core.test_attacker import _load_corpus_file
     try:
-        _load_corpus_file(path, default_kind, default_blocked, seen_ids)
+        _load_corpus_file(
+            path, default_kind, default_blocked, seen_ids,
+            require_non_empty=require_non_empty,
+        )
         return []
     except ValueError as exc:
         return [f"{path.name}: {exc}"]
@@ -200,17 +205,25 @@ def validate_all(data_dir: Path = _DATA_DIR) -> dict:
         violations.extend(checker(path))
 
     corpus_seen_ids: set[str] = set()
-    for fname, kind, blocked in [
-        ("benign_requests.json",          "benign",          False),
-        ("attack_requests.json",          "attack",          True),
-        ("regression_cases.json",         None,              None),
-        ("holdout_requests.json",         "holdout",         None),
-        ("counterfactual_requests.json",  "counterfactual",  None),
-        ("drift_requests.json",           "drift",           None),
+    for fname, kind, blocked, non_empty in [
+        ("benign_requests.json",          "benign",          False,  False),
+        ("attack_requests.json",          "attack",          True,   False),
+        ("regression_cases.json",         None,              None,   False),
+        ("holdout_requests.json",         "holdout",         None,   True),
+        ("counterfactual_requests.json",  "counterfactual",  None,   True),
+        ("drift_requests.json",           "drift",           None,   True),
     ]:
         p = data_dir / fname
         checked.append(fname)
-        violations.extend(_check_corpus_file(p, kind, blocked, corpus_seen_ids))
+        violations.extend(
+            _check_corpus_file(
+                p,
+                kind,
+                blocked,
+                corpus_seen_ids,
+                require_non_empty=non_empty,
+            )
+        )
 
     return {
         "success": len(violations) == 0,
