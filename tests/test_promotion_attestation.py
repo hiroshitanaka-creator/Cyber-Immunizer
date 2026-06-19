@@ -237,3 +237,28 @@ def test_nested_fitness_report_adoption_gate_contradiction_refused(tmp_path: Pat
     report.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     errors = _verify(candidate, report, allowlist, attestation)
     assert any("fitness_report.passed_adoption_gate" in error for error in errors)
+
+
+def test_image_scoped_allowlist_rejects_same_digest_under_wrong_image(tmp_path: Path) -> None:
+    candidate, report, allowlist, attestation, _payload = _valid_attestation(tmp_path)
+    allowlist.write_text(
+        json.dumps({"allowed_images": {"python:3.12-slim": [DIGEST]}}, indent=2),
+        encoding="utf-8",
+    )
+    errors = _verify(candidate, report, allowlist, attestation)
+    assert any("approved allowlist" in error for error in errors)
+
+
+def test_committed_production_allowlist_has_approved_python_digest() -> None:
+    allowlist_path = Path(__file__).parent.parent / "security" / "docker_digest_allowlist.json"
+    data = json.loads(allowlist_path.read_text(encoding="utf-8"))
+    assert isinstance(data, dict)
+    allowed_images = data.get("allowed_images")
+    assert isinstance(allowed_images, dict)
+    python_digests = allowed_images.get("python:3.11-slim")
+    assert isinstance(python_digests, list)
+    assert python_digests, "production python:3.11-slim digest allowlist must not be empty"
+    import re
+
+    pattern = re.compile(r"^python@sha256:[0-9a-f]{64}$")
+    assert all(isinstance(digest, str) and pattern.fullmatch(digest) for digest in python_digests)

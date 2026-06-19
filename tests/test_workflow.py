@@ -2280,3 +2280,10 @@ class TestEvaluationPromotionAttestationGate:
         assert "--expected-evaluated-sha" in promote_section
         assert "--expected-base-main-sha" in promote_section
         assert "--digest-allowlist security/docker_digest_allowlist.json" in promote_section
+
+    def test_workflow_pins_and_checks_approved_docker_digest(self, evaluate_section: str) -> None:
+        assert 'APPROVED_DIGEST="python@sha256:' in evaluate_section
+        assert 'docker pull "$APPROVED_DIGEST"' in evaluate_section
+        assert 'docker tag "$APPROVED_DIGEST" "$APPROVED_IMAGE"' in evaluate_section
+        assert 'DIGEST" != "$APPROVED_DIGEST"' in evaluate_section
+        assert 'Resolved Docker digest $DIGEST does not match approved digest $APPROVED_DIGEST' in evaluate_section

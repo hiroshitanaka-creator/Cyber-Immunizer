@@ -1,9 +1,10 @@
 {
   "schema_version": 1,
   "purpose": "Approved Docker image repo digests for promotion-capable evaluation attestations.",
-  "promotion_state": "fail_closed_kill_switch_until_owner_approves_digest",
-  "note": "allowed_images is intentionally empty. This blocks real promotions until the Project Owner approves a specific python:3.11-slim repo digest in a scoped follow-up change.",
+  "promotion_state": "enabled_for_owner_approved_python_3_11_slim_digest",
   "allowed_images": {
-    "python:3.11-slim": []
+    "python:3.11-slim": [
+      "python@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca"
+    ]
   }
 }
