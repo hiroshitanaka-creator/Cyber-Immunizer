@@ -167,9 +167,9 @@ def _check_corpus_file(
     path: Path,
     default_kind: str | None,
     default_blocked: bool | None,
+    seen_ids: set[str],
 ) -> list[str]:
     from core.test_attacker import _load_corpus_file
-    seen_ids: set[str] = set()
     try:
         _load_corpus_file(path, default_kind, default_blocked, seen_ids)
         return []
@@ -196,6 +196,7 @@ def validate_all(data_dir: Path = _DATA_DIR) -> dict:
         checked.append(str(path.name))
         violations.extend(checker(path))
 
+    corpus_seen_ids: set[str] = set()
     for fname, kind, blocked in [
         ("benign_requests.json",  "benign",     False),
         ("attack_requests.json",  "attack",     True),
@@ -203,7 +204,7 @@ def validate_all(data_dir: Path = _DATA_DIR) -> dict:
     ]:
         p = data_dir / fname
         checked.append(fname)
-        violations.extend(_check_corpus_file(p, kind, blocked))
+        violations.extend(_check_corpus_file(p, kind, blocked, corpus_seen_ids))
 
     return {
         "success": len(violations) == 0,
