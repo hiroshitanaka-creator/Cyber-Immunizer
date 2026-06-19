@@ -2243,3 +2243,39 @@ class TestPromotionConditionsNotRelaxed:
             "REGRESSION: workflow_dispatch check removed from promote if condition. "
             "Schedule runs must never be able to trigger promotion."
         )
+
+
+# ---------------------------------------------------------------------------
+# 18. Evaluation / promotion attestation gate
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluationPromotionAttestationGate:
+    """Promotion must verify an evaluate-job attestation before copying artifacts."""
+
+    def test_evaluate_writes_attestation(self, evaluate_section: str) -> None:
+        assert "Write evaluation promotion attestation" in evaluate_section
+        assert "evaluation_promotion_attestation.json" in evaluate_section
+        assert "candidate_sha256" in evaluate_section
+        assert "fitness_report_sha256" in evaluate_section
+        assert "evaluated_sha" in evaluate_section
+
+    def test_evaluate_uploads_attestation_artifact(self, evaluate_section: str) -> None:
+        assert "Upload evaluation promotion attestation artifact" in evaluate_section
+        assert "name: evaluation-promotion-attestation" in evaluate_section
+        assert "path: .cyber_immunizer/evaluation_promotion_attestation.json" in evaluate_section
+
+    def test_promote_downloads_attestation_artifact(self, promote_section: str) -> None:
+        assert "Download evaluation promotion attestation" in promote_section
+        assert "name: evaluation-promotion-attestation" in promote_section
+
+    def test_promote_verifies_attestation_before_promote(self, promote_section: str) -> None:
+        verify_pos = promote_section.find("Verify evaluation promotion attestation")
+        promote_pos = promote_section.find("name: Promote candidate")
+        assert verify_pos != -1, "promote job must verify the evaluation attestation"
+        assert promote_pos != -1, "promote job must still run promote_candidate.py"
+        assert verify_pos < promote_pos, "attestation must be verified before promotion"
+        assert "candidate_sha256" in promote_section
+        assert "fitness_report_sha256" in promote_section
+        assert "evaluated_sha" in promote_section
+        assert "sys.exit(1)" in promote_section
