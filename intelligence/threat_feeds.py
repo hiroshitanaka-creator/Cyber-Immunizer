@@ -52,13 +52,98 @@ class ThreatRecord:
             raise ValueError("ThreatRecord.summary must not be empty")
 
 
-def load_active_threats(path: Path | None = None) -> list[ThreatRecord]:
+def load_active_threats(
+    path: Path | None = None,
+    *,
+    strict: bool = True,
+) -> list[ThreatRecord]:
     """Load threat records from data/active_threats.json.
 
-    Returns an empty list on any read/parse error rather than raising,
-    to avoid failing unrelated tests.
+    When strict=True (default), raises ValueError on malformed JSON, non-list
+    top-level, non-dict records, empty IDs, empty summaries, unknown
+    defensive_focus values, or duplicate IDs.  This prevents a poisoned feed
+    from silently becoming an empty set.
+
+    When strict=False, falls back to the legacy behaviour: returns an empty
+    list on parse errors and skips malformed records silently.  Use only for
+    backward-compatibility contexts where strict validation is not required.
     """
     path = path or (_DATA_DIR / "active_threats.json")
+
+    if strict:
+        return _load_active_threats_strict(path)
+    return _load_active_threats_lenient(path)
+
+
+def _load_active_threats_strict(path: Path) -> list[ThreatRecord]:
+    """Strict loader — raises ValueError on any schema violation."""
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"Failed to read threat feed {path}: {exc}") from exc
+    try:
+        raw_list = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Malformed JSON in threat feed {path}: {exc}") from exc
+    if not isinstance(raw_list, list):
+        raise ValueError(
+            f"Threat feed {path} top-level must be a JSON list, "
+            f"got {type(raw_list).__name__!r}"
+        )
+
+    seen_ids: set[str] = set()
+    records: list[ThreatRecord] = []
+    for i, raw in enumerate(raw_list):
+        if not isinstance(raw, dict):
+            raise ValueError(
+                f"Threat feed {path} record [{i}] must be dict, "
+                f"got {type(raw).__name__!r}"
+            )
+        id_val = raw.get("id", "")
+        if not isinstance(id_val, str) or not id_val:
+            raise ValueError(
+                f"Threat feed {path} record [{i}]: 'id' must be non-empty str, "
+                f"got {id_val!r}"
+            )
+        if id_val in seen_ids:
+            raise ValueError(
+                f"Threat feed {path}: duplicate record id {id_val!r}"
+            )
+        seen_ids.add(id_val)
+
+        summary = raw.get("summary", "")
+        if not isinstance(summary, str) or not summary:
+            raise ValueError(
+                f"Threat feed {path} record {id_val!r}: 'summary' must be non-empty str"
+            )
+
+        df = raw.get("defensive_focus", "generic")
+        if not isinstance(df, str):
+            raise ValueError(
+                f"Threat feed {path} record {id_val!r}: "
+                f"'defensive_focus' must be str, got {type(df).__name__!r} {df!r}"
+            )
+        if df not in ThreatRecord._ALLOWED_FOCUSES:
+            raise ValueError(
+                f"Threat feed {path} record {id_val!r}: "
+                f"'defensive_focus' must be one of {sorted(ThreatRecord._ALLOWED_FOCUSES)}, "
+                f"got {df!r}"
+            )
+
+        records.append(
+            ThreatRecord(
+                id=id_val,
+                source=str(raw.get("source", "unknown")),
+                summary=summary,
+                defensive_focus=df,
+                created_at=str(raw.get("created_at", "")),
+            )
+        )
+    return records
+
+
+def _load_active_threats_lenient(path: Path) -> list[ThreatRecord]:
+    """Legacy lenient loader — returns [] on errors, skips malformed records."""
     try:
         raw_list = json.loads(path.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001
@@ -78,7 +163,6 @@ def load_active_threats(path: Path | None = None) -> list[ThreatRecord]:
             )
         except (ValueError, KeyError):
             continue  # Skip malformed records silently
-
     return records
 
 
