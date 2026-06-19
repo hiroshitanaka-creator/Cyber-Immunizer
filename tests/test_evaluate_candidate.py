@@ -29,6 +29,9 @@ from scripts.evaluate_candidate import (
     _EVAL_MAX_OPEN_FILES,
     _EVAL_MAX_PROCESSES,
     _PROJECT_ROOT as _EVAL_PROJECT_ROOT,
+    SandboxBackend,
+    _build_docker_command,
+    _docker_launcher_env,
     _make_resource_limiter,
     _resource_limits_supported,
     evaluate_candidate,
@@ -252,8 +255,81 @@ class TestResourceLimiterHelpers:
 # B. Subprocess invocation includes preexec_fn on POSIX
 # ===========================================================================
 
-class TestSubprocessPreexecFn:
-    """evaluate_candidate passes preexec_fn and preserves all required kwargs."""
+class TestDockerSandboxBackend:
+    """Docker sandbox is the production default and is constructed safely."""
+
+    def test_docker_command_has_required_hardening_flags(self, tmp_path: Path) -> None:
+        candidate = _write_candidate(tmp_path)
+        cmd = _build_docker_command(candidate, timeout_seconds=5, baseline_mode=True)
+        assert cmd[:3] == ["docker", "run", "--rm"]
+        assert ["--network", "none"] == cmd[cmd.index("--network"):cmd.index("--network") + 2]
+        assert "--read-only" in cmd
+        assert ["--cap-drop", "ALL"] == cmd[cmd.index("--cap-drop"):cmd.index("--cap-drop") + 2]
+        assert ["--security-opt", "no-new-privileges"] == cmd[cmd.index("--security-opt"):cmd.index("--security-opt") + 2]
+        assert "--pids-limit" in cmd
+        assert "--memory" in cmd
+        assert "--cpus" in cmd
+        assert ["--user", "65534:65534"] == cmd[cmd.index("--user"):cmd.index("--user") + 2]
+        assert ["--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=64m"] == cmd[cmd.index("--tmpfs"):cmd.index("--tmpfs") + 2]
+        mounts = [cmd[i + 1] for i, token in enumerate(cmd) if token == "-v"]
+        assert f"{_EVAL_PROJECT_ROOT}:/workspace:ro" in mounts
+        assert f"{candidate.resolve()}:/candidate/candidate_detector.py:ro" in mounts
+        assert "--baseline" in cmd
+
+    def test_docker_launcher_env_strips_secrets(self) -> None:
+        with patch.dict(os.environ, {"GITHUB_TOKEN": "x", "GEMINI_API_KEY": "y", "AWS_SECRET_ACCESS_KEY": "z"}):
+            env = _docker_launcher_env()
+        assert "GITHUB_TOKEN" not in env
+        assert "GEMINI_API_KEY" not in env
+        assert "AWS_SECRET_ACCESS_KEY" not in env
+
+    def test_default_backend_runs_docker_and_records_metadata(self, tmp_path: Path) -> None:
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+        with patch("scripts.evaluate_candidate.validate", return_value={"valid": True, "violations": []}), \
+             patch("scripts.evaluate_candidate._run_fitness_in_docker", return_value=_fake_proc(_FAKE_PASSING_OUTPUT)) as run_docker:
+            result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path, baseline_mode=True)
+        run_docker.assert_called_once()
+        assert result["sandbox_backend"] == "docker"
+        assert result["sandbox_network"] == "none"
+        report = json.loads(report_path.read_text())
+        assert report["sandbox_backend"] == "docker"
+        assert report["sandbox_read_only"] is True
+
+    def test_docker_unavailable_fails_closed(self, tmp_path: Path) -> None:
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+        with patch("scripts.evaluate_candidate.validate", return_value={"valid": True, "violations": []}), \
+             patch("scripts.evaluate_candidate._run_fitness_in_docker", side_effect=OSError("docker sandbox unavailable")):
+            result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+        assert result["success"] is False
+        assert result["passed_adoption_gate"] is False
+        assert result["is_tool_failure"] is True
+        assert "docker" in result["error"].lower() or "sandbox" in result["error"].lower()
+        assert report_path.exists()
+
+    def test_docker_timeout_fails_closed(self, tmp_path: Path) -> None:
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+        with patch("scripts.evaluate_candidate.validate", return_value={"valid": True, "violations": []}), \
+             patch("scripts.evaluate_candidate._run_fitness_in_docker", side_effect=subprocess.TimeoutExpired(cmd=["docker"], timeout=5)):
+            result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+        assert result["timed_out"] is True
+        assert result["is_tool_failure"] is True
+        assert result["success"] is False
+
+    def test_malformed_docker_stdout_is_tool_failure(self, tmp_path: Path) -> None:
+        candidate = _write_candidate(tmp_path)
+        report_path = tmp_path / "report.json"
+        with patch("scripts.evaluate_candidate.validate", return_value={"valid": True, "violations": []}), \
+             patch("scripts.evaluate_candidate._run_fitness_in_docker", return_value=_fake_proc("not json")):
+            result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+        assert result["is_tool_failure"] is True
+        assert "parse" in result["error"].lower()
+
+
+class TestLegacySubprocessPreexecFn:
+    """Explicit legacy backend passes preexec_fn and preserves required kwargs."""
 
     def test_preexec_fn_present_and_callable_on_posix(self, tmp_path: Path) -> None:
         """On POSIX, subprocess.run must receive a callable preexec_fn."""
@@ -266,7 +342,7 @@ class TestSubprocessPreexecFn:
         with patch("scripts.evaluate_candidate.validate",
                    return_value={"valid": True, "violations": []}):
             with patch("subprocess.run", return_value=_fake_proc(_FAKE_REJECTED_OUTPUT)) as mock_run:
-                evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+                evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path, sandbox_backend=SandboxBackend.LEGACY_RLIMIT)
 
         assert mock_run.called
         kwargs = mock_run.call_args.kwargs
@@ -284,7 +360,7 @@ class TestSubprocessPreexecFn:
         with patch("scripts.evaluate_candidate.validate",
                    return_value={"valid": True, "violations": []}):
             with patch("subprocess.run", return_value=_fake_proc(_FAKE_REJECTED_OUTPUT)) as mock_run:
-                evaluate_candidate(candidate, timeout_seconds=8, report_path=report_path)
+                evaluate_candidate(candidate, timeout_seconds=8, report_path=report_path, sandbox_backend=SandboxBackend.LEGACY_RLIMIT)
 
         kwargs = mock_run.call_args.kwargs
         assert kwargs.get("timeout") == 8, "timeout must be passed to subprocess.run"
@@ -300,7 +376,7 @@ class TestSubprocessPreexecFn:
         with patch("scripts.evaluate_candidate.validate",
                    return_value={"valid": True, "violations": []}):
             with patch("subprocess.run", return_value=_fake_proc(_FAKE_REJECTED_OUTPUT)) as mock_run:
-                evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+                evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path, sandbox_backend=SandboxBackend.LEGACY_RLIMIT)
 
         kwargs = mock_run.call_args.kwargs
         env = kwargs.get("env", {})
@@ -319,7 +395,7 @@ class TestSubprocessPreexecFn:
         with patch("scripts.evaluate_candidate.validate",
                    return_value={"valid": True, "violations": []}):
             with patch("subprocess.run", return_value=_fake_proc(_FAKE_REJECTED_OUTPUT)) as mock_run:
-                evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+                evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path, sandbox_backend=SandboxBackend.LEGACY_RLIMIT)
 
         kwargs = mock_run.call_args.kwargs
         assert kwargs.get("cwd") == str(_EVAL_PROJECT_ROOT)
@@ -349,7 +425,7 @@ class TestFailClosed:
         assert result["passed_adoption_gate"] is False
         assert result["is_tool_failure"] is True
         assert result["timed_out"] is False
-        assert "subprocess" in result["error"].lower() or "launch" in result["error"].lower()
+        assert "sandbox" in result["error"].lower() or "docker" in result["error"].lower()
         assert result.get("candidate_hash") is not None
         assert report_path.exists(), "report must be written on subprocess failure"
 
@@ -380,7 +456,7 @@ class TestFailClosed:
         with patch("scripts.evaluate_candidate._resource_module", None):
             with patch("scripts.evaluate_candidate.validate",
                        return_value={"valid": True, "violations": []}):
-                result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+                result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path, sandbox_backend=SandboxBackend.LEGACY_RLIMIT)
 
         assert result["success"] is False
         assert result["is_tool_failure"] is True
@@ -399,7 +475,7 @@ class TestFailClosed:
                        side_effect=RuntimeError("simulated resource setup error")):
                 with patch("scripts.evaluate_candidate._resource_limits_supported",
                            return_value=True):
-                    result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
+                    result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path, sandbox_backend=SandboxBackend.LEGACY_RLIMIT)
 
         assert result["success"] is False
         assert result["is_tool_failure"] is True
@@ -425,7 +501,7 @@ class TestTimeoutBehavior:
         timeout_exc = subprocess.TimeoutExpired(cmd=["python"], timeout=5)
         with patch("scripts.evaluate_candidate.validate",
                    return_value={"valid": True, "violations": []}):
-            with patch("subprocess.run", side_effect=timeout_exc):
+            with patch("scripts.evaluate_candidate._run_fitness_in_docker", side_effect=timeout_exc):
                 result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
 
         assert result["timed_out"] is True
@@ -447,7 +523,7 @@ class TestTimeoutBehavior:
         timeout_exc = subprocess.TimeoutExpired(cmd=["python"], timeout=12)
         with patch("scripts.evaluate_candidate.validate",
                    return_value={"valid": True, "violations": []}):
-            with patch("subprocess.run", side_effect=timeout_exc):
+            with patch("scripts.evaluate_candidate._run_fitness_in_docker", side_effect=timeout_exc):
                 result = evaluate_candidate(candidate, timeout_seconds=12, report_path=report_path)
 
         assert "12" in result["error"], "Timeout error must include the timeout duration"
@@ -954,7 +1030,7 @@ class TestEvaluateCandidateBehavioralSurfaceCheck:
         )
 
     def test_unreachable_code_candidate_soft_rejected_in_full_pipeline(
-        self, tmp_path: Path
+        self, tmp_path: Path, monkeypatch
     ) -> None:
         """End-to-end: candidate with unreachable surface code is soft-rejected by Step 2b."""
         from scripts.evaluate_candidate import evaluate_candidate
@@ -995,7 +1071,24 @@ class TestEvaluateCandidateBehavioralSurfaceCheck:
         p.write_text(candidate_source, encoding="utf-8")
         report_path = tmp_path / "report.json"
 
-        # Run without mocking validate or behavioral check — real pipeline
+        # Run without mocking validate or behavioral check. In local test environments
+        # without Docker, emulate the Docker runner while preserving the production
+        # function boundary that behavioral checks use.
+        from scripts import candidate_contract
+
+        def _fake_docker_runner(*, candidate_path, command, timeout_seconds, project_root=None):
+            mapped = [
+                str(project_root or _PROJECT_ROOT) if a == candidate_contract.CONTAINER_WORKSPACE
+                else str(candidate_path) if a == candidate_contract.CONTAINER_CANDIDATE
+                else a
+                for a in command
+            ]
+            return subprocess.run(
+                mapped, capture_output=True, text=True, timeout=timeout_seconds,
+                cwd=str(project_root or _PROJECT_ROOT),
+            )
+
+        monkeypatch.setattr(candidate_contract, "run_candidate_runtime_in_docker", _fake_docker_runner)
         result = evaluate_candidate(p, timeout_seconds=30, report_path=report_path)
 
         assert not result["success"]

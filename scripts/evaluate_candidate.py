@@ -1,4 +1,4 @@
-"""scripts/evaluate_candidate.py — Evaluate a candidate detector in a subprocess.
+"""scripts/evaluate_candidate.py — Evaluate a candidate detector in a Docker sandbox.
 
 Usage:
     python scripts/evaluate_candidate.py \\
@@ -20,12 +20,13 @@ from "candidate evaluated but rejected by gate" (exit 0 + passed_adoption_gate=f
 This prevents a legitimate soft-rejection from being treated as a workflow error.
 
 SAFETY NOTE:
-    Candidate code is never executed with secrets or write permissions.
-    The evaluation subprocess has no access to GEMINI_API_KEY or git tokens.
-    On POSIX/Linux, the subprocess is also bounded by physical resource limits
-    (CPU time, address space, file size, open files, process count) to prevent
-    a malicious or buggy candidate from exhausting runner resources before the
-    wall-clock timeout triggers.
+    Production candidate fitness runs inside a Docker sandbox by default. The
+    sandbox disables networking, uses a read-only root filesystem and read-only
+    mounts, drops Linux capabilities, sets no-new-privileges, runs as non-root,
+    constrains CPU/memory/PIDs, uses an isolated /tmp tmpfs, and receives only
+    explicit non-secret environment variables. The legacy POSIX rlimit
+    subprocess backend remains available only through an explicit local-dev/test
+    opt-in and is never selected silently.
 """
 from __future__ import annotations
 
@@ -37,6 +38,7 @@ import sys
 import os
 import tempfile
 from pathlib import Path
+from typing import Literal
 
 # Ensure project root on sys.path
 _PROJECT_ROOT = Path(__file__).parent.parent
@@ -48,6 +50,18 @@ from scripts.candidate_contract import (  # noqa: E402
     run_candidate_contract_checks,
     run_behavioral_surface_check_subprocess,
     run_behavioral_benign_control_check_subprocess,
+    build_candidate_runtime_docker_command,
+    docker_available,
+    docker_launcher_env,
+    DOCKER_IMAGE,
+    DOCKER_NON_ROOT_USER,
+    DOCKER_MEMORY_LIMIT,
+    DOCKER_CPU_LIMIT,
+    DOCKER_PIDS_LIMIT,
+    DOCKER_TMPFS,
+    CONTAINER_WORKSPACE,
+    CONTAINER_CANDIDATE,
+    run_candidate_runtime_in_docker,
 )
 
 _REPORT_PATH = _PROJECT_ROOT / ".cyber_immunizer" / "fitness_report.json"
@@ -132,6 +146,101 @@ def _safe_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k in allowed_keys}
 
 
+class SandboxBackend:
+    DOCKER = "docker"
+    LEGACY_RLIMIT = "legacy-rlimit"
+
+
+SandboxBackendName = Literal["docker", "legacy-rlimit"]
+
+_DOCKER_IMAGE = DOCKER_IMAGE
+_DOCKER_NON_ROOT_USER = DOCKER_NON_ROOT_USER
+_DOCKER_MEMORY_LIMIT = DOCKER_MEMORY_LIMIT
+_DOCKER_CPU_LIMIT = DOCKER_CPU_LIMIT
+_DOCKER_PIDS_LIMIT = DOCKER_PIDS_LIMIT
+_DOCKER_TMPFS = DOCKER_TMPFS
+_CONTAINER_WORKSPACE = CONTAINER_WORKSPACE
+_CONTAINER_CANDIDATE = CONTAINER_CANDIDATE
+
+
+def _sandbox_metadata(backend: str) -> dict:
+    if backend == SandboxBackend.DOCKER:
+        return {
+            "sandbox_backend": SandboxBackend.DOCKER,
+            "sandbox_image": _DOCKER_IMAGE,
+            "sandbox_network": "none",
+            "sandbox_read_only": True,
+            "sandbox_user": _DOCKER_NON_ROOT_USER,
+            "sandbox_cap_drop": "ALL",
+            "sandbox_no_new_privileges": True,
+            "sandbox_pids_limit": int(_DOCKER_PIDS_LIMIT),
+            "sandbox_memory_limit": _DOCKER_MEMORY_LIMIT,
+            "sandbox_cpus": _DOCKER_CPU_LIMIT,
+            "sandbox_tmpfs": _DOCKER_TMPFS,
+        }
+    return {"sandbox_backend": SandboxBackend.LEGACY_RLIMIT}
+
+
+def _docker_launcher_env() -> dict[str, str]:
+    """Return minimal env for launching docker without propagating secrets."""
+    return docker_launcher_env()
+
+
+def _docker_available() -> bool:
+    """Return True only when docker version succeeds."""
+    return docker_available()
+
+def _build_docker_command(candidate_path: Path, timeout_seconds: int, baseline_mode: bool) -> list[str]:
+    command = [
+        "python", "-m", "core.fitness",
+        "--candidate", _CONTAINER_CANDIDATE,
+        "--json",
+    ]
+    if baseline_mode:
+        command.append("--baseline")
+    return build_candidate_runtime_docker_command(
+        candidate_path=candidate_path,
+        command=command,
+        project_root=_PROJECT_ROOT,
+    )
+
+def _run_fitness_in_docker(candidate_path: Path, timeout_seconds: int, baseline_mode: bool):
+    command = [
+        "python", "-m", "core.fitness",
+        "--candidate", _CONTAINER_CANDIDATE,
+        "--json",
+    ]
+    if baseline_mode:
+        command.append("--baseline")
+    return run_candidate_runtime_in_docker(
+        candidate_path=candidate_path,
+        command=command,
+        timeout_seconds=timeout_seconds,
+        project_root=_PROJECT_ROOT,
+    )
+
+def _run_fitness_legacy_rlimit(candidate_path: Path, timeout_seconds: int, baseline_mode: bool):
+    if _resource_limits_supported():
+        preexec_fn = _make_resource_limiter(timeout_seconds)
+    else:
+        raise RuntimeError(
+            "candidate evaluation requires POSIX resource limits for legacy backend; "
+            "platform is not POSIX or resource module is unavailable"
+        )
+    cmd = [sys.executable, "-m", "core.fitness", "--candidate", str(candidate_path), "--json"]
+    if baseline_mode:
+        cmd.append("--baseline")
+    return subprocess.run(
+        cmd,
+        cwd=str(_PROJECT_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=timeout_seconds,
+        env=_safe_env(),
+        preexec_fn=preexec_fn,
+    )
+
+
 def evaluate_candidate(
     candidate_path: Path,
     *,
@@ -139,8 +248,9 @@ def evaluate_candidate(
     report_path: Path | None = None,
     baseline_mode: bool = False,
     soft_reject: bool = False,
+    sandbox_backend: SandboxBackendName = SandboxBackend.DOCKER,
 ) -> dict:
-    """Validate then evaluate candidate in a sandboxed subprocess.
+    """Validate then evaluate candidate in a Docker sandbox by default.
 
     Returns a result dict with keys:
         success: bool               — True only if adoption gate passed
@@ -238,7 +348,9 @@ def evaluate_candidate(
         _write_report(result, candidate_hash, report_path)
         return result
 
-    # --- Step 2b: Behavioral request-surface check (isolated subprocess, no secrets) ---
+    sandbox_meta = _sandbox_metadata(sandbox_backend)
+
+    # --- Step 2b: Behavioral request-surface check (Docker sandbox, no secrets) ---
     behavioral_raw = run_behavioral_surface_check_subprocess(
         candidate_path, timeout_seconds=min(float(timeout_seconds), 30.0)
     )
@@ -267,6 +379,7 @@ def evaluate_candidate(
             "candidate_hash": candidate_hash,
             "contract_checks": all_contract_checks,
             "rejection_reasons": behavioral_raw.get("rejection_reasons", []),
+            **sandbox_meta,
         }
         _write_report(result, candidate_hash, report_path)
         return result
@@ -285,11 +398,12 @@ def evaluate_candidate(
             "candidate_hash": candidate_hash,
             "contract_checks": all_contract_checks,
             "rejection_reasons": reasons,
+            **sandbox_meta,
         }
         _write_report(result, candidate_hash, report_path)
         return result
 
-    # --- Step 2c: Behavioral benign-control check (isolated subprocess, no secrets) ---
+    # --- Step 2c: Behavioral benign-control check (Docker sandbox, no secrets) ---
     benign_raw = run_behavioral_benign_control_check_subprocess(
         candidate_path, timeout_seconds=min(float(timeout_seconds), 30.0)
     )
@@ -317,6 +431,7 @@ def evaluate_candidate(
             "candidate_hash": candidate_hash,
             "contract_checks": all_contract_checks,
             "rejection_reasons": benign_raw.get("rejection_reasons", []),
+            **sandbox_meta,
         }
         _write_report(result, candidate_hash, report_path)
         return result
@@ -335,35 +450,13 @@ def evaluate_candidate(
             "candidate_hash": candidate_hash,
             "contract_checks": all_contract_checks,
             "rejection_reasons": reasons,
+            **sandbox_meta,
         }
         _write_report(result, candidate_hash, report_path)
         return result
 
-    # --- Step 3: Build physical resource limiter (fail closed if unsupported) ---
-    # On Linux/POSIX, resource limits are mandatory.  We never run untrusted
-    # candidate code without rlimits; if they cannot be set, we fail closed.
-    if _resource_limits_supported():
-        try:
-            preexec_fn = _make_resource_limiter(timeout_seconds)
-        except RuntimeError as exc:
-            result = {
-                "success": False,
-                "passed_adoption_gate": False,
-                "timed_out": False,
-                "return_code": None,
-                "violations": [],
-                "fitness_report": None,
-                "error": f"resource limit setup failed: {exc}",
-                "is_tool_failure": True,
-                "candidate_hash": candidate_hash,
-                "contract_checks": all_contract_checks,
-                "rejection_reasons": [],
-            }
-            _write_report(result, candidate_hash, report_path)
-            return result
-    else:
-        # Non-POSIX or resource module unavailable: fail closed rather than run
-        # the candidate without physical resource limits.
+    # --- Step 3: Run fitness evaluation in the requested sandbox backend ---
+    if sandbox_backend not in {SandboxBackend.DOCKER, SandboxBackend.LEGACY_RLIMIT}:
         result = {
             "success": False,
             "passed_adoption_gate": False,
@@ -371,39 +464,21 @@ def evaluate_candidate(
             "return_code": None,
             "violations": [],
             "fitness_report": None,
-            "error": (
-                "candidate evaluation requires POSIX resource limits; "
-                "platform is not POSIX or resource module is unavailable"
-            ),
+            "error": f"unsupported sandbox backend: {sandbox_backend}",
             "is_tool_failure": True,
             "candidate_hash": candidate_hash,
             "contract_checks": all_contract_checks,
             "rejection_reasons": [],
+            **sandbox_meta,
         }
         _write_report(result, candidate_hash, report_path)
         return result
 
-    # --- Step 4: Run fitness evaluation in subprocess ---
-    cmd = [
-        sys.executable,
-        "-m", "core.fitness",
-        "--candidate", str(candidate_path),
-        "--json",
-    ]
-    if baseline_mode:
-        cmd.append("--baseline")
-
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(_PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            env=_safe_env(),
-            preexec_fn=preexec_fn,
-        )
-        timed_out = False
+        if sandbox_backend == SandboxBackend.DOCKER:
+            proc = _run_fitness_in_docker(candidate_path, timeout_seconds, baseline_mode)
+        else:
+            proc = _run_fitness_legacy_rlimit(candidate_path, timeout_seconds, baseline_mode)
         return_code = proc.returncode
         stdout = proc.stdout
         stderr = proc.stderr
@@ -415,11 +490,12 @@ def evaluate_candidate(
             "return_code": None,
             "violations": [],
             "fitness_report": None,
-            "error": f"evaluation subprocess timed out after {timeout_seconds}s",
-            "is_tool_failure": True,  # timeout is a tool failure
+            "error": f"evaluation sandbox timed out after {timeout_seconds}s",
+            "is_tool_failure": True,
             "candidate_hash": candidate_hash,
             "contract_checks": all_contract_checks,
             "rejection_reasons": [],
+            **sandbox_meta,
         }
         _write_report(result, candidate_hash, report_path)
         return result
@@ -431,11 +507,12 @@ def evaluate_candidate(
             "return_code": None,
             "violations": [],
             "fitness_report": None,
-            "error": f"subprocess launch failed: {exc}",
+            "error": f"sandbox execution failed: {exc}",
             "is_tool_failure": True,
             "candidate_hash": candidate_hash,
             "contract_checks": all_contract_checks,
             "rejection_reasons": [],
+            **sandbox_meta,
         }
         _write_report(result, candidate_hash, report_path)
         return result
@@ -461,6 +538,7 @@ def evaluate_candidate(
             "candidate_hash": candidate_hash,
             "contract_checks": all_contract_checks,
             "rejection_reasons": [],
+            **sandbox_meta,
         }
         _write_report(result, candidate_hash, report_path)
         return result
@@ -487,6 +565,7 @@ def evaluate_candidate(
         "candidate_hash": candidate_hash,
         "contract_checks": all_contract_checks,
         "rejection_reasons": list(fitness_report.get("rejection_reasons", [])),
+        **sandbox_meta,
     }
     _write_report(result, candidate_hash, report_path)
     return result
@@ -612,6 +691,17 @@ def _write_report(result: dict, candidate_hash: str | None, report_path: Path) -
         "return_code": result.get("return_code"),
         "contract_checks": result.get("contract_checks", []),
         "rejection_reasons": result.get("rejection_reasons", []),
+        "sandbox_backend": result.get("sandbox_backend"),
+        "sandbox_image": result.get("sandbox_image"),
+        "sandbox_network": result.get("sandbox_network"),
+        "sandbox_read_only": result.get("sandbox_read_only"),
+        "sandbox_user": result.get("sandbox_user"),
+        "sandbox_cap_drop": result.get("sandbox_cap_drop"),
+        "sandbox_no_new_privileges": result.get("sandbox_no_new_privileges"),
+        "sandbox_pids_limit": result.get("sandbox_pids_limit"),
+        "sandbox_memory_limit": result.get("sandbox_memory_limit"),
+        "sandbox_cpus": result.get("sandbox_cpus"),
+        "sandbox_tmpfs": result.get("sandbox_tmpfs"),
     }
     tmp_path: Path | None = None
     try:
@@ -645,6 +735,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="Output JSON")
     parser.add_argument("--baseline", action="store_true", help="Baseline evaluation mode")
     parser.add_argument(
+        "--sandbox-backend",
+        choices=[SandboxBackend.DOCKER, SandboxBackend.LEGACY_RLIMIT],
+        default=SandboxBackend.DOCKER,
+        help="Fitness sandbox backend (default: docker; legacy-rlimit is explicit local-dev/test fallback).",
+    )
+    parser.add_argument(
         "--report",
         default=None,
         metavar="PATH",
@@ -670,6 +766,7 @@ def main(argv: list[str] | None = None) -> int:
         report_path=Path(args.report) if args.report else None,
         baseline_mode=args.baseline,
         soft_reject=args.soft_reject,
+        sandbox_backend=args.sandbox_backend,
     )
 
     if args.json:
