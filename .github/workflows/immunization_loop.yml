@@ -434,19 +434,18 @@ jobs:
         id: docker_image
         if: steps.apply.outcome == 'success'
         run: |
-          APPROVED_IMAGE="python:3.11-slim"
-          APPROVED_DIGEST="python@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca"
-          docker pull "$APPROVED_DIGEST"
-          DIGEST=$(docker image inspect "$APPROVED_DIGEST" --format='{{index .RepoDigests 0}}')
+          APPROVED_IMAGE="python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca"
+          APPROVED_REPO_DIGEST="python@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca"
+          docker pull "$APPROVED_IMAGE"
+          DIGEST=$(docker image inspect "$APPROVED_IMAGE" --format='{{index .RepoDigests 0}}')
           if [ -z "$DIGEST" ]; then
-            echo "::error::Could not resolve Docker image repo digest for $APPROVED_DIGEST"
+            echo "::error::Could not resolve Docker image repo digest for $APPROVED_IMAGE"
             exit 1
           fi
-          if [ "$DIGEST" != "$APPROVED_DIGEST" ]; then
-            echo "::error::Resolved Docker digest $DIGEST does not match approved digest $APPROVED_DIGEST"
+          if [ "$DIGEST" != "$APPROVED_REPO_DIGEST" ]; then
+            echo "::error::Resolved Docker digest $DIGEST does not match approved digest $APPROVED_REPO_DIGEST"
             exit 1
           fi
-          docker tag "$APPROVED_DIGEST" "$APPROVED_IMAGE"
           echo "image=$APPROVED_IMAGE" >> "$GITHUB_OUTPUT"
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 

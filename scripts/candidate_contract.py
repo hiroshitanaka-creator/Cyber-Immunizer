@@ -26,7 +26,10 @@ from pathlib import Path
 # Docker sandbox runner shared by behavioral checks and evaluate_candidate.py
 # ---------------------------------------------------------------------------
 
-DOCKER_IMAGE = "python:3.11-slim"
+DOCKER_IMAGE_TAG = "python:3.11-slim"
+DOCKER_IMAGE_REPO_DIGEST = "python@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca"
+DOCKER_IMAGE_DIGEST = "sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca"
+DOCKER_IMAGE = f"{DOCKER_IMAGE_TAG}@{DOCKER_IMAGE_DIGEST}"
 DOCKER_NON_ROOT_USER = "65534:65534"
 DOCKER_MEMORY_LIMIT = "768m"
 DOCKER_CPU_LIMIT = "1"

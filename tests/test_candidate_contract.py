@@ -1480,6 +1480,12 @@ def _write_candidate_for_docker_test(tmp_path: Path, source: str) -> Path:
 # ---------------------------------------------------------------------------
 
 class TestCandidateRuntimeDockerSandbox:
+
+    def test_docker_image_is_digest_pinned(self) -> None:
+        assert candidate_contract.DOCKER_IMAGE.startswith("python:3.11-slim@sha256:")
+        assert "@sha256:" in candidate_contract.DOCKER_IMAGE
+        assert candidate_contract.DOCKER_IMAGE_REPO_DIGEST.startswith("python@sha256:")
+
     def test_candidate_runtime_docker_command_has_required_hardening_flags(self, tmp_path: Path) -> None:
         candidate = _write_candidate_for_docker_test(tmp_path, _FULL_CANDIDATE)
         cmd = candidate_contract.build_candidate_runtime_docker_command(
@@ -1499,6 +1505,9 @@ class TestCandidateRuntimeDockerSandbox:
         mounts = [cmd[i + 1] for i, token in enumerate(cmd) if token == "-v"]
         assert f"{_PROJECT_ROOT}:/workspace:ro" in mounts
         assert f"{candidate.resolve()}:/candidate/candidate_detector.py:ro" in mounts
+        image = cmd[cmd.index("-w") + 2]
+        assert image == candidate_contract.DOCKER_IMAGE
+        assert image.startswith("python:3.11-slim@sha256:")
 
     def test_docker_available_is_strict_false_on_nonzero_json_stdout(self) -> None:
         fake = subprocess.CompletedProcess(

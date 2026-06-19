@@ -54,6 +54,8 @@ from scripts.candidate_contract import (  # noqa: E402
     docker_available,
     docker_launcher_env,
     DOCKER_IMAGE,
+    DOCKER_IMAGE_TAG,
+    DOCKER_IMAGE_REPO_DIGEST,
     DOCKER_NON_ROOT_USER,
     DOCKER_MEMORY_LIMIT,
     DOCKER_CPU_LIMIT,
@@ -154,6 +156,8 @@ class SandboxBackend:
 SandboxBackendName = Literal["docker", "legacy-rlimit"]
 
 _DOCKER_IMAGE = DOCKER_IMAGE
+_DOCKER_IMAGE_TAG = DOCKER_IMAGE_TAG
+_DOCKER_IMAGE_REPO_DIGEST = DOCKER_IMAGE_REPO_DIGEST
 _DOCKER_NON_ROOT_USER = DOCKER_NON_ROOT_USER
 _DOCKER_MEMORY_LIMIT = DOCKER_MEMORY_LIMIT
 _DOCKER_CPU_LIMIT = DOCKER_CPU_LIMIT
@@ -168,6 +172,8 @@ def _sandbox_metadata(backend: str) -> dict:
         return {
             "sandbox_backend": SandboxBackend.DOCKER,
             "sandbox_image": _DOCKER_IMAGE,
+            "sandbox_image_tag": _DOCKER_IMAGE_TAG,
+            "sandbox_image_repo_digest": _DOCKER_IMAGE_REPO_DIGEST,
             "sandbox_network": "none",
             "sandbox_read_only": True,
             "sandbox_user": _DOCKER_NON_ROOT_USER,

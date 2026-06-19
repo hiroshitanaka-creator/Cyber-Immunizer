@@ -20,7 +20,7 @@ The gate verifies all of the following before promotion:
 - fitness report artifact hash
 - evaluated SHA and base/main SHA
 - Docker backend and sandbox posture
-- Docker image name (`python:3.11-slim`)
+- Docker runtime image (`python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca`)
 - approved Docker image digest via image-scoped allowlist
 - rejection of unapproved Docker digests
 - strict boolean values for hardening flags and adoption gates
@@ -30,7 +30,7 @@ The gate is now operationally enabled for the approved digest above. It remains 
 
 ## Workflow pinning
 
-The workflow pulls the approved immutable digest and tags it locally as `python:3.11-slim` before evaluation. This keeps the existing evaluator code unchanged while preventing silent upstream drift of the floating tag.
+The workflow now pulls the approved digest-pinned runtime image directly and exposes that digest-pinned image string to the evaluator and attestation writer. This prevents silent upstream drift without retagging execution back to the floating tag.
 
 ## Residual risk
 

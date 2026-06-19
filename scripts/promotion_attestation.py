@@ -23,6 +23,9 @@ from scripts.candidate_contract import (  # noqa: E402
     CONTAINER_CANDIDATE,
     CONTAINER_WORKSPACE,
     DOCKER_CPU_LIMIT,
+    DOCKER_IMAGE,
+    DOCKER_IMAGE_REPO_DIGEST,
+    DOCKER_IMAGE_TAG,
     DOCKER_MEMORY_LIMIT,
     DOCKER_NON_ROOT_USER,
     DOCKER_PIDS_LIMIT,
@@ -83,6 +86,13 @@ def _extract_report_candidate_hash(report: dict[str, Any]) -> str | None:
     return None
 
 
+def _allowed_image_keys(docker_image: str) -> list[str]:
+    keys = [docker_image]
+    if "@" in docker_image:
+        keys.append(docker_image.split("@", 1)[0])
+    return keys
+
+
 def _load_allowed_digests(path: Path, docker_image: str) -> set[str]:
     data = _load_json(path)
     if not isinstance(data, dict):
@@ -90,14 +100,18 @@ def _load_allowed_digests(path: Path, docker_image: str) -> set[str]:
 
     allowed_images = data.get("allowed_images")
     if isinstance(allowed_images, dict):
-        image_digests = allowed_images.get(docker_image, [])
-        if not isinstance(image_digests, list) or not all(
-            isinstance(item, str) for item in image_digests
-        ):
-            raise ValueError(
-                f"Docker digest allowlist allowed_images[{docker_image!r}] must be list[str]"
-            )
-        return set(image_digests)
+        for image_key in _allowed_image_keys(docker_image):
+            if image_key not in allowed_images:
+                continue
+            image_digests = allowed_images.get(image_key, [])
+            if not isinstance(image_digests, list) or not all(
+                isinstance(item, str) for item in image_digests
+            ):
+                raise ValueError(
+                    f"Docker digest allowlist allowed_images[{image_key!r}] must be list[str]"
+                )
+            return set(image_digests)
+        return set()
 
     # Backward-compatible flat form for local tests / older allowlists.  The
     # committed allowlist uses image-scoped allowed_images so a digest approved
@@ -215,7 +229,8 @@ def verify_attestation(
         "base_main_sha": expected_base_main_sha,
         "candidate_path": str(candidate_path),
         "fitness_report_path": str(report_path),
-        "docker_image": "python:3.11-slim",
+        "docker_image": DOCKER_IMAGE,
+        "docker_image_digest": DOCKER_IMAGE_REPO_DIGEST,
         **REQUIRED_SANDBOX_POSTURE,
     }
     for key, expected in expected_values.items():

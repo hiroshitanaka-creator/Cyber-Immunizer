@@ -24,7 +24,7 @@ Production/default backend: `docker`.
 
 Shared Docker command controls for behavioral checks and final fitness:
 
-- Image: `python:3.11-slim`
+- Image: `python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca` (digest-pinned image)
 - Network: `--network none`
 - Root filesystem: `--read-only`
 - Capabilities: `--cap-drop ALL`
@@ -44,7 +44,7 @@ Shared Docker command controls for behavioral checks and final fitness:
 - Moved candidate behavioral runtime checks to the Docker sandbox runner in `scripts/candidate_contract.py`.
 - Reused the same Docker command construction for behavioral checks and final fitness execution.
 - Removed the unsafe `_docker_available()` JSON compatibility fallback; Docker availability is true only when `docker version --format "{{.Server.Version}}"` returns exit code 0.
-- Added CI Docker image preparation via `docker pull python:3.11-slim` and increased evaluate_candidate smoke timeout to allow three sandboxed candidate-runtime checks.
+- Added CI Docker image preparation via `docker pull python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca` and increased evaluate_candidate smoke timeout to allow three sandboxed candidate-runtime checks.
 - Preserved `--sandbox-backend legacy-rlimit` only as an explicit final-fitness local-dev/test fallback; behavioral checks still use Docker in the default evaluator path.
 
 ## Fail-Closed Behavior
@@ -65,8 +65,8 @@ Behavioral candidate failures remain soft rejections when the Docker harness run
 - `scripts/evaluate_candidate.py`: reuses the shared Docker runner for final fitness, keeps strict Docker availability behavior, and records sandbox metadata for behavioral fail-closed paths.
 - `tests/test_candidate_contract.py`: added Docker command, strict availability, and behavioral Docker runner coverage while keeping local tests deterministic when Docker is absent.
 - `tests/test_evaluate_candidate.py`: updated fail-closed and behavioral integration tests for the Docker behavioral boundary.
-- `.github/workflows/ci.yml`: pre-pulls `python:3.11-slim` and gives the Docker-backed evaluate_candidate smoke test a 60-second timeout.
-- `.github/workflows/immunization_loop.yml`: pre-pulls `python:3.11-slim` and gives the Docker-backed evaluate job a 60-second timeout without changing permissions or secrets.
+- `.github/workflows/ci.yml`: pre-pulls `python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca` and gives the Docker-backed evaluate_candidate smoke test a 60-second timeout.
+- `.github/workflows/immunization_loop.yml`: pre-pulls `python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca` and gives the Docker-backed evaluate job a 60-second timeout without changing permissions or secrets.
 - `docs/task_reports/TASK_REPORT_evaluate_candidate_real_sandbox.md`: records the CI failure, root cause, fix, verification, and residual risk.
 
 ## Verification Commands and Results
@@ -77,8 +77,16 @@ Behavioral candidate failures remain soft rejections when the Docker harness run
 - `python scripts/validate_mutation.py --candidate core/detector.py --json` — passed locally with `{"valid": true, "violations": []}`.
 - `python -m pytest -q` — passed locally.
 - `docker version` — not available in this local container (`docker: command not found`); GitHub-hosted CI is expected to provide Docker.
-- `docker pull python:3.11-slim` — not available in this local container for the same reason.
-- `python scripts/evaluate_candidate.py --candidate core/detector.py --timeout 60 --json --soft-reject --baseline` — fail-closed locally because this container has no Docker CLI; report records `sandbox_backend="docker"` and `is_tool_failure=true`.
+- `docker pull python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca` — not available in this local container for the same reason.
+- `python scripts/evaluate_candidate.py --candidate core/detector.py --timeout 60 --json --soft-reject --baseline` — fail-closed locally because this container has no Docker CLI; report records `sandbox_backend="docker"`, `is_tool_failure=true`, and digest-pinned `sandbox_image`.
+
+
+Additional digest-pinning verification added after this report:
+
+- `python -m pytest tests/test_candidate_contract.py -q` verifies the shared Docker image constant and runtime command are digest-pinned.
+- `python -m pytest tests/test_evaluate_candidate.py -q` verifies Docker command construction and fitness reports record `sandbox_image` with `@sha256:`.
+- `python -m pytest tests/test_ci_workflow.py tests/test_workflow.py -q` verifies CI/evolution workflows pull the digest-pinned image and avoid bare-tag retag execution.
+- `python -m pytest tests/test_promotion_attestation.py -q` verifies promotion attestation accepts the digest-pinned runtime image while validating the approved repo digest.
 
 ## CI Result
 
@@ -104,5 +112,5 @@ Relevant successful steps:
 
 - Docker shares the host kernel; this is stronger than host subprocess rlimits but is not a VM boundary.
 - Docker default seccomp is used; a custom seccomp profile is out of scope.
-- Image digest pinning is not implemented in this task.
+- Image digest pinning is implemented: candidate runtime reports now record the approved digest-pinned sandbox image.
 - Evaluation/promotion attestation remains out of scope and should be handled in the next phase.

@@ -23,6 +23,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from scripts import candidate_contract
 from scripts.evaluate_candidate import (
     _EVAL_MAX_ADDRESS_SPACE_BYTES,
     _EVAL_MAX_FILE_SIZE_BYTES,
@@ -275,6 +276,9 @@ class TestDockerSandboxBackend:
         assert f"{_EVAL_PROJECT_ROOT}:/workspace:ro" in mounts
         assert f"{candidate.resolve()}:/candidate/candidate_detector.py:ro" in mounts
         assert "--baseline" in cmd
+        image = cmd[cmd.index("-w") + 2]
+        assert image == candidate_contract.DOCKER_IMAGE
+        assert "@sha256:" in image
 
     def test_docker_launcher_env_strips_secrets(self) -> None:
         with patch.dict(os.environ, {"GITHUB_TOKEN": "x", "GEMINI_API_KEY": "y", "AWS_SECRET_ACCESS_KEY": "z"}):
@@ -291,9 +295,15 @@ class TestDockerSandboxBackend:
             result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path, baseline_mode=True)
         run_docker.assert_called_once()
         assert result["sandbox_backend"] == "docker"
+        assert result["sandbox_image"] == candidate_contract.DOCKER_IMAGE
+        assert "@sha256:" in result["sandbox_image"]
+        assert result["sandbox_image"] != candidate_contract.DOCKER_IMAGE_TAG
         assert result["sandbox_network"] == "none"
         report = json.loads(report_path.read_text())
         assert report["sandbox_backend"] == "docker"
+        assert report["sandbox_image"] == candidate_contract.DOCKER_IMAGE
+        assert "@sha256:" in report["sandbox_image"]
+        assert report["sandbox_image"] != candidate_contract.DOCKER_IMAGE_TAG
         assert report["sandbox_read_only"] is True
 
     def test_docker_unavailable_fails_closed(self, tmp_path: Path) -> None:

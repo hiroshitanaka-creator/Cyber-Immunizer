@@ -2282,8 +2282,10 @@ class TestEvaluationPromotionAttestationGate:
         assert "--digest-allowlist security/docker_digest_allowlist.json" in promote_section
 
     def test_workflow_pins_and_checks_approved_docker_digest(self, evaluate_section: str) -> None:
-        assert 'APPROVED_DIGEST="python@sha256:' in evaluate_section
-        assert 'docker pull "$APPROVED_DIGEST"' in evaluate_section
-        assert 'docker tag "$APPROVED_DIGEST" "$APPROVED_IMAGE"' in evaluate_section
-        assert 'DIGEST" != "$APPROVED_DIGEST"' in evaluate_section
-        assert 'Resolved Docker digest $DIGEST does not match approved digest $APPROVED_DIGEST' in evaluate_section
+        assert 'APPROVED_IMAGE="python:3.11-slim@sha256:' in evaluate_section
+        assert 'APPROVED_REPO_DIGEST="python@sha256:' in evaluate_section
+        assert 'docker pull "$APPROVED_IMAGE"' in evaluate_section
+        assert 'docker tag "$APPROVED_DIGEST" "$APPROVED_IMAGE"' not in evaluate_section
+        assert 'DIGEST" != "$APPROVED_REPO_DIGEST"' in evaluate_section
+        assert 'Resolved Docker digest $DIGEST does not match approved digest $APPROVED_REPO_DIGEST' in evaluate_section
+        assert '--docker-image "${{ steps.docker_image.outputs.image }}"' in evaluate_section
