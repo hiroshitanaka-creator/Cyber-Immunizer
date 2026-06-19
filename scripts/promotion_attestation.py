@@ -83,13 +83,30 @@ def _extract_report_candidate_hash(report: dict[str, Any]) -> str | None:
     return None
 
 
-def _load_allowed_digests(path: Path) -> set[str]:
+def _load_allowed_digests(path: Path, docker_image: str) -> set[str]:
     data = _load_json(path)
     if not isinstance(data, dict):
         raise ValueError("Docker digest allowlist must be a JSON object")
+
+    allowed_images = data.get("allowed_images")
+    if isinstance(allowed_images, dict):
+        image_digests = allowed_images.get(docker_image, [])
+        if not isinstance(image_digests, list) or not all(
+            isinstance(item, str) for item in image_digests
+        ):
+            raise ValueError(
+                f"Docker digest allowlist allowed_images[{docker_image!r}] must be list[str]"
+            )
+        return set(image_digests)
+
+    # Backward-compatible flat form for local tests / older allowlists.  The
+    # committed allowlist uses image-scoped allowed_images so a digest approved
+    # for one image cannot accidentally approve another image tag.
     digests = data.get("allowed_digests")
     if not isinstance(digests, list) or not all(isinstance(item, str) for item in digests):
-        raise ValueError("Docker digest allowlist must contain allowed_digests: list[str]")
+        raise ValueError(
+            "Docker digest allowlist must contain allowed_images or allowed_digests"
+        )
     return set(digests)
 
 
@@ -169,8 +186,12 @@ def verify_attestation(
     if not isinstance(attestation, dict):
         return ["attestation must be a JSON object"]
 
+    attested_docker_image = attestation.get("docker_image")
+    if not isinstance(attested_docker_image, str):
+        return ["attestation docker_image must be a string"]
+
     try:
-        allowed_digests = _load_allowed_digests(digest_allowlist_path)
+        allowed_digests = _load_allowed_digests(digest_allowlist_path, attested_docker_image)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return [f"could not load Docker digest allowlist: {exc}"]
 
@@ -194,12 +215,22 @@ def verify_attestation(
         "base_main_sha": expected_base_main_sha,
         "candidate_path": str(candidate_path),
         "fitness_report_path": str(report_path),
-        "passed_adoption_gate": True,
+        "docker_image": "python:3.11-slim",
         **REQUIRED_SANDBOX_POSTURE,
     }
     for key, expected in expected_values.items():
-        if attestation.get(key) != expected:
-            errors.append(f"attestation {key} expected {expected!r}, got {attestation.get(key)!r}")
+        actual = attestation.get(key)
+        if type(expected) is bool:
+            if type(actual) is not bool or actual is not expected:
+                errors.append(f"attestation {key} expected strict bool {expected!r}, got {actual!r}")
+        elif actual != expected:
+            errors.append(f"attestation {key} expected {expected!r}, got {actual!r}")
+
+    adoption_value = attestation.get("passed_adoption_gate")
+    if type(adoption_value) is not bool or adoption_value is not True:
+        errors.append(
+            f"attestation passed_adoption_gate expected strict bool True, got {adoption_value!r}"
+        )
 
     timestamp = attestation.get("attested_at")
     if not isinstance(timestamp, str) or not timestamp.endswith("Z"):
@@ -238,8 +269,21 @@ def verify_attestation(
         if report_candidate_hash != actual_candidate_hash:
             errors.append("fitness report candidate_hash does not match candidate artifact hash")
 
-    if report and report.get("passed_adoption_gate") is not True:
-        errors.append("fitness report passed_adoption_gate must be true")
+    if report:
+        report_gate = report.get("passed_adoption_gate")
+        if type(report_gate) is not bool or report_gate is not True:
+            errors.append("fitness report passed_adoption_gate must be strict bool true")
+
+        for nested_key in ("fitness_report", "metrics"):
+            nested = report.get(nested_key)
+            if isinstance(nested, dict) and "passed_adoption_gate" in nested:
+                nested_gate = nested.get("passed_adoption_gate")
+                if type(nested_gate) is not bool or nested_gate is not True:
+                    errors.append(f"fitness report {nested_key}.passed_adoption_gate must be strict bool true")
+
+        report_image = report.get("sandbox_image")
+        if report_image != attestation.get("docker_image"):
+            errors.append("fitness report sandbox_image does not match attestation docker_image")
 
     for key, report_key in REPORT_TO_POSTURE_KEY.items():
         if report and report.get(report_key) != attestation.get(key):

@@ -19,7 +19,9 @@ def _sha(path: Path) -> str:
 
 def _write_allowlist(tmp_path: Path, *, digests: list[str] | None = None) -> Path:
     path = tmp_path / "docker_digest_allowlist.json"
-    path.write_text(json.dumps({"allowed_digests": digests or [DIGEST]}, indent=2))
+    path.write_text(
+        json.dumps({"allowed_images": {"python:3.11-slim": digests or [DIGEST]}}, indent=2)
+    )
     return path
 
 
@@ -36,8 +38,8 @@ def _report_payload(candidate: Path, *, passed: bool = True, backend: str = "doc
         "passed_adoption_gate": passed,
         "is_tool_failure": False,
         "candidate_hash": _sha(candidate),
-        "fitness_report": {"candidate_hash": _sha(candidate)},
-        "metrics": {"candidate_hash": _sha(candidate)},
+        "fitness_report": {"candidate_hash": _sha(candidate), "passed_adoption_gate": passed},
+        "metrics": {"candidate_hash": _sha(candidate), "passed_adoption_gate": passed},
         "sandbox_backend": backend,
         "sandbox_image": "python:3.11-slim",
         "sandbox_network": "none",
@@ -171,3 +173,67 @@ def test_fitness_report_candidate_hash_mismatch_refused(tmp_path: Path) -> None:
     report.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     errors = _verify(candidate, report, allowlist, attestation)
     assert any("fitness report candidate_hash" in error for error in errors)
+
+
+def test_integer_one_rejected_for_boolean_hardening_flag(tmp_path: Path) -> None:
+    candidate, report, allowlist, attestation, payload = _valid_attestation(tmp_path)
+    wrong = copy.deepcopy(payload)
+    wrong["sandbox_read_only_rootfs"] = 1
+    _write_attestation(tmp_path, wrong)
+    errors = _verify(candidate, report, allowlist, attestation)
+    assert any("sandbox_read_only_rootfs" in error and "strict bool" in error for error in errors)
+
+
+def test_integer_one_rejected_for_attestation_adoption_gate(tmp_path: Path) -> None:
+    candidate, report, allowlist, attestation, payload = _valid_attestation(tmp_path)
+    wrong = copy.deepcopy(payload)
+    wrong["passed_adoption_gate"] = 1
+    _write_attestation(tmp_path, wrong)
+    errors = _verify(candidate, report, allowlist, attestation)
+    assert any("passed_adoption_gate" in error and "strict bool" in error for error in errors)
+
+
+def test_integer_one_rejected_for_report_adoption_gate(tmp_path: Path) -> None:
+    candidate, report, allowlist, attestation, _payload = _valid_attestation(tmp_path)
+    payload = _report_payload(candidate)
+    payload["passed_adoption_gate"] = 1
+    report.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    errors = _verify(candidate, report, allowlist, attestation)
+    assert any("fitness report passed_adoption_gate" in error for error in errors)
+
+
+def test_docker_image_mismatch_refused(tmp_path: Path) -> None:
+    candidate, report, allowlist, attestation, payload = _valid_attestation(tmp_path)
+    wrong = copy.deepcopy(payload)
+    wrong["docker_image"] = "python:3.12-slim"
+    _write_attestation(tmp_path, wrong)
+    errors = _verify(candidate, report, allowlist, attestation)
+    assert any("docker_image" in error for error in errors)
+
+
+def test_report_sandbox_image_mismatch_refused(tmp_path: Path) -> None:
+    candidate, report, allowlist, attestation, _payload = _valid_attestation(tmp_path)
+    payload = _report_payload(candidate)
+    payload["sandbox_image"] = "python:3.12-slim"
+    report.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    errors = _verify(candidate, report, allowlist, attestation)
+    assert any("sandbox_image does not match" in error for error in errors)
+
+
+def test_empty_image_allowlist_is_fail_closed_kill_switch(tmp_path: Path) -> None:
+    candidate, report, allowlist, attestation, _payload = _valid_attestation(tmp_path)
+    allowlist.write_text(
+        json.dumps({"allowed_images": {"python:3.11-slim": []}}, indent=2),
+        encoding="utf-8",
+    )
+    errors = _verify(candidate, report, allowlist, attestation)
+    assert any("not in the approved allowlist" in error for error in errors)
+
+
+def test_nested_fitness_report_adoption_gate_contradiction_refused(tmp_path: Path) -> None:
+    candidate, report, allowlist, attestation, _payload = _valid_attestation(tmp_path)
+    payload = _report_payload(candidate, passed=True)
+    payload["fitness_report"]["passed_adoption_gate"] = False
+    report.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    errors = _verify(candidate, report, allowlist, attestation)
+    assert any("fitness_report.passed_adoption_gate" in error for error in errors)
