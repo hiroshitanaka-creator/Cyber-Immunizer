@@ -66,10 +66,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -210,7 +210,7 @@ jobs:
 
       - name: Upload mutation patch artifact
         if: steps.propose.outputs.patch_exists == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mutation-patch
           path: .cyber_immunizer/mutation_patch.json
@@ -218,7 +218,7 @@ jobs:
 
       - name: Upload API usage ledger artifact (if changed)
         if: always() && steps.propose.outputs.ledger_changed == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: api-usage-ledger
           path: data/api_usage_ledger.json
@@ -258,7 +258,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
           # GITHUB_TOKEN provides write permission for this job.
@@ -271,7 +271,7 @@ jobs:
         run: mkdir -p data
 
       - name: Download API usage ledger
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: api-usage-ledger
           path: data/
@@ -392,10 +392,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -406,7 +406,7 @@ jobs:
         run: mkdir -p .cyber_immunizer
 
       - name: Download mutation patch
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: mutation-patch
           path: .cyber_immunizer/
@@ -423,7 +423,7 @@ jobs:
 
       - name: Upload apply report artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: apply-report
           path: .cyber_immunizer/apply_report.json
@@ -487,7 +487,7 @@ jobs:
 
       - name: Upload candidate detector artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: candidate-detector
           path: .cyber_immunizer/candidate_detector.py
@@ -496,7 +496,7 @@ jobs:
 
       - name: Upload fitness report artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fitness-report
           path: .cyber_immunizer/fitness_report.json
@@ -505,7 +505,7 @@ jobs:
 
       - name: Upload evaluation promotion attestation artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: evaluation-promotion-attestation
           path: .cyber_immunizer/evaluation_promotion_attestation.json
@@ -547,7 +547,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
           # GITHUB_TOKEN provides write permission for this job.
@@ -556,7 +556,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -567,19 +567,19 @@ jobs:
         run: mkdir -p .cyber_immunizer
 
       - name: Download candidate detector
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: candidate-detector
           path: .cyber_immunizer/
 
       - name: Download fitness report
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: fitness-report
           path: .cyber_immunizer/
 
       - name: Download evaluation promotion attestation
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: evaluation-promotion-attestation
           path: .cyber_immunizer/
