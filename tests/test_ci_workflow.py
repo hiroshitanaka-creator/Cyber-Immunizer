@@ -216,3 +216,13 @@ class TestCiWorkflowForbiddenPatterns:
             "ci.yml must NOT contain 'live-model'. "
             "The CI workflow must not use live models."
         )
+
+
+class TestCiWorkflowDockerSandboxImage:
+    def test_ci_pulls_digest_pinned_python_slim_image(self, ci_content: str) -> None:
+        assert 'docker pull "$APPROVED_IMAGE"' in ci_content
+        assert 'APPROVED_IMAGE="python:3.11-slim@sha256:' in ci_content
+        assert "@sha256:" in ci_content
+
+    def test_ci_has_no_bare_python_slim_pull(self, ci_content: str) -> None:
+        assert not re.search(r"docker\s+pull\s+python:3\.11-slim(?:\s|$)", ci_content)

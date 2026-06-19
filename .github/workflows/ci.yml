@@ -118,8 +118,16 @@ jobs:
       - name: "Verify Docker sandbox availability"
         run: docker version
 
-      - name: "Prepare Docker sandbox image"
-        run: docker pull python:3.11-slim
+      - name: "Prepare digest-pinned Docker sandbox image"
+        run: |
+          APPROVED_IMAGE="python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca"
+          APPROVED_REPO_DIGEST="python@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca"
+          docker pull "$APPROVED_IMAGE"
+          DIGEST=$(docker image inspect "$APPROVED_IMAGE" --format='{{index .RepoDigests 0}}')
+          if [ "$DIGEST" != "$APPROVED_REPO_DIGEST" ]; then
+            echo "::error::Resolved Docker digest $DIGEST does not match approved digest $APPROVED_REPO_DIGEST"
+            exit 1
+          fi
 
       - name: "Smoke test: evaluate_candidate (soft-reject)"
         run: |

@@ -6,9 +6,10 @@ import hashlib
 import json
 from pathlib import Path
 
+from scripts.candidate_contract import DOCKER_IMAGE, DOCKER_IMAGE_REPO_DIGEST, DOCKER_IMAGE_TAG
 from scripts.promotion_attestation import build_attestation, verify_attestation
 
-DIGEST = "python@sha256:" + "a" * 64
+DIGEST = DOCKER_IMAGE_REPO_DIGEST
 EVALUATED_SHA = "e" * 40
 BASE_MAIN_SHA = "b" * 40
 
@@ -20,7 +21,7 @@ def _sha(path: Path) -> str:
 def _write_allowlist(tmp_path: Path, *, digests: list[str] | None = None) -> Path:
     path = tmp_path / "docker_digest_allowlist.json"
     path.write_text(
-        json.dumps({"allowed_images": {"python:3.11-slim": digests or [DIGEST]}}, indent=2)
+        json.dumps({"allowed_images": {DOCKER_IMAGE_TAG: digests or [DIGEST]}}, indent=2)
     )
     return path
 
@@ -41,7 +42,7 @@ def _report_payload(candidate: Path, *, passed: bool = True, backend: str = "doc
         "fitness_report": {"candidate_hash": _sha(candidate), "passed_adoption_gate": passed},
         "metrics": {"candidate_hash": _sha(candidate), "passed_adoption_gate": passed},
         "sandbox_backend": backend,
-        "sandbox_image": "python:3.11-slim",
+        "sandbox_image": DOCKER_IMAGE,
         "sandbox_network": "none",
         "sandbox_read_only": True,
         "sandbox_user": "65534:65534",
@@ -77,7 +78,7 @@ def _valid_attestation(tmp_path: Path) -> tuple[Path, Path, Path, Path, dict]:
         base_main_sha=BASE_MAIN_SHA,
         run_id="123",
         run_attempt="1",
-        docker_image="python:3.11-slim",
+        docker_image=DOCKER_IMAGE,
         docker_image_digest=DIGEST,
         digest_allowlist_path=allowlist,
     )
@@ -223,7 +224,7 @@ def test_report_sandbox_image_mismatch_refused(tmp_path: Path) -> None:
 def test_empty_image_allowlist_is_fail_closed_kill_switch(tmp_path: Path) -> None:
     candidate, report, allowlist, attestation, _payload = _valid_attestation(tmp_path)
     allowlist.write_text(
-        json.dumps({"allowed_images": {"python:3.11-slim": []}}, indent=2),
+        json.dumps({"allowed_images": {DOCKER_IMAGE_TAG: []}}, indent=2),
         encoding="utf-8",
     )
     errors = _verify(candidate, report, allowlist, attestation)
@@ -255,7 +256,7 @@ def test_committed_production_allowlist_has_approved_python_digest() -> None:
     assert isinstance(data, dict)
     allowed_images = data.get("allowed_images")
     assert isinstance(allowed_images, dict)
-    python_digests = allowed_images.get("python:3.11-slim")
+    python_digests = allowed_images.get(DOCKER_IMAGE_TAG)
     assert isinstance(python_digests, list)
     assert python_digests, "production python:3.11-slim digest allowlist must not be empty"
     import re
