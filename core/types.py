@@ -98,7 +98,7 @@ class TestCase:
     """A deterministic test case for evaluating a detector candidate."""
 
     id: str
-    kind: Literal["benign", "attack", "regression"]
+    kind: Literal["benign", "attack", "regression", "holdout", "counterfactual", "drift"]
     request: Request
     expected_blocked: bool
     tags: tuple[str, ...]
@@ -144,3 +144,11 @@ class FitnessReport:
     rejection_reasons: tuple[str, ...]
 
     score_components: dict | None = None  # None for early-exit reports
+
+    # Adaptive floor fields — populated after evaluating holdout/counterfactual/drift tiers.
+    # Defaults reflect "floor not applied" (no cases → trivially passes).
+    holdout_pass_rate: float = 1.0
+    counterfactual_pass_rate: float = 1.0
+    drift_pass_rate: float = 1.0
+    adaptive_floor_passed: bool = True
+    adaptive_floor_rejection_reasons: tuple[str, ...] = ()

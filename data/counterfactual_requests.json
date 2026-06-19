@@ -1,0 +1,77 @@
+[
+  {
+    "id": "cf-001",
+    "kind": "counterfactual",
+    "expected_blocked": false,
+    "description": "Counterfactual: endpoint name containing SQL keyword — benign API route",
+    "tags": ["counterfactual", "benign"],
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/select-plan",
+      "query": {},
+      "headers": {"Accept": "application/json"},
+      "body": "",
+      "source_ip": "203.0.113.30"
+    }
+  },
+  {
+    "id": "cf-002",
+    "kind": "counterfactual",
+    "expected_blocked": false,
+    "description": "Counterfactual: benign search query containing SQL-like word",
+    "tags": ["counterfactual", "benign"],
+    "request": {
+      "method": "GET",
+      "path": "/search",
+      "query": {"q": "drop shipping rates"},
+      "headers": {"User-Agent": "Mozilla/5.0"},
+      "body": "",
+      "source_ip": "203.0.113.31"
+    }
+  },
+  {
+    "id": "cf-003",
+    "kind": "counterfactual",
+    "expected_blocked": false,
+    "description": "Counterfactual: multi-segment file path without traversal indicators",
+    "tags": ["counterfactual", "benign"],
+    "request": {
+      "method": "GET",
+      "path": "/files/reports/annual-report-2024.pdf",
+      "query": {},
+      "headers": {},
+      "body": "",
+      "source_ip": "203.0.113.32"
+    }
+  },
+  {
+    "id": "cf-004",
+    "kind": "counterfactual",
+    "expected_blocked": false,
+    "description": "Counterfactual: benign contact form POST with plain text body",
+    "tags": ["counterfactual", "benign"],
+    "request": {
+      "method": "POST",
+      "path": "/contact",
+      "query": {},
+      "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "body": "name=Alice+Smith&message=Hello+World",
+      "source_ip": "203.0.113.33"
+    }
+  },
+  {
+    "id": "cf-005",
+    "kind": "counterfactual",
+    "expected_blocked": false,
+    "description": "Counterfactual: benign API user lookup — must not be blocked",
+    "tags": ["counterfactual", "benign"],
+    "request": {
+      "method": "GET",
+      "path": "/api/v1/users",
+      "query": {"id": "100"},
+      "headers": {"Authorization": "Bearer PLACEHOLDER_TOKEN"},
+      "body": "",
+      "source_ip": "10.0.1.20"
+    }
+  }
+]

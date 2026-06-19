@@ -1,0 +1,77 @@
+[
+  {
+    "id": "drift-001",
+    "kind": "drift",
+    "expected_blocked": true,
+    "description": "Drift: path traversal variant — symbolic indicator only",
+    "tags": ["drift", "path-traversal"],
+    "request": {
+      "method": "GET",
+      "path": "/drift/DRIFT_PATH_TRAVERSAL_INDICATOR",
+      "query": {},
+      "headers": {},
+      "body": "",
+      "source_ip": "192.168.3.100"
+    }
+  },
+  {
+    "id": "drift-002",
+    "kind": "drift",
+    "expected_blocked": true,
+    "description": "Drift: SQL-like injection variant — symbolic indicator only",
+    "tags": ["drift", "sqli"],
+    "request": {
+      "method": "POST",
+      "path": "/drift/query",
+      "query": {},
+      "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "body": "input=DRIFT_SQLI_INDICATOR",
+      "source_ip": "192.168.3.101"
+    }
+  },
+  {
+    "id": "drift-003",
+    "kind": "drift",
+    "expected_blocked": true,
+    "description": "Drift: script injection variant — symbolic indicator only",
+    "tags": ["drift", "xss"],
+    "request": {
+      "method": "GET",
+      "path": "/drift/render",
+      "query": {"content": "DRIFT_SCRIPT_INJECTION_INDICATOR"},
+      "headers": {},
+      "body": "",
+      "source_ip": "192.168.3.102"
+    }
+  },
+  {
+    "id": "drift-004",
+    "kind": "drift",
+    "expected_blocked": true,
+    "description": "Drift: command delimiter variant — symbolic indicator only",
+    "tags": ["drift", "cmdi"],
+    "request": {
+      "method": "GET",
+      "path": "/drift/exec",
+      "query": {"cmd": "DRIFT_COMMAND_DELIMITER_INDICATOR"},
+      "headers": {},
+      "body": "",
+      "source_ip": "192.168.3.103"
+    }
+  },
+  {
+    "id": "drift-005",
+    "kind": "drift",
+    "expected_blocked": true,
+    "description": "Drift: encoded traversal variant — symbolic indicator only",
+    "tags": ["drift", "path-traversal-encoded"],
+    "request": {
+      "method": "GET",
+      "path": "/drift/files",
+      "query": {"path": "DRIFT_ENCODED_TRAVERSAL_INDICATOR"},
+      "headers": {},
+      "body": "",
+      "source_ip": "192.168.3.104"
+    }
+  }
+]
