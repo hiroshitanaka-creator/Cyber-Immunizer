@@ -151,7 +151,19 @@ def test_project_state_matches_ledger_success_count() -> None:
         f"data/project_state.json declares {declared} success records "
         f"but ledger has {actual}"
     )
-    assert actual == 9, "ledger must contain exactly 9 primary-model paid-credit success records"
+    assert declared == 10, (
+        "project_state must record the 10th primary-model paid-credit success record"
+    )
+
+
+def test_run_10_triage_is_api_token_success_only() -> None:
+    state = _load(_PROJECT_STATE_PATH)
+    run_10 = state["paid_credit_api_calls"]["run_10_triage"]
+    assert run_10["classification"] == "api_token_success_only"
+    assert run_10["apply_reached"] is None
+    assert run_10["evaluate_reached"] is None
+    assert run_10["passed_adoption_gate"] is None
+    assert run_10["promote_reached"] is None
 
 
 # 5.
@@ -323,10 +335,13 @@ def test_project_state_doc_no_stale_3_calls_claim() -> None:
 
 
 # 19.
-def test_project_state_doc_shows_9_success_records() -> None:
+def test_project_state_doc_shows_declared_success_records() -> None:
+    state = _load(_PROJECT_STATE_PATH)
     text = _PROJECT_STATE_DOC.read_text(encoding="utf-8")
-    assert "**9**" in text, (
-        "docs/PROJECT_STATE.md must show 9 primary-model paid-credit success records"
+    declared = state["paid_credit_api_calls"]["gemini_3_flash_preview_success_records"]
+    assert f"**{declared}**" in text, (
+        "docs/PROJECT_STATE.md must show the declared primary-model "
+        "paid-credit success record count"
     )
 
 
