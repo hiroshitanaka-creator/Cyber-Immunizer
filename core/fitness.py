@@ -284,9 +284,9 @@ def evaluate(
     min_regression_pass_rate: float = float(genome.get("min_regression_pass_rate", 1.0))
     previous_best_score: float = float(genome.get("best_score", -1e9))
     max_avg_latency_ms: float = float(genome.get("max_avg_latency_ms", 100.0))
-    min_holdout_pass_rate: float = float(genome.get("min_holdout_pass_rate", 0.5))
-    min_cf_pass_rate: float = float(genome.get("min_counterfactual_pass_rate", 0.5))
-    min_drift_pass_rate: float = float(genome.get("min_drift_pass_rate", 0.5))
+    min_holdout_pass_rate: float = float(genome.get("min_holdout_pass_rate", 1.0))
+    min_cf_pass_rate: float = float(genome.get("min_counterfactual_pass_rate", 1.0))
+    min_drift_pass_rate: float = float(genome.get("min_drift_pass_rate", 1.0))
 
     source = candidate_path.read_text(encoding="utf-8")
     code_chars = len(source)
