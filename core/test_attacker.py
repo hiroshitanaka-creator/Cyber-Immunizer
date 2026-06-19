@@ -160,6 +160,7 @@ def load_test_cases(
     holdout_path: Path | None = None,
     counterfactual_path: Path | None = None,
     drift_path: Path | None = None,
+    require_adaptive_tiers: bool = True,
 ) -> list[TestCase]:
     """Load test cases from JSON files and return as TestCase objects.
 
@@ -168,10 +169,11 @@ def load_test_cases(
     must be exactly bool (JSON true/false) — string coercion via bool() is
     not performed.
 
-    Adaptive tier files (holdout, counterfactual, drift) are optional: if the
-    resolved path does not exist, that tier is silently skipped.  This keeps
-    existing benign/attack/regression behaviour unchanged when the tier files
-    are absent.
+    Adaptive tier files (holdout, counterfactual, drift) are required by
+    default (require_adaptive_tiers=True).  When a tier file is absent and
+    require_adaptive_tiers=True, a ValueError is raised (fail-closed).  Pass
+    require_adaptive_tiers=False to silently skip missing tier files (useful
+    in tests or legacy contexts that predate the adaptive tiers).
     """
     benign_path = benign_path or _DATA_DIR / "benign_requests.json"
     attack_path = attack_path or _DATA_DIR / "attack_requests.json"
@@ -205,13 +207,18 @@ def load_test_cases(
                 )
             )
 
-    # Optional adaptive floor tiers — skip silently if file absent.
+    # Adaptive floor tiers — fail-closed when require_adaptive_tiers=True.
     for path, kind in [
         (holdout_path, "holdout"),
         (counterfactual_path, "counterfactual"),
         (drift_path, "drift"),
     ]:
         if not path.exists():
+            if require_adaptive_tiers:
+                raise ValueError(
+                    f"Required adaptive tier file not found: {path}. "
+                    f"Pass require_adaptive_tiers=False to skip missing tiers."
+                )
             continue
         # expected_blocked=None forces each record to supply its own value.
         raw_list = _load_corpus_file(path, kind, None, seen_ids)

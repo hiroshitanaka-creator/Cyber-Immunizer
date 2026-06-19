@@ -264,6 +264,7 @@ class TestLoadTestCasesAdaptiveTiers:
     _DATA_DIR = Path(__file__).parent.parent / "data"
 
     def test_missing_holdout_file_skipped(self, tmp_path):
+        """With require_adaptive_tiers=False, absent files are silently skipped."""
         cases = load_test_cases(
             benign_path=self._DATA_DIR / "benign_requests.json",
             attack_path=self._DATA_DIR / "attack_requests.json",
@@ -271,8 +272,21 @@ class TestLoadTestCasesAdaptiveTiers:
             holdout_path=tmp_path / "nonexistent_holdout.json",
             counterfactual_path=tmp_path / "nonexistent_cf.json",
             drift_path=tmp_path / "nonexistent_drift.json",
+            require_adaptive_tiers=False,
         )
         assert all(c.kind in {"benign", "attack", "regression"} for c in cases)
+
+    def test_missing_tier_raises_by_default(self, tmp_path):
+        """Missing adaptive tier file raises ValueError when require_adaptive_tiers=True (the default)."""
+        with pytest.raises(ValueError, match="Required adaptive tier file not found"):
+            load_test_cases(
+                benign_path=self._DATA_DIR / "benign_requests.json",
+                attack_path=self._DATA_DIR / "attack_requests.json",
+                regression_path=self._DATA_DIR / "regression_cases.json",
+                holdout_path=tmp_path / "nonexistent_holdout.json",
+                counterfactual_path=tmp_path / "nonexistent_cf.json",
+                drift_path=tmp_path / "nonexistent_drift.json",
+            )
 
     def test_holdout_cases_loaded_with_correct_kind(self, tmp_path):
         p = _write_json([
@@ -286,6 +300,7 @@ class TestLoadTestCasesAdaptiveTiers:
             holdout_path=p,
             counterfactual_path=tmp_path / "nonexistent_cf.json",
             drift_path=tmp_path / "nonexistent_drift.json",
+            require_adaptive_tiers=False,
         )
         holdout_cases = [c for c in cases if c.kind == "holdout"]
         assert len(holdout_cases) == 2
@@ -301,6 +316,7 @@ class TestLoadTestCasesAdaptiveTiers:
             holdout_path=tmp_path / "nonexistent.json",
             counterfactual_path=p,
             drift_path=tmp_path / "nonexistent.json",
+            require_adaptive_tiers=False,
         )
         cf_cases = [c for c in cases if c.kind == "counterfactual"]
         assert len(cf_cases) == 1
@@ -316,6 +332,7 @@ class TestLoadTestCasesAdaptiveTiers:
             holdout_path=tmp_path / "nonexistent.json",
             counterfactual_path=tmp_path / "nonexistent.json",
             drift_path=p,
+            require_adaptive_tiers=False,
         )
         drift_cases = [c for c in cases if c.kind == "drift"]
         assert len(drift_cases) == 1
@@ -350,6 +367,7 @@ class TestLoadTestCasesAdaptiveTiers:
                 holdout_path=p,
                 counterfactual_path=tmp_path / "nonexistent.json",
                 drift_path=tmp_path / "nonexistent.json",
+                require_adaptive_tiers=False,
             )
 
 

@@ -8,13 +8,16 @@ Exit codes:
     1  One or more violations found
 
 Validates:
-    data/genome.json             — numeric thresholds and safety booleans
-    data/evolution_history.json  — list structure, generation/hash/gate types
-    data/project_state.json      — well-formed JSON (schema is intentionally open)
-    data/active_threats.json     — via intelligence.threat_feeds strict loader
-    data/benign_requests.json    — corpus schema via core.test_attacker
-    data/attack_requests.json    — corpus schema via core.test_attacker
-    data/regression_cases.json   — corpus schema via core.test_attacker
+    data/genome.json                    — numeric thresholds and safety booleans
+    data/evolution_history.json         — list structure, generation/hash/gate types
+    data/project_state.json             — well-formed JSON (schema is intentionally open)
+    data/active_threats.json            — via intelligence.threat_feeds strict loader
+    data/benign_requests.json           — corpus schema via core.test_attacker
+    data/attack_requests.json           — corpus schema via core.test_attacker
+    data/regression_cases.json          — corpus schema via core.test_attacker
+    data/holdout_requests.json          — adaptive tier corpus schema
+    data/counterfactual_requests.json   — adaptive tier corpus schema
+    data/drift_requests.json            — adaptive tier corpus schema
 
 This script is for local and future CI use.  It does NOT trigger any paid-credit
 workflow, Gemini API call, or workflow_dispatch.
@@ -197,9 +200,12 @@ def validate_all(data_dir: Path = _DATA_DIR) -> dict:
         violations.extend(checker(path))
 
     for fname, kind, blocked in [
-        ("benign_requests.json",  "benign",     False),
-        ("attack_requests.json",  "attack",     True),
-        ("regression_cases.json", None,         None),
+        ("benign_requests.json",          "benign",          False),
+        ("attack_requests.json",          "attack",          True),
+        ("regression_cases.json",         None,              None),
+        ("holdout_requests.json",         "holdout",         None),
+        ("counterfactual_requests.json",  "counterfactual",  None),
+        ("drift_requests.json",           "drift",           None),
     ]:
         p = data_dir / fname
         checked.append(fname)
