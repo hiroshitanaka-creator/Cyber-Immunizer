@@ -15,7 +15,8 @@ jobs:
   # Safe, read-only CI: no API keys, no live models, no git writes.
   # Runs pytest + offline smoke tests for validate_mutation, fitness,
   # and propose_mutation, plus apply_mutation / evaluate_candidate with
-  # --soft-reject so a gate rejection is not treated as a CI failure.
+  # the Docker sandbox default and --soft-reject so a gate rejection is not
+  # treated as a CI failure.
   # -------------------------------------------------------------------------
   test:
     name: Test Suite
@@ -113,6 +114,9 @@ jobs:
             --base core/detector.py \
             --out .cyber_immunizer/candidate_detector.py \
             --json
+
+      - name: "Verify Docker sandbox availability"
+        run: docker version
 
       - name: "Smoke test: evaluate_candidate (soft-reject)"
         run: |
