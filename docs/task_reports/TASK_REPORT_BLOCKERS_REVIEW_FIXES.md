@@ -12,7 +12,7 @@ PR-A / PR-B / PR-C の3ブランチを新規作成し、レビュー指摘を全
 |---|---|---|---|
 | `claude/pr-a-detection-result-x007` | #130 | DetectionResult 型保証（PR-1 + PR-A 修正） | `33afadc` |
 | `claude/pr-b-corpus-state-validation` | #131 | コーパス/状態スキーマ検証（PR-2）| `fa26980` |
-| `claude/pr-c-adaptive-floor` | #129 | 適応フロア（PR-3 + PR-C 修正 2ラウンド） | `1e1f034` |
+| `claude/pr-c-adaptive-floor` | #129 | 適応フロア（PR-3 + PR-C 修正 2ラウンド） | `1e1f0340728b31d5ba3561187c3b7d9fde6329f8` |
 
 各ブランチは `b901a6e` を merge-base とし、PR-A → PR-B → PR-C の順に積み上がっている。
 

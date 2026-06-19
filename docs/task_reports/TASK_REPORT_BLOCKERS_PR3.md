@@ -90,7 +90,7 @@ holdout/counterfactual/drift の結果は `_MAIN_EVAL_KINDS`（benign/attack/reg
 ## 後検証結果
 
 ```
-# claude/pr-c-adaptive-floor (HEAD: 1e1f034) にて
+# claude/pr-c-adaptive-floor (HEAD: 1e1f0340728b31d5ba3561187c3b7d9fde6329f8) にて
 
 pytest tests/test_adaptive_floor.py -q
 → 37 passed in 0.13s
@@ -101,6 +101,36 @@ pytest tests/ -x -q
 python scripts/validate_state.py --json
 → {"success": true, "checked_files": [...10 files...], "violations": []}
 ```
+
+### tests/test_adaptive_floor.py — 主要カバレッジ
+
+| テストクラス / テスト名 | 検証内容 |
+|---|---|
+| `TestComputeTierPassRate` | パスレート計算の正確性（None / 0.0 / 1.0 / 混合） |
+| `TestAdaptiveFloorGate` | しきい値強制・None レートのスキップ |
+| `TestLoadTestCasesAdaptiveTiers::test_missing_tier_raises_by_default` | **ファイル不在 → ValueError（fail-closed）** |
+| `TestEmptyAdaptiveTierFile::test_empty_holdout_raises_in_load_test_cases` | **空 holdout ファイル → ValueError（fail-closed）** |
+| `TestEmptyAdaptiveTierFile::test_empty_counterfactual_raises_in_load_test_cases` | **空 counterfactual ファイル → ValueError（fail-closed）** |
+| `TestEmptyAdaptiveTierFile::test_empty_drift_raises_in_load_test_cases` | **空 drift ファイル → ValueError（fail-closed）** |
+| `TestEmptyAdaptiveTierFile::test_empty_holdout_fails_validate_state` | **validate_state が空 adaptive corpus を violation として報告** |
+| `TestAdaptiveFloorEndToEnd::test_never_blocking_fails_adaptive_floor` | **never-blocking 候補 → holdout_pass_rate < 1.0 → adaptive_floor_passed=False → passed_adoption_gate=False** |
+| `TestAdaptiveFloorEndToEnd::test_always_blocking_fails_adaptive_floor` | **always-blocking 候補 → counterfactual_pass_rate < 1.0 → adaptive_floor_passed=False → passed_adoption_gate=False** |
+| `TestFitnessReportAdaptiveFloorDefaults` | FitnessReport デフォルト値（各 pass_rate=1.0、floor_passed=True） |
+
+### scripts/validate_state.py — 検証対象10ファイル
+
+| ファイル | 検証種別 |
+|---|---|
+| `data/genome.json` | 数値しきい値・安全ブール値 |
+| `data/evolution_history.json` | リスト構造・generation/hash/gate 型 |
+| `data/project_state.json` | 整形 JSON |
+| `data/active_threats.json` | threat_feeds strict ローダー |
+| `data/benign_requests.json` | コーパススキーマ |
+| `data/attack_requests.json` | コーパススキーマ |
+| `data/regression_cases.json` | コーパススキーマ |
+| `data/holdout_requests.json` | コーパススキーマ + `require_non_empty=True` |
+| `data/counterfactual_requests.json` | コーパススキーマ + `require_non_empty=True` |
+| `data/drift_requests.json` | コーパススキーマ + `require_non_empty=True` |
 
 ## アーキテクチャ不変条件
 
