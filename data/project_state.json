@@ -9,7 +9,7 @@
   "primary_model": "gemini-3-flash-preview",
   "fallback_model": "gemini-3.1-flash-lite",
   "paid_credit_api_calls": {
-    "gemini_3_flash_preview_success_records": 9,
+    "gemini_3_flash_preview_success_records": 10,
     "api_success_meaning": "http_200_and_token_usage_recorded",
     "valid_mutation_patch_produced": true,
     "apply_reached": true,
@@ -97,7 +97,17 @@
       "is_tool_failure": false,
       "evidence_source": "promotion commit 3a480ef934b1d4e25ec9f3a27af8f16c1373993a; data/genome.json generation=4, best_score=948.04, detector_hash=ebb8799d…; data/evolution_history.json generation 4 entry passed_adoption_gate=true; data/api_usage_ledger.json 9th success record timestamped 2026-06-18T09:25:49.444409+00:00"
     },
-    "note": "apply_reached/evaluate_reached/adoption_gate_ever_passed/promote_reached/candidate_promoted reflect the best-known cumulative state across all triaged runs 1-9. data/api_usage_ledger.json records 9 primary-model success records. Runs 5 and 6 are triaged as evaluate_rejected. Run 7 (2026-06-16T06:20:37) is API/token success only and remains untriaged. Run 8 (2026-06-17, id=27683267711) passed the adoption gate and reached promote; the original promote push failed (push-race); candidate was recovered via owner-audited recovery on 2026-06-18 — hash verified, promote_candidate.py re-executed, generation 3 written to core/detector.py. Run 9 (2026-06-18, run #59) is the owner-approved paid-credit run that successfully promoted generation 4 (score 948.04, hash ebb8799d…) to core/detector.py via the standard workflow promote path."
+    "run_10_triage": {
+      "ledger_timestamp": "2026-06-19T14:43:51.757660+00:00",
+      "classification": "api_token_success_only",
+      "apply_reached": null,
+      "evaluate_reached": null,
+      "passed_adoption_gate": null,
+      "promote_reached": null,
+      "is_tool_failure": null,
+      "evidence_source": "untriaged - API/token success recorded in data/api_usage_ledger.json; no artifact or job-log triage available for this record in this task"
+    },
+    "note": "apply_reached/evaluate_reached/adoption_gate_ever_passed/promote_reached/candidate_promoted reflect the best-known cumulative state across triaged runs, plus untriaged API/token-only ledger records through run 10. data/api_usage_ledger.json records 10 primary-model success records. Runs 5 and 6 are triaged as evaluate_rejected. Run 7 (2026-06-16T06:20:37) is API/token success only and remains untriaged. Run 8 (2026-06-17, id=27683267711) passed the adoption gate and reached promote; the original promote push failed (push-race); candidate was recovered via owner-audited recovery on 2026-06-18 - hash verified, promote_candidate.py re-executed, generation 3 written to core/detector.py. Run 9 (2026-06-18, run #59) is the owner-approved paid-credit run that successfully promoted generation 4 (score 948.04, hash ebb8799d...) to core/detector.py via the standard workflow promote path. Run 10 (2026-06-19T14:43:51) records API/token success only; this state file does not infer apply, evaluate, adoption-gate, or promote from that ledger entry."
   },
   "propose_side_hardening": {
     "baseline_preservation_contract_added": true,
