@@ -430,6 +430,10 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
+      - name: Prepare Docker sandbox image
+        if: steps.apply.outcome == 'success'
+        run: docker pull python:3.11-slim
+
       - name: Evaluate candidate (Docker sandbox + timeout)
         id: evaluate
         if: steps.apply.outcome == 'success'
@@ -438,7 +442,7 @@ jobs:
           # exit 1 only on tool failures (AST violation, sandbox timeout, crash).
           python scripts/evaluate_candidate.py \
             --candidate .cyber_immunizer/candidate_detector.py \
-            --timeout 10 \
+            --timeout 60 \
             --json \
             --report .cyber_immunizer/fitness_report.json \
             --soft-reject

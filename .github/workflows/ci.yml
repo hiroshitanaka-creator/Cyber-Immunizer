@@ -118,10 +118,13 @@ jobs:
       - name: "Verify Docker sandbox availability"
         run: docker version
 
+      - name: "Prepare Docker sandbox image"
+        run: docker pull python:3.11-slim
+
       - name: "Smoke test: evaluate_candidate (soft-reject)"
         run: |
           python scripts/evaluate_candidate.py \
             --candidate .cyber_immunizer/candidate_detector.py \
-            --timeout 30 \
+            --timeout 60 \
             --json \
             --soft-reject

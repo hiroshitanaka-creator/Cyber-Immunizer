@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -25,6 +26,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from scripts import candidate_contract
 from scripts.candidate_contract import (
     BASELINE_SYMBOLIC_INDICATORS,
     REQUEST_SURFACE_FIELDS,
@@ -38,6 +40,42 @@ from scripts.candidate_contract import (
     run_behavioral_benign_control_check_subprocess,
     run_candidate_contract_checks,
 )
+
+
+@pytest.fixture(autouse=True)
+def _fake_docker_runner_when_docker_absent(monkeypatch, request):
+    """Keep behavioral contract tests deterministic in containers without Docker.
+
+    Production code still uses Docker by default; this test-only fixture emulates the
+    Docker runner boundary for behavioral-result regression tests when Docker is not
+    installed in the local test environment. Tests marked no_docker_runner_mock inspect
+    the real Docker command/availability helpers directly.
+    """
+    if request.node.cls is not None and request.node.cls.__name__ == "TestCandidateRuntimeDockerSandbox":
+        yield
+        return
+    if candidate_contract.docker_available():
+        yield
+        return
+
+    def _fake_docker_runner(*, candidate_path, command, timeout_seconds, project_root=None):
+        root = project_root or _PROJECT_ROOT
+        mapped = [
+            str(root) if arg == candidate_contract.CONTAINER_WORKSPACE
+            else str(candidate_path) if arg == candidate_contract.CONTAINER_CANDIDATE
+            else arg
+            for arg in command
+        ]
+        return subprocess.run(
+            mapped,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            cwd=str(root),
+        )
+
+    monkeypatch.setattr(candidate_contract, "run_candidate_runtime_in_docker", _fake_docker_runner)
+    yield
 
 # ---------------------------------------------------------------------------
 # Shared synthetic candidate templates (safe — uses only neutralized indicators)
@@ -1430,3 +1468,91 @@ class TestBehavioralBenignControlCheck:
             assert token in harness
         for indicator in BASELINE_SYMBOLIC_INDICATORS:
             assert indicator not in harness
+
+
+def _write_candidate_for_docker_test(tmp_path: Path, source: str) -> Path:
+    p = tmp_path / "candidate.py"
+    p.write_text(source, encoding="utf-8")
+    return p
+
+# ---------------------------------------------------------------------------
+# K. Docker sandbox runner construction
+# ---------------------------------------------------------------------------
+
+class TestCandidateRuntimeDockerSandbox:
+    def test_candidate_runtime_docker_command_has_required_hardening_flags(self, tmp_path: Path) -> None:
+        candidate = _write_candidate_for_docker_test(tmp_path, _FULL_CANDIDATE)
+        cmd = candidate_contract.build_candidate_runtime_docker_command(
+            candidate_path=candidate,
+            command=["python", "-c", "print('ok')", candidate_contract.CONTAINER_WORKSPACE, candidate_contract.CONTAINER_CANDIDATE],
+            project_root=_PROJECT_ROOT,
+        )
+        assert ["--network", "none"] == cmd[cmd.index("--network"):cmd.index("--network") + 2]
+        assert "--read-only" in cmd
+        assert ["--cap-drop", "ALL"] == cmd[cmd.index("--cap-drop"):cmd.index("--cap-drop") + 2]
+        assert ["--security-opt", "no-new-privileges"] == cmd[cmd.index("--security-opt"):cmd.index("--security-opt") + 2]
+        assert "--pids-limit" in cmd
+        assert "--memory" in cmd
+        assert "--cpus" in cmd
+        assert ["--user", "65534:65534"] == cmd[cmd.index("--user"):cmd.index("--user") + 2]
+        assert ["--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=64m"] == cmd[cmd.index("--tmpfs"):cmd.index("--tmpfs") + 2]
+        mounts = [cmd[i + 1] for i, token in enumerate(cmd) if token == "-v"]
+        assert f"{_PROJECT_ROOT}:/workspace:ro" in mounts
+        assert f"{candidate.resolve()}:/candidate/candidate_detector.py:ro" in mounts
+
+    def test_docker_available_is_strict_false_on_nonzero_json_stdout(self) -> None:
+        fake = subprocess.CompletedProcess(
+            args=["docker"],
+            returncode=1,
+            stdout='{"passed_adoption_gate": true}',
+            stderr="simulated docker failure",
+        )
+        with patch("scripts.candidate_contract.subprocess.run", return_value=fake):
+            assert candidate_contract.docker_available() is False
+
+    def test_behavioral_surface_uses_docker_runner(self, tmp_path: Path, monkeypatch) -> None:
+        candidate = _write_candidate_for_docker_test(tmp_path, _FULL_CANDIDATE)
+        calls = []
+
+        def _fake_runner(*, candidate_path, command, timeout_seconds, project_root=None):
+            calls.append({"candidate_path": candidate_path, "command": command, "timeout_seconds": timeout_seconds})
+            return subprocess.CompletedProcess(
+                args=command,
+                returncode=0,
+                stdout=json.dumps({
+                    "success": True,
+                    "field_results": {i: {s: True for s in REQUEST_SURFACE_FIELDS} for i in BASELINE_SYMBOLIC_INDICATORS},
+                    "missing": [],
+                }),
+                stderr="",
+            )
+
+        monkeypatch.setattr(candidate_contract, "run_candidate_runtime_in_docker", _fake_runner)
+        result = run_behavioral_surface_check_subprocess(candidate, timeout_seconds=7)
+        assert result["passed"] is True
+        assert calls and calls[0]["candidate_path"] == candidate
+        assert candidate_contract.CONTAINER_CANDIDATE in calls[0]["command"]
+
+    def test_behavioral_benign_control_uses_docker_runner(self, tmp_path: Path, monkeypatch) -> None:
+        candidate = _write_candidate_for_docker_test(tmp_path, _FULL_CANDIDATE)
+        calls = []
+
+        def _fake_runner(*, candidate_path, command, timeout_seconds, project_root=None):
+            calls.append({"candidate_path": candidate_path, "command": command, "timeout_seconds": timeout_seconds})
+            return subprocess.CompletedProcess(
+                args=command,
+                returncode=0,
+                stdout=json.dumps({
+                    "success": True,
+                    "case_results": {},
+                    "failing_cases": [],
+                    "rejection_reasons": [],
+                }),
+                stderr="",
+            )
+
+        monkeypatch.setattr(candidate_contract, "run_candidate_runtime_in_docker", _fake_runner)
+        result = run_behavioral_benign_control_check_subprocess(candidate, timeout_seconds=7)
+        assert result["passed"] is True
+        assert calls and calls[0]["candidate_path"] == candidate
+        assert candidate_contract.CONTAINER_CANDIDATE in calls[0]["command"]

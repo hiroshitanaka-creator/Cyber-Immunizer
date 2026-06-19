@@ -50,6 +50,18 @@ from scripts.candidate_contract import (  # noqa: E402
     run_candidate_contract_checks,
     run_behavioral_surface_check_subprocess,
     run_behavioral_benign_control_check_subprocess,
+    build_candidate_runtime_docker_command,
+    docker_available,
+    docker_launcher_env,
+    DOCKER_IMAGE,
+    DOCKER_NON_ROOT_USER,
+    DOCKER_MEMORY_LIMIT,
+    DOCKER_CPU_LIMIT,
+    DOCKER_PIDS_LIMIT,
+    DOCKER_TMPFS,
+    CONTAINER_WORKSPACE,
+    CONTAINER_CANDIDATE,
+    run_candidate_runtime_in_docker,
 )
 
 _REPORT_PATH = _PROJECT_ROOT / ".cyber_immunizer" / "fitness_report.json"
@@ -141,14 +153,14 @@ class SandboxBackend:
 
 SandboxBackendName = Literal["docker", "legacy-rlimit"]
 
-_DOCKER_IMAGE = "python:3.11-slim"
-_DOCKER_NON_ROOT_USER = "65534:65534"
-_DOCKER_MEMORY_LIMIT = "768m"
-_DOCKER_CPU_LIMIT = "1"
-_DOCKER_PIDS_LIMIT = "32"
-_DOCKER_TMPFS = "/tmp:rw,noexec,nosuid,nodev,size=64m"
-_CONTAINER_WORKSPACE = "/workspace"
-_CONTAINER_CANDIDATE = "/candidate/candidate_detector.py"
+_DOCKER_IMAGE = DOCKER_IMAGE
+_DOCKER_NON_ROOT_USER = DOCKER_NON_ROOT_USER
+_DOCKER_MEMORY_LIMIT = DOCKER_MEMORY_LIMIT
+_DOCKER_CPU_LIMIT = DOCKER_CPU_LIMIT
+_DOCKER_PIDS_LIMIT = DOCKER_PIDS_LIMIT
+_DOCKER_TMPFS = DOCKER_TMPFS
+_CONTAINER_WORKSPACE = CONTAINER_WORKSPACE
+_CONTAINER_CANDIDATE = CONTAINER_CANDIDATE
 
 
 def _sandbox_metadata(backend: str) -> dict:
@@ -171,76 +183,41 @@ def _sandbox_metadata(backend: str) -> dict:
 
 def _docker_launcher_env() -> dict[str, str]:
     """Return minimal env for launching docker without propagating secrets."""
-    env: dict[str, str] = {}
-    for key in ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE"):
-        if key in os.environ:
-            env[key] = os.environ[key]
-    return env
+    return docker_launcher_env()
 
 
 def _docker_available() -> bool:
-    try:
-        proc = subprocess.run(
-            ["docker", "version", "--format", "{{.Server.Version}}"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            env=_docker_launcher_env(),
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
-    if proc.returncode == 0:
-        return True
-    # Compatibility for legacy unit tests that monkeypatch subprocess.run with
-    # a fitness-like JSON object instead of patching the Docker backend helper.
-    # Real `docker version` failures do not emit this schema, so production still
-    # fails closed when Docker is unavailable.
-    try:
-        mocked = json.loads(proc.stdout or "")
-    except json.JSONDecodeError:
-        return False
-    return isinstance(mocked, dict) and "passed_adoption_gate" in mocked
-
+    """Return True only when docker version succeeds."""
+    return docker_available()
 
 def _build_docker_command(candidate_path: Path, timeout_seconds: int, baseline_mode: bool) -> list[str]:
-    cmd = [
-        "docker", "run", "--rm",
-        "--network", "none",
-        "--read-only",
-        "--cap-drop", "ALL",
-        "--security-opt", "no-new-privileges",
-        "--pids-limit", _DOCKER_PIDS_LIMIT,
-        "--memory", _DOCKER_MEMORY_LIMIT,
-        "--cpus", _DOCKER_CPU_LIMIT,
-        "--user", _DOCKER_NON_ROOT_USER,
-        "--tmpfs", _DOCKER_TMPFS,
-        "-e", "HOME=/tmp",
-        "-e", f"PYTHONPATH={_CONTAINER_WORKSPACE}",
-        "-v", f"{_PROJECT_ROOT}:{_CONTAINER_WORKSPACE}:ro",
-        "-v", f"{candidate_path.resolve()}:{_CONTAINER_CANDIDATE}:ro",
-        "-w", _CONTAINER_WORKSPACE,
-        _DOCKER_IMAGE,
+    command = [
         "python", "-m", "core.fitness",
         "--candidate", _CONTAINER_CANDIDATE,
         "--json",
     ]
     if baseline_mode:
-        cmd.append("--baseline")
-    return cmd
-
-
-def _run_fitness_in_docker(candidate_path: Path, timeout_seconds: int, baseline_mode: bool):
-    if not _docker_available():
-        raise RuntimeError("docker sandbox unavailable: docker CLI/daemon is not available")
-    return subprocess.run(
-        _build_docker_command(candidate_path, timeout_seconds, baseline_mode),
-        cwd=str(_PROJECT_ROOT),
-        capture_output=True,
-        text=True,
-        timeout=timeout_seconds,
-        env=_docker_launcher_env(),
+        command.append("--baseline")
+    return build_candidate_runtime_docker_command(
+        candidate_path=candidate_path,
+        command=command,
+        project_root=_PROJECT_ROOT,
     )
 
+def _run_fitness_in_docker(candidate_path: Path, timeout_seconds: int, baseline_mode: bool):
+    command = [
+        "python", "-m", "core.fitness",
+        "--candidate", _CONTAINER_CANDIDATE,
+        "--json",
+    ]
+    if baseline_mode:
+        command.append("--baseline")
+    return run_candidate_runtime_in_docker(
+        candidate_path=candidate_path,
+        command=command,
+        timeout_seconds=timeout_seconds,
+        project_root=_PROJECT_ROOT,
+    )
 
 def _run_fitness_legacy_rlimit(candidate_path: Path, timeout_seconds: int, baseline_mode: bool):
     if _resource_limits_supported():
@@ -371,7 +348,9 @@ def evaluate_candidate(
         _write_report(result, candidate_hash, report_path)
         return result
 
-    # --- Step 2b: Behavioral request-surface check (isolated subprocess, no secrets) ---
+    sandbox_meta = _sandbox_metadata(sandbox_backend)
+
+    # --- Step 2b: Behavioral request-surface check (Docker sandbox, no secrets) ---
     behavioral_raw = run_behavioral_surface_check_subprocess(
         candidate_path, timeout_seconds=min(float(timeout_seconds), 30.0)
     )
@@ -400,6 +379,7 @@ def evaluate_candidate(
             "candidate_hash": candidate_hash,
             "contract_checks": all_contract_checks,
             "rejection_reasons": behavioral_raw.get("rejection_reasons", []),
+            **sandbox_meta,
         }
         _write_report(result, candidate_hash, report_path)
         return result
@@ -418,11 +398,12 @@ def evaluate_candidate(
             "candidate_hash": candidate_hash,
             "contract_checks": all_contract_checks,
             "rejection_reasons": reasons,
+            **sandbox_meta,
         }
         _write_report(result, candidate_hash, report_path)
         return result
 
-    # --- Step 2c: Behavioral benign-control check (isolated subprocess, no secrets) ---
+    # --- Step 2c: Behavioral benign-control check (Docker sandbox, no secrets) ---
     benign_raw = run_behavioral_benign_control_check_subprocess(
         candidate_path, timeout_seconds=min(float(timeout_seconds), 30.0)
     )
@@ -450,6 +431,7 @@ def evaluate_candidate(
             "candidate_hash": candidate_hash,
             "contract_checks": all_contract_checks,
             "rejection_reasons": benign_raw.get("rejection_reasons", []),
+            **sandbox_meta,
         }
         _write_report(result, candidate_hash, report_path)
         return result
@@ -468,11 +450,10 @@ def evaluate_candidate(
             "candidate_hash": candidate_hash,
             "contract_checks": all_contract_checks,
             "rejection_reasons": reasons,
+            **sandbox_meta,
         }
         _write_report(result, candidate_hash, report_path)
         return result
-
-    sandbox_meta = _sandbox_metadata(sandbox_backend)
 
     # --- Step 3: Run fitness evaluation in the requested sandbox backend ---
     if sandbox_backend not in {SandboxBackend.DOCKER, SandboxBackend.LEGACY_RLIMIT}:

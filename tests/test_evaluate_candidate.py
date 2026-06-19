@@ -300,7 +300,7 @@ class TestDockerSandboxBackend:
         candidate = _write_candidate(tmp_path)
         report_path = tmp_path / "report.json"
         with patch("scripts.evaluate_candidate.validate", return_value={"valid": True, "violations": []}), \
-             patch("scripts.evaluate_candidate._docker_available", return_value=False):
+             patch("scripts.evaluate_candidate._run_fitness_in_docker", side_effect=OSError("docker sandbox unavailable")):
             result = evaluate_candidate(candidate, timeout_seconds=5, report_path=report_path)
         assert result["success"] is False
         assert result["passed_adoption_gate"] is False
@@ -1030,7 +1030,7 @@ class TestEvaluateCandidateBehavioralSurfaceCheck:
         )
 
     def test_unreachable_code_candidate_soft_rejected_in_full_pipeline(
-        self, tmp_path: Path
+        self, tmp_path: Path, monkeypatch
     ) -> None:
         """End-to-end: candidate with unreachable surface code is soft-rejected by Step 2b."""
         from scripts.evaluate_candidate import evaluate_candidate
@@ -1071,7 +1071,24 @@ class TestEvaluateCandidateBehavioralSurfaceCheck:
         p.write_text(candidate_source, encoding="utf-8")
         report_path = tmp_path / "report.json"
 
-        # Run without mocking validate or behavioral check — real pipeline
+        # Run without mocking validate or behavioral check. In local test environments
+        # without Docker, emulate the Docker runner while preserving the production
+        # function boundary that behavioral checks use.
+        from scripts import candidate_contract
+
+        def _fake_docker_runner(*, candidate_path, command, timeout_seconds, project_root=None):
+            mapped = [
+                str(project_root or _PROJECT_ROOT) if a == candidate_contract.CONTAINER_WORKSPACE
+                else str(candidate_path) if a == candidate_contract.CONTAINER_CANDIDATE
+                else a
+                for a in command
+            ]
+            return subprocess.run(
+                mapped, capture_output=True, text=True, timeout=timeout_seconds,
+                cwd=str(project_root or _PROJECT_ROOT),
+            )
+
+        monkeypatch.setattr(candidate_contract, "run_candidate_runtime_in_docker", _fake_docker_runner)
         result = evaluate_candidate(p, timeout_seconds=30, report_path=report_path)
 
         assert not result["success"]

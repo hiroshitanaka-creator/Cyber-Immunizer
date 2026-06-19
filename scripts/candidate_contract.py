@@ -6,10 +6,10 @@ Deterministic, offline, network-free checks that fail closed when a candidate:
   - alters code outside the allowed mutation region
   - produces inconsistent candidate/report hashes
 
-Static checks (1–4) are offline, network-free, no subprocess.
-The behavioral surface check (run_behavioral_surface_check_subprocess) uses an
-isolated subprocess with stripped environment and POSIX resource limits.
-No Gemini, no external API, no network.
+Static checks (1–4) are offline, network-free, no candidate execution.
+The behavioral surface and benign-control checks execute candidate code inside
+the same Docker sandbox posture used by evaluate_candidate.py fitness runs.
+No Gemini, no external API, no host-networked candidate runtime.
 """
 from __future__ import annotations
 
@@ -21,6 +21,102 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Docker sandbox runner shared by behavioral checks and evaluate_candidate.py
+# ---------------------------------------------------------------------------
+
+DOCKER_IMAGE = "python:3.11-slim"
+DOCKER_NON_ROOT_USER = "65534:65534"
+DOCKER_MEMORY_LIMIT = "768m"
+DOCKER_CPU_LIMIT = "1"
+DOCKER_PIDS_LIMIT = "32"
+DOCKER_TMPFS = "/tmp:rw,noexec,nosuid,nodev,size=64m"
+CONTAINER_WORKSPACE = "/workspace"
+CONTAINER_CANDIDATE = "/candidate/candidate_detector.py"
+
+
+def docker_launcher_env() -> dict[str, str]:
+    """Return minimal Docker launcher environment without secrets/tokens."""
+    env: dict[str, str] = {}
+    for key in ("PATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE"):
+        if key in os.environ:
+            env[key] = os.environ[key]
+    return env
+
+
+def docker_available() -> bool:
+    """Return True only when the Docker CLI and daemon answer successfully."""
+    try:
+        proc = subprocess.run(
+            ["docker", "version", "--format", "{{.Server.Version}}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=docker_launcher_env(),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
+
+
+def build_candidate_runtime_docker_command(
+    *,
+    candidate_path: Path,
+    command: list[str],
+    project_root: Path | None = None,
+) -> list[str]:
+    """Build a hardened Docker command for any candidate runtime execution."""
+    root = project_root or _PROJECT_ROOT
+    return [
+        "docker", "run", "--rm",
+        "--network", "none",
+        "--read-only",
+        "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges",
+        "--pids-limit", DOCKER_PIDS_LIMIT,
+        "--memory", DOCKER_MEMORY_LIMIT,
+        "--cpus", DOCKER_CPU_LIMIT,
+        "--user", DOCKER_NON_ROOT_USER,
+        "--tmpfs", DOCKER_TMPFS,
+        "-e", "HOME=/tmp",
+        "-e", f"PYTHONPATH={CONTAINER_WORKSPACE}",
+        "-v", f"{root}:{CONTAINER_WORKSPACE}:ro",
+        "-v", f"{candidate_path.resolve()}:{CONTAINER_CANDIDATE}:ro",
+        "-w", CONTAINER_WORKSPACE,
+        DOCKER_IMAGE,
+        *command,
+    ]
+
+
+def run_candidate_runtime_in_docker(
+    *,
+    candidate_path: Path,
+    command: list[str],
+    timeout_seconds: float,
+    project_root: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run candidate runtime code in Docker; Docker launch errors fail closed."""
+    root = project_root or _PROJECT_ROOT
+    try:
+        return subprocess.run(
+            build_candidate_runtime_docker_command(
+                candidate_path=candidate_path,
+                command=command,
+                project_root=root,
+            ),
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            env=docker_launcher_env(),
+        )
+    except subprocess.TimeoutExpired:
+        raise
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(
+            f"docker sandbox unavailable or failed to launch: {exc}"
+        ) from exc
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -436,7 +532,7 @@ def run_candidate_contract_checks(
 
 
 # ---------------------------------------------------------------------------
-# 6. Behavioral request-surface coverage check — isolated subprocess
+# 6. Behavioral request-surface coverage check — Docker sandbox
 # ---------------------------------------------------------------------------
 
 _BEHAVIORAL_CHECK_SCRIPT = """\
@@ -530,14 +626,16 @@ def run_behavioral_surface_check_subprocess(
     timeout_seconds: float = 30.0,
     project_root: Path | None = None,
 ) -> dict:
-    """Run behavioral request-surface coverage check in an isolated subprocess.
+    """Run behavioral request-surface coverage check in the Docker sandbox.
 
     Tests every baseline symbolic indicator against every request surface
     (5 indicators × 7 surfaces = 35 synthetic Request cases). The candidate passes
     only if all 35 cases result in DetectionResult.blocked == True.
 
-    No candidate code runs in the parent process. The subprocess uses a stripped
-    environment (no API keys, no secrets) and conservative POSIX resource limits.
+    No candidate code runs in the parent process or host subprocess. Candidate
+    import/execution happens inside the shared Docker sandbox with no network,
+    read-only mounts/rootfs, non-root user, dropped capabilities, no-new-privileges,
+    CPU/memory/PID limits, and isolated /tmp.
 
     Returns a dict:
         passed: bool
@@ -589,44 +687,24 @@ def run_behavioral_surface_check_subprocess(
                 reasons.append(f"missing_request_surface:{surf}")
         return reasons
 
-    # Stripped environment — no API keys, no secrets, no write tokens
-    allowed_keys = {
-        "PATH", "PYTHONPATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE",
-        "TMPDIR", "TMP", "TEMP",
-    }
-    safe_env = {k: v for k, v in os.environ.items() if k in allowed_keys}
-
-    # Conservative POSIX resource limits applied in child process only
-    def _preexec() -> None:
-        try:
-            import resource as _r  # noqa: PLC0415
-            _r.setrlimit(_r.RLIMIT_CPU, (10, 10))
-            _r.setrlimit(_r.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
-        except Exception:
-            pass
-
-    preexec_fn = _preexec if os.name == "posix" else None
-
     try:
-        proc = subprocess.run(
-            [sys.executable, "-c", _BEHAVIORAL_CHECK_SCRIPT, _root, str(candidate_path)],
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            env=safe_env,
-            preexec_fn=preexec_fn,
+        proc = run_candidate_runtime_in_docker(
+            candidate_path=candidate_path,
+            command=["python", "-c", _BEHAVIORAL_CHECK_SCRIPT, CONTAINER_WORKSPACE, CONTAINER_CANDIDATE],
+            timeout_seconds=timeout_seconds,
+            project_root=project_root or _PROJECT_ROOT,
         )
     except subprocess.TimeoutExpired:
         return {
             **_fail_dict,
             "harness_error": True,
-            "error": "behavioral surface check subprocess timed out",
+            "error": "behavioral surface check Docker sandbox timed out",
         }
     except Exception as exc:
         return {
             **_fail_dict,
             "harness_error": True,
-            "error": f"behavioral surface check failed to launch: {exc}",
+            "error": f"behavioral surface check Docker sandbox failed to launch: {exc}",
         }
 
     if proc.returncode != 0:
@@ -634,7 +712,7 @@ def run_behavioral_surface_check_subprocess(
         return {
             **_fail_dict,
             "harness_error": True,
-            "error": f"behavioral check subprocess exited {proc.returncode}: {excerpt}",
+            "error": f"behavioral check Docker sandbox exited {proc.returncode}: {excerpt}",
         }
 
     try:
@@ -673,7 +751,7 @@ def run_behavioral_surface_check_subprocess(
 
 
 # ---------------------------------------------------------------------------
-# 7. Behavioral benign-control check — isolated subprocess
+# 7. Behavioral benign-control check — Docker sandbox
 # ---------------------------------------------------------------------------
 
 _BEHAVIORAL_BENIGN_CONTROL_SCRIPT = """\
@@ -780,7 +858,7 @@ def run_behavioral_benign_control_check_subprocess(
     timeout_seconds: float = 30.0,
     project_root: Path | None = None,
 ) -> dict:
-    """Run benign-control behavioral checks in an isolated subprocess.
+    """Run benign-control behavioral checks in the Docker sandbox.
 
     The candidate must not block or emit matched signals for deterministic,
     synthetic benign Request cases covering every request surface plus a combined
@@ -796,39 +874,21 @@ def run_behavioral_benign_control_check_subprocess(
         "rejection_reasons": ["benign_control_malformed_result"],
     }
 
-    allowed_keys = {
-        "PATH", "PYTHONPATH", "HOME", "LANG", "LC_ALL", "LC_CTYPE",
-        "TMPDIR", "TMP", "TEMP",
-    }
-    safe_env = {k: v for k, v in os.environ.items() if k in allowed_keys}
-
-    def _preexec() -> None:
-        try:
-            import resource as _r  # noqa: PLC0415
-            _r.setrlimit(_r.RLIMIT_CPU, (10, 10))
-            _r.setrlimit(_r.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
-        except Exception:
-            pass
-
-    preexec_fn = _preexec if os.name == "posix" else None
-
     try:
-        proc = subprocess.run(
-            [sys.executable, "-c", _BEHAVIORAL_BENIGN_CONTROL_SCRIPT, _root, str(candidate_path)],
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            env=safe_env,
-            preexec_fn=preexec_fn,
+        proc = run_candidate_runtime_in_docker(
+            candidate_path=candidate_path,
+            command=["python", "-c", _BEHAVIORAL_BENIGN_CONTROL_SCRIPT, CONTAINER_WORKSPACE, CONTAINER_CANDIDATE],
+            timeout_seconds=timeout_seconds,
+            project_root=project_root or _PROJECT_ROOT,
         )
     except subprocess.TimeoutExpired:
-        return {**_fail_dict, "harness_error": True, "error": "behavioral benign-control check subprocess timed out"}
+        return {**_fail_dict, "harness_error": True, "error": "behavioral benign-control check Docker sandbox timed out"}
     except Exception as exc:
-        return {**_fail_dict, "harness_error": True, "error": f"behavioral benign-control check failed to launch: {exc}"}
+        return {**_fail_dict, "harness_error": True, "error": f"behavioral benign-control Docker sandbox failed to launch: {exc}"}
 
     if proc.returncode != 0:
         excerpt = (proc.stderr or proc.stdout)[:300]
-        return {**_fail_dict, "harness_error": True, "error": f"behavioral benign-control subprocess exited {proc.returncode}: {excerpt}"}
+        return {**_fail_dict, "harness_error": True, "error": f"behavioral benign-control Docker sandbox exited {proc.returncode}: {excerpt}"}
 
     try:
         data = json.loads(proc.stdout.strip())
