@@ -4,7 +4,7 @@
 
 This document proposes moving future detector mutations away from raw Python edits and toward a constrained structured rule representation. The goal is to preserve the current mutation loop's ability to improve request inspection while reducing the blast radius of generated changes.
 
-This document began as a design-only proposal. The repository now includes a static schema validator and CLI for the proposed rule shape; it still does not introduce a rule evaluator, runtime detector integration, model-setting changes, budget changes, promotion behavior, or paid-credit execution.
+This document began as a design-only proposal. The repository now includes a static schema validator and CLI, a fixed runtime evaluator, and an explicit opt-in adapter/equivalence test harness for the proposed rule shape. The default `core.detector.inspect_request()` path remains unchanged: structured rules are not loaded automatically, proposer output has not migrated to structured rules, the raw Python mutation path has not been retired, and this work does not introduce model-setting changes, budget changes, promotion behavior, or paid-credit execution.
 
 ## Current baseline summary
 
@@ -240,21 +240,26 @@ Any future implementation should enforce these invariants before a structured ru
    - Keep validation separate from runtime integration. **Still true: the CLI and validator do not affect detector runtime behavior.**
 
 3. **Evaluator PR**
-   - Add a fixed evaluator for validated structured rules.
-   - Enforce safety invariants in code.
-   - Test determinism, bounds, fallback behavior, and output contract preservation.
-   - Include a large-body equivalence test showing that an indicator near the end of the configured body-scan budget is still matched.
+   - Add a fixed evaluator for validated structured rules. **Implemented by `core/structured_evaluator.py`.**
+   - Enforce safety invariants in code. **Implemented in the evaluator and validator.**
+   - Test determinism, bounds, fallback behavior, and output contract preservation. **Implemented by `tests/test_structured_evaluator.py`.**
+   - Include a large-body equivalence test showing that an indicator near the end of the configured body-scan budget is still matched. **Implemented by evaluator tests.**
 
-4. **Mutation-output PR**
+4. **Opt-in adapter and equivalence PR**
+   - Add an explicit call-site opt-in adapter for evaluating a `Request` with a supplied structured rules document. **Implemented by `core/structured_detector.py`.**
+   - Keep `core.detector.inspect_request()` unchanged and avoid automatic structured-rule loading. **Confirmed by integration tests.**
+   - Include sample-level, corpus-level, confidence, matched-signal-order, fallback, no-mutation, and large-body equivalence tests comparing structured rules to the current symbolic detector. **Implemented by `tests/test_structured_detector_integration.py` and `tests/test_structured_detector_equivalence.py`.**
+
+5. **Mutation-output PR**
    - Update proposal tooling to emit structured rule documents instead of Python replacement code.
    - Keep existing raw-Python mutation path disabled or guarded until integration is complete.
 
-5. **Integration PR**
+6. **Automatic runtime integration PR**
    - Wire validated structured rules into the detector pipeline through reviewed code.
    - Preserve `inspect_request`'s public contract and non-blocking fallback.
    - Include regression tests comparing current symbolic-token behavior to equivalent structured rules, including the large-body near-end indicator coverage already required by `tests/test_detector_performance.py`.
 
-6. **Retirement PR**
+7. **Retirement PR**
    - Remove or permanently disable raw Python detector mutation once structured rules are validated, evaluated, tested, and adopted.
 
 ## Scope guard for structured-rule validation work
