@@ -50,6 +50,9 @@ jobs:
       - name: Run pytest
         run: python -m pytest
 
+      - name: Run structured detector rules validator tests
+        run: python -m pytest tests/test_structured_validator.py -q
+
       # -----------------------------------------------------------------------
       # 2. validate_mutation smoke test against the baseline detector
       #    Checks that core/detector.py passes all AST policy rules.

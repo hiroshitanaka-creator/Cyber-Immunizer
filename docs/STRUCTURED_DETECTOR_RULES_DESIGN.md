@@ -4,7 +4,7 @@
 
 This document proposes moving future detector mutations away from raw Python edits and toward a constrained structured rule representation. The goal is to preserve the current mutation loop's ability to improve request inspection while reducing the blast radius of generated changes.
 
-This is a design-only proposal. It does not introduce a schema validator, evaluator, tests, runtime integration, model-setting changes, budget changes, promotion behavior, or paid-credit execution.
+This document began as a design-only proposal. The repository now includes a static schema validator and CLI for the proposed rule shape; it still does not introduce a rule evaluator, runtime detector integration, model-setting changes, budget changes, promotion behavior, or paid-credit execution.
 
 ## Current baseline summary
 
@@ -176,6 +176,30 @@ Each rule should have a stable `id`, target one declared feature, use one allowe
 
 `fallback` defines the deterministic non-blocking result used when no decision rule triggers or when the structured rules cannot be safely evaluated. The fallback must preserve a non-blocking default so malformed or unsupported structured rules do not create a fail-closed denial-of-service risk in local simulation.
 
+
+## Implemented static schema validation
+
+The schema-validation step of the migration plan is implemented in `core/structured_validator.py`. The public entry point is:
+
+```python
+from core.structured_validator import validate_rules_schema
+
+result = validate_rules_schema(parsed_rules)
+# {"success": True, "violations": []} on success
+# {"success": False, "violations": ["..."]} on validation failure
+```
+
+The validator is intentionally strict: it rejects missing required keys, unknown fields, unsupported operators, invalid confidence values, non-positive integer bounds, duplicate feature values, duplicate rule IDs, and argument-like payload keys such as `args`, `kwargs`, `*args`, and `**kwargs` because structured rules are data, not callable Python invocations.
+
+A CLI wrapper is available at `scripts/validate_structured_rules.py`:
+
+```bash
+python scripts/validate_structured_rules.py path/to/rules.json
+python scripts/validate_structured_rules.py --json path/to/rules.yaml
+```
+
+The CLI accepts JSON and a deliberately small YAML subset matching the sketch in this document. It uses only the Python standard library, rejects duplicate mapping keys where they can be observed during parsing, and performs static validation only. It does not evaluate rules, alter `core/detector.py`, call external APIs, modify ledgers, dispatch workflows, or promote candidates.
+
 ## Explicit non-goals
 
 This design does not permit generated detector mutations to include or request:
@@ -211,9 +235,9 @@ Any future implementation should enforce these invariants before a structured ru
    - Do not modify runtime code, workflows, ledgers, model settings, budget settings, or promotion state.
 
 2. **Schema validation PR**
-   - Add a JSON Schema or equivalent validator for structured detector rules.
-   - Include positive and negative validation tests.
-   - Keep validation separate from runtime integration.
+   - Add a JSON Schema or equivalent validator for structured detector rules. **Implemented by `core/structured_validator.py`.**
+   - Include positive and negative validation tests. **Implemented by `tests/test_structured_validator.py`.**
+   - Keep validation separate from runtime integration. **Still true: the CLI and validator do not affect detector runtime behavior.**
 
 3. **Evaluator PR**
    - Add a fixed evaluator for validated structured rules.
@@ -233,12 +257,12 @@ Any future implementation should enforce these invariants before a structured ru
 6. **Retirement PR**
    - Remove or permanently disable raw Python detector mutation once structured rules are validated, evaluated, tested, and adopted.
 
-## Scope guard for this PR
+## Scope guard for structured-rule validation work
 
-This docs-only PR must not modify:
+Schema-validation work is limited to the validator module, CLI, validator tests, this design document, and narrowly scoped CI test invocation updates. It must not modify runtime detector behavior or integration code.
 
-- `core/**`
-- `.github/**`
+It must not modify:
+
 - `data/**`
 - ledgers, including `data/api_usage_ledger.json`
 - model names
