@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "features": {
+    "surface": {
+      "fields": [
+        "method",
+        "path",
+        "query.keys",
+        "query.values",
+        "headers.keys",
+        "headers.values",
+        "body"
+      ],
+      "normalization": [
+        "lowercase"
+      ],
+      "max_collection_entries": {
+        "query": 100,
+        "headers": 100
+      },
+      "max_scalar_bytes": {
+        "method": 64,
+        "path": 4096,
+        "query.item": 4096,
+        "header.item": 4096
+      },
+      "body_scan": {
+        "mode": "full",
+        "max_bytes": 524288
+      }
+    }
+  },
+  "rules": [
+    {
+      "id": "path_traversal_indicator",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "path_traversal_indicator",
+      "signal": "path_traversal_indicator",
+      "confidence": 0.86
+    },
+    {
+      "id": "script_injection_indicator",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "script_injection_indicator",
+      "signal": "script_injection_indicator",
+      "confidence": 0.86
+    },
+    {
+      "id": "sqli_indicator",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "sqli_indicator",
+      "signal": "sqli_indicator",
+      "confidence": 0.86
+    },
+    {
+      "id": "command_delimiter_indicator",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "command_delimiter_indicator",
+      "signal": "command_delimiter_indicator",
+      "confidence": 0.86
+    },
+    {
+      "id": "encoded_traversal_indicator",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "encoded_traversal_indicator",
+      "signal": "encoded_traversal_indicator",
+      "confidence": 0.86
+    }
+  ],
+  "decision": {
+    "block_when": "any_rule_matches",
+    "reason": "suspicious indicator matched",
+    "confidence_strategy": {
+      "type": "bounded_match_count",
+      "default": 0.86,
+      "two_matches": 0.94,
+      "three_or_more_matches": 0.99
+    },
+    "matched_signals": "matched_rule_signals"
+  },
+  "fallback": {
+    "blocked": false,
+    "reason": "no suspicious indicator matched",
+    "confidence": 0.0,
+    "matched_signals": []
+  }
+}

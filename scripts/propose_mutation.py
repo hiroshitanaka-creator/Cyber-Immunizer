@@ -2,6 +2,7 @@
 
 Usage:
     python scripts/propose_mutation.py [--noop] [--offline-sample]
+                                       [--structured-rules]
                                        [--live-model --allow-live-model]
                                        [--gemini-paid-credit --allow-live-model]
                                        [--gemini-paid-credit-preflight]
@@ -15,6 +16,11 @@ Modes:
     --offline-sample
         Return the built-in sample patch without any API call.
         Safe for local development and CI smoke-tests.
+
+    --structured-rules --offline-sample
+        Return the built-in structured detector rules document without any API
+        call.  This is an explicit opt-in migration path and does not write the
+        raw Python mutation_patch.json artifact.
 
     --live-model --allow-live-model
         Call the Gemini API (free-tier / basic paid) to propose a mutation.
@@ -63,12 +69,15 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from core.structured_validator import validate_rules_schema  # noqa: E402
+
 _GENOME_PATH = _PROJECT_ROOT / "data" / "genome.json"
 _DETECTOR_PATH = _PROJECT_ROOT / "core" / "detector.py"
 _THREATS_PATH = _PROJECT_ROOT / "data" / "active_threats.json"
 _LEDGER_PATH = _PROJECT_ROOT / "data" / "api_usage_ledger.json"
 _OUT_DIR = _PROJECT_ROOT / ".cyber_immunizer"
 _OUT_PATCH = _OUT_DIR / "mutation_patch.json"
+_OUT_STRUCTURED_RULES = _OUT_DIR / "structured_rules.json"
 
 # ---------------------------------------------------------------------------
 # Required patch schema fields
@@ -225,6 +234,97 @@ _SAMPLE_MUTATION: dict = {
     )
 ''',
 }
+
+
+def build_offline_sample_structured_rules() -> dict:
+    """Build the safe offline structured-rules proposal document.
+
+    The document mirrors the neutralized symbolic indicator set used by the
+    offline raw-Python sample while keeping evaluation opt-in and data-only.
+    """
+    indicators = (
+        "path_traversal_indicator",
+        "script_injection_indicator",
+        "sqli_indicator",
+        "command_delimiter_indicator",
+        "encoded_traversal_indicator",
+    )
+    return {
+        "schema_version": 1,
+        "features": {
+            "surface": {
+                "fields": [
+                    "method",
+                    "path",
+                    "query.keys",
+                    "query.values",
+                    "headers.keys",
+                    "headers.values",
+                    "body",
+                ],
+                "normalization": ["lowercase"],
+                "max_collection_entries": {"query": 100, "headers": 100},
+                "max_scalar_bytes": {
+                    "method": 64,
+                    "path": 4096,
+                    "query.item": 4096,
+                    "header.item": 4096,
+                },
+                "body_scan": {"mode": "full", "max_bytes": 524288},
+            }
+        },
+        "rules": [
+            {
+                "id": indicator,
+                "field": "surface",
+                "operator": "contains_literal",
+                "literal": indicator,
+                "signal": indicator,
+                "confidence": 0.86,
+            }
+            for indicator in indicators
+        ],
+        "decision": {
+            "block_when": "any_rule_matches",
+            "reason": "suspicious indicator matched",
+            "confidence_strategy": {
+                "type": "bounded_match_count",
+                "default": 0.86,
+                "two_matches": 0.94,
+                "three_or_more_matches": 0.99,
+            },
+            "matched_signals": "matched_rule_signals",
+        },
+        "fallback": {
+            "blocked": False,
+            "reason": "no suspicious indicator matched",
+            "confidence": 0.0,
+            "matched_signals": [],
+        },
+    }
+
+
+def propose_structured_rules(*, offline_sample: bool = False) -> tuple[dict | None, str]:
+    """Propose a structured detector rules document. Returns (rules_doc, error).
+
+    Structured-rules proposal is currently available only for the safe offline
+    sample path.  Live model output remains on the guarded raw-Python mutation
+    path until a later migration step explicitly implements structured model
+    prompting and review gates.
+    """
+    if not offline_sample:
+        return None, (
+            "structured-rules output currently requires --offline-sample; "
+            "live structured-rules proposal is not enabled."
+        )
+
+    rules_doc = build_offline_sample_structured_rules()
+    validation = validate_rules_schema(rules_doc)
+    if not validation.get("success"):
+        return None, "structured rules validation failed: " + "; ".join(
+            str(v) for v in validation.get("violations", [])
+        )
+    return rules_doc, ""
 
 # ---------------------------------------------------------------------------
 # LLM prompt templates
@@ -2532,6 +2632,16 @@ def main(argv: list[str] | None = None) -> int:
         help="Generate a local sample patch without calling any API.",
     )
     parser.add_argument(
+        "--structured-rules",
+        action="store_true",
+        help=(
+            "Explicit opt-in to generate a structured detector rules document. "
+            "Currently supported with --offline-sample only; writes "
+            ".cyber_immunizer/structured_rules.json and does not write "
+            "mutation_patch.json."
+        ),
+    )
+    parser.add_argument(
         "--live-model",
         action="store_true",
         help=(
@@ -2604,6 +2714,48 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"Preflight FAILED: {err}", file=sys.stderr)
         return 0 if result.get("success") else 1
+
+    # ---- Structured-rules mode: explicit opt-in, no raw Python patch ----
+    if args.structured_rules:
+        if args.live_model or args.gemini_paid_credit:
+            err = (
+                "--structured-rules does not support live model modes yet; "
+                "use --structured-rules --offline-sample."
+            )
+            output = {"success": False, "error": err, "rules_path": None}
+            if args.json:
+                print(json.dumps(output, indent=2))
+            else:
+                print(f"ERROR: {err}", file=sys.stderr)
+            return 1
+
+        rules_doc, err = propose_structured_rules(offline_sample=args.offline_sample)
+        if err:
+            output = {"success": False, "error": err, "rules_path": None}
+            if args.json:
+                print(json.dumps(output, indent=2))
+            else:
+                print(f"ERROR: {err}", file=sys.stderr)
+            return 1
+
+        _OUT_DIR.mkdir(parents=True, exist_ok=True)
+        _OUT_STRUCTURED_RULES.write_text(
+            json.dumps(rules_doc, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        output = {
+            "success": True,
+            "rules_path": str(_OUT_STRUCTURED_RULES),
+            "patch_path": None,
+            "mode": "structured-rules-offline-sample",
+            "rule_count": len(rules_doc.get("rules", [])),
+        }
+        if args.json:
+            print(json.dumps(output, indent=2))
+        else:
+            print(f"Structured rules written to: {_OUT_STRUCTURED_RULES}")
+            print("Mode: structured-rules-offline-sample")
+        return 0
 
     patch, err = propose_mutation(
         offline_sample=args.offline_sample,
