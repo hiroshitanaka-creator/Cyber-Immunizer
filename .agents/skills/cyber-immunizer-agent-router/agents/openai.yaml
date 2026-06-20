@@ -1,0 +1,6 @@
+interface:
+  display_name: "Cyber-Immunizer Agent Router"
+  short_description: "Routes long-running Cyber-Immunizer work across Codex, Claude, audit, CI triage, structured rules, and owner gates."
+  default_prompt: "Use the cyber-immunizer-agent-router skill. Classify the task, check current-state authority sources, select the correct agent track, enforce Cyber-Immunizer guardrails, and produce the next atomic action."
+policy:
+  allow_implicit_invocation: true
