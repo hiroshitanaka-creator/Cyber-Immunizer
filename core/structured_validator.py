@@ -148,6 +148,7 @@ def _validate_rules(value: Any, violations: list[str]) -> None:
         violations.append("$.rules: must contain at least one rule")
     if len(value) > MAX_RULES:
         violations.append(f"$.rules: must contain at most {MAX_RULES} rules")
+        return
     seen_ids: set[str] = set()
     total_literal_bytes = 0
     for i, rule in enumerate(value):
@@ -213,16 +214,7 @@ def _validate_decision(value: Any, rules: Any, violations: list[str]) -> None:
     if not isinstance(strategy, dict):
         violations.append("$.decision.confidence_strategy: must be an object")
         return
-    _check_keys("$.decision.confidence_strategy", strategy, {"type"}, ALLOWED_CONFIDENCE_STRATEGY_KEYS, violations)
-    if strategy.get("type") not in ALLOWED_CONFIDENCE_STRATEGIES:
-        violations.append("$.decision.confidence_strategy.type: unsupported strategy")
-    for key, item in strategy.items():
-        if key == "type":
-            continue
-        if key == "minimum_match_count":
-            _check_positive_int(f"$.decision.confidence_strategy.{key}", item, violations)
-        else:
-            _check_confidence(f"$.decision.confidence_strategy.{key}", item, violations)
+    _validate_confidence_strategy(strategy, violations)
 
 
 def _validate_fallback(value: Any, violations: list[str]) -> None:
@@ -242,10 +234,18 @@ def _validate_fallback(value: Any, violations: list[str]) -> None:
 
 
 def _check_keys(path: str, obj: dict, required: set[str], allowed: set[str], violations: list[str]) -> None:
-    for key in sorted(required - obj.keys()):
+    string_keys = {key for key in obj.keys() if isinstance(key, str)}
+    for key in sorted(required - string_keys):
         violations.append(f"{path}: missing required key {key!r}")
-    for key in sorted(obj.keys() - allowed):
-        violations.append(f"{path}: unexpected key {key!r}")
+    for key in sorted(obj.keys(), key=_key_sort_token):
+        if not isinstance(key, str):
+            violations.append(f"{path}: mapping key {key!r} must be a string")
+        elif key not in allowed:
+            violations.append(f"{path}: unexpected key {key!r}")
+
+
+def _key_sort_token(key: Any) -> str:
+    return repr(key)
 
 
 def _check_unique_string_list(path: str, value: Any, allowed: set[str], violations: list[str]) -> None:
@@ -290,6 +290,28 @@ def _check_body_scan_bytes(path: str, value: Any, violations: list[str]) -> None
         )
     if value > MAX_BOUND_VALUE:
         violations.append(f"{path}: must be <= {MAX_BOUND_VALUE}")
+
+
+def _validate_confidence_strategy(strategy: dict, violations: list[str]) -> None:
+    strategy_type = strategy.get("type")
+    if strategy_type == "fixed":
+        required = {"type", "default"}
+        allowed = {"type", "default"}
+    elif strategy_type == "bounded_match_count":
+        required = {"type", "default"}
+        allowed = {"type", "default", "two_matches", "three_or_more_matches"}
+    elif strategy_type == "maximum_matched_confidence":
+        required = {"type"}
+        allowed = {"type"}
+    else:
+        _check_keys("$.decision.confidence_strategy", strategy, {"type"}, {"type"}, violations)
+        violations.append("$.decision.confidence_strategy.type: unsupported strategy")
+        return
+
+    _check_keys("$.decision.confidence_strategy", strategy, required, allowed, violations)
+    for key in sorted(allowed - {"type"}):
+        if key in strategy:
+            _check_confidence(f"$.decision.confidence_strategy.{key}", strategy[key], violations)
 
 
 def _check_minimum_match_count(

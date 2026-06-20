@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from core.structured_validator import validate_rules_schema
+from core.structured_validator import MAX_RULES, validate_rules_schema
 
 ROOT = Path(__file__).parent.parent
 CLI = ROOT / "scripts" / "validate_structured_rules.py"
@@ -246,6 +247,199 @@ def test_unencodable_fallback_reason_returns_violation_without_raising() -> None
         "fallback.reason" in violation and "valid UTF-8 encodable text" in violation
         for violation in result["violations"]
     ), result
+
+
+def test_fixed_confidence_strategy_requires_default() -> None:
+    data = illustrative_rules()
+    data["decision"]["confidence_strategy"] = {"type": "fixed"}
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert any(
+        "confidence_strategy" in violation and "missing required key 'default'" in violation
+        for violation in result["violations"]
+    ), result
+
+
+def test_fixed_confidence_strategy_with_default_passes() -> None:
+    data = illustrative_rules()
+    data["decision"]["confidence_strategy"] = {"type": "fixed", "default": 0.86}
+
+    result = validate_rules_schema(data)
+
+    assert result == {"success": True, "violations": []}
+
+
+def test_fixed_confidence_strategy_rejects_match_count_keys() -> None:
+    data = illustrative_rules()
+    data["decision"]["confidence_strategy"] = {
+        "type": "fixed",
+        "default": 0.86,
+        "two_matches": 0.94,
+    }
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert any("unexpected key 'two_matches'" in violation for violation in result["violations"]), result
+
+
+def test_bounded_match_count_confidence_strategy_requires_default() -> None:
+    data = illustrative_rules()
+    data["decision"]["confidence_strategy"] = {"type": "bounded_match_count"}
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert any(
+        "confidence_strategy" in violation and "missing required key 'default'" in violation
+        for violation in result["violations"]
+    ), result
+
+
+def test_bounded_match_count_confidence_strategy_with_default_passes() -> None:
+    data = illustrative_rules()
+    data["decision"]["confidence_strategy"] = {
+        "type": "bounded_match_count",
+        "default": 0.86,
+    }
+
+    result = validate_rules_schema(data)
+
+    assert result == {"success": True, "violations": []}
+
+
+def test_bounded_match_count_confidence_strategy_with_optional_counts_passes() -> None:
+    data = illustrative_rules()
+    data["decision"]["confidence_strategy"] = {
+        "type": "bounded_match_count",
+        "default": 0.86,
+        "two_matches": 0.94,
+        "three_or_more_matches": 0.99,
+    }
+
+    result = validate_rules_schema(data)
+
+    assert result == {"success": True, "violations": []}
+
+
+def test_bounded_match_count_confidence_strategy_rejects_minimum_match_count_key() -> None:
+    data = illustrative_rules()
+    data["decision"]["confidence_strategy"] = {
+        "type": "bounded_match_count",
+        "default": 0.86,
+        "minimum_match_count": 2,
+    }
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert any("unexpected key 'minimum_match_count'" in violation for violation in result["violations"]), result
+
+
+def test_maximum_matched_confidence_strategy_with_only_type_passes() -> None:
+    data = illustrative_rules()
+    data["decision"]["confidence_strategy"] = {"type": "maximum_matched_confidence"}
+
+    result = validate_rules_schema(data)
+
+    assert result == {"success": True, "violations": []}
+
+
+def test_maximum_matched_confidence_strategy_rejects_default() -> None:
+    data = illustrative_rules()
+    data["decision"]["confidence_strategy"] = {
+        "type": "maximum_matched_confidence",
+        "default": 0.86,
+    }
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert any("unexpected key 'default'" in violation for violation in result["violations"]), result
+
+
+@pytest.mark.parametrize("bad_value", [True, 1.1, math.nan, "0.86"])
+def test_confidence_strategy_values_use_confidence_validation(bad_value) -> None:
+    data = illustrative_rules()
+    data["decision"]["confidence_strategy"] = {
+        "type": "fixed",
+        "default": bad_value,
+    }
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert any(
+        "confidence_strategy.default" in violation
+        and "finite number in [0.0, 1.0]" in violation
+        for violation in result["violations"]
+    ), result
+
+
+def test_rules_over_cap_returns_before_walking_extra_rules() -> None:
+    data = illustrative_rules()
+    valid_rule = data["rules"][0].copy()
+    data["rules"] = [valid_rule.copy() for _ in range(MAX_RULES + 1)]
+    data["rules"][-1]["literal"] = "\ud800"
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert result["violations"] == [f"$.rules: must contain at most {MAX_RULES} rules"]
+
+
+def test_rules_over_cap_violation_count_does_not_grow_with_attacker_input() -> None:
+    data = illustrative_rules()
+    valid_rule = data["rules"][0].copy()
+    data["rules"] = [valid_rule.copy() for _ in range(MAX_RULES + 1000)]
+    data["rules"][-1] = {"literal": "\ud800", "unexpected": object()}
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert result["violations"] == [f"$.rules: must contain at most {MAX_RULES} rules"]
+
+
+def test_non_string_top_level_key_returns_violation_without_raising() -> None:
+    data = illustrative_rules()
+    data[1] = "bad"
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert any(
+        "mapping key" in violation and "must be a string" in violation
+        for violation in result["violations"]
+    ), result
+
+
+def test_non_string_nested_key_returns_violation_without_raising() -> None:
+    data = illustrative_rules()
+    data["features"]["surface"][1] = "bad"
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert any(
+        "features.surface" in violation
+        and "mapping key" in violation
+        and "must be a string" in violation
+        for violation in result["violations"]
+    ), result
+
+
+def test_key_validation_still_reports_unexpected_and_missing_string_keys() -> None:
+    data = illustrative_rules()
+    data["features"]["surface"].pop("fields")
+    data["features"]["surface"]["fieldz"] = []
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert "$.features.surface: missing required key 'fields'" in result["violations"]
+    assert "$.features.surface: unexpected key 'fieldz'" in result["violations"]
 
 
 def test_cli_json_unencodable_bounded_string_returns_json_failure(tmp_path: Path) -> None:

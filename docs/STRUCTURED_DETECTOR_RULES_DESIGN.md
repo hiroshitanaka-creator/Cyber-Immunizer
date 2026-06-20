@@ -189,7 +189,7 @@ result = validate_rules_schema(parsed_rules)
 # {"success": False, "violations": ["..."]} on validation failure
 ```
 
-The validator is intentionally strict: it rejects missing required keys, unknown fields, unsupported operators, invalid confidence values, non-positive integer bounds, duplicate feature values, duplicate rule IDs, non-integer schema versions, unencodable bounded string values, and argument-like payload keys such as `args`, `kwargs`, `*args`, and `**kwargs` because structured rules are data, not callable Python invocations. When `decision.block_when` is `minimum_match_count`, `decision.minimum_match_count` is required and must be a positive integer no larger than the number of rules; that field is rejected for other decision modes.
+The validator is intentionally strict: it rejects missing required keys, unknown fields, non-string mapping keys, unsupported operators, invalid confidence values, non-positive integer bounds, duplicate feature values, duplicate rule IDs, non-integer schema versions, unencodable bounded string values, and argument-like payload keys such as `args`, `kwargs`, `*args`, and `**kwargs` because structured rules are data, not callable Python invocations. It treats the rule-count maximum as a hard cap and returns immediately when the list is oversized. Confidence strategies use strategy-specific required and allowed keys: `fixed` and `bounded_match_count` require `default`, while `maximum_matched_confidence` accepts only `type`. When `decision.block_when` is `minimum_match_count`, `decision.minimum_match_count` is required and must be a positive integer no larger than the number of rules; that field is rejected for other decision modes.
 
 A CLI wrapper is available at `scripts/validate_structured_rules.py`:
 
