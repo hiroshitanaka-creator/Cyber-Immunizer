@@ -148,7 +148,7 @@ fallback:
 
 - Allowed fields only: `method`, `path`, `query.keys`, `query.values`, `headers.keys`, `headers.values`, and `body`.
 - Allowed normalization only: deterministic string transforms such as `lowercase`.
-- Required bounds for collection traversal and per-field string length, while preserving full-body scanning up to the current tested payload budget.
+- Required bounds for collection traversal and per-field string length, while preserving full-body scanning up to the current tested payload budget. `body_scan.max_bytes` must be at least 524288 bytes to preserve large-body coverage and may not exceed the validator's configured upper bound.
 
 The structured evaluator should not implement equivalence by truncating a single joined surface before rule matching. The current generation-4 detector scans the full request body included in the request surface, and `tests/test_detector_performance.py::test_indicator_near_end_of_large_body_is_detected` requires detecting `path_traversal_indicator` after an approximately 256 KiB benign prefix. Bounds should therefore be expressed as explicit collection, scalar-field, and body-scan budgets; body matching must cover the entire configured body budget rather than only the first few KiB of a concatenated surface.
 

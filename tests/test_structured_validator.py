@@ -121,6 +121,34 @@ def test_duplicate_rule_ids_are_rejected() -> None:
     assert_invalid(data, "duplicate rule id")
 
 
+def test_body_scan_max_bytes_below_large_body_budget_rejected() -> None:
+    data = illustrative_rules()
+    data["features"]["surface"]["body_scan"]["max_bytes"] = 1024
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert any(
+        "body_scan.max_bytes" in violation
+        and "large-body coverage" in violation
+        and "524288" in violation
+        for violation in result["violations"]
+    ), result
+
+
+def test_body_scan_max_bytes_upper_bound_remains_enforced() -> None:
+    data = illustrative_rules()
+    data["features"]["surface"]["body_scan"]["max_bytes"] = 1_048_577
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert any(
+        "body_scan.max_bytes" in violation and "1048576" in violation
+        for violation in result["violations"]
+    ), result
+
+
 def test_positional_args_and_call_signature_shapes_are_rejected() -> None:
     data = illustrative_rules()
     data["rules"][0].update({"args": ["body"], "kwargs": {"literal": "x"}})

@@ -65,6 +65,7 @@ MAX_SIGNAL_BYTES = 128
 MAX_REASON_BYTES = 512
 MAX_MATCHED_SIGNALS = 64
 MAX_BOUND_VALUE = 1_048_576
+MIN_BODY_SCAN_BYTES = 524_288
 
 
 def validate_rules_schema(data: dict) -> dict:
@@ -130,7 +131,7 @@ def _validate_features(value: Any, violations: list[str]) -> None:
     _check_keys("$.features.surface.body_scan", body_scan, {"mode", "max_bytes"}, {"mode", "max_bytes"}, violations)
     if body_scan.get("mode") != "full":
         violations.append("$.features.surface.body_scan.mode: must be 'full'")
-    _check_positive_int("$.features.surface.body_scan.max_bytes", body_scan.get("max_bytes"), violations)
+    _check_body_scan_bytes("$.features.surface.body_scan.max_bytes", body_scan.get("max_bytes"), violations)
 
 
 def _validate_rules(value: Any, violations: list[str]) -> None:
@@ -244,6 +245,19 @@ def _check_positive_int_map(path: str, value: Any, allowed_keys: set[str], viola
 def _check_positive_int(path: str, value: Any, violations: list[str]) -> None:
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0 or value > MAX_BOUND_VALUE:
         violations.append(f"{path}: must be a positive integer <= {MAX_BOUND_VALUE}")
+
+
+def _check_body_scan_bytes(path: str, value: Any, violations: list[str]) -> None:
+    if not isinstance(value, int) or isinstance(value, bool):
+        violations.append(f"{path}: must be an integer")
+        return
+    if value < MIN_BODY_SCAN_BYTES:
+        violations.append(
+            f"{path}: must be >= {MIN_BODY_SCAN_BYTES} "
+            "to preserve large-body coverage"
+        )
+    if value > MAX_BOUND_VALUE:
+        violations.append(f"{path}: must be <= {MAX_BOUND_VALUE}")
 
 
 def _check_confidence(path: str, value: Any, violations: list[str]) -> None:
