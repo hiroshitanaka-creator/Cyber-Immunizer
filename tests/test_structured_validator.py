@@ -87,6 +87,17 @@ def test_illustrative_json_shape_passes() -> None:
     assert result == {"success": True, "violations": []}
 
 
+@pytest.mark.parametrize("schema_version", [1.0, True, "1", 2])
+def test_schema_version_must_be_strict_integer_one(schema_version) -> None:
+    data = illustrative_rules()
+    data["schema_version"] = schema_version
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert "$.schema_version: must be integer 1" in result["violations"]
+
+
 @pytest.mark.parametrize(
     ("mutate", "fragment"),
     [
@@ -147,6 +158,115 @@ def test_body_scan_max_bytes_upper_bound_remains_enforced() -> None:
         "body_scan.max_bytes" in violation and "1048576" in violation
         for violation in result["violations"]
     ), result
+
+
+def test_minimum_match_count_requires_threshold() -> None:
+    data = illustrative_rules()
+    data["decision"]["block_when"] = "minimum_match_count"
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert any(
+        "decision.minimum_match_count" in violation
+        and "required" in violation
+        for violation in result["violations"]
+    ), result
+
+
+def test_minimum_match_count_with_valid_threshold_passes() -> None:
+    data = illustrative_rules()
+    data["decision"]["block_when"] = "minimum_match_count"
+    data["decision"]["minimum_match_count"] = 2
+
+    result = validate_rules_schema(data)
+
+    assert result == {"success": True, "violations": []}
+
+
+@pytest.mark.parametrize(
+    ("threshold", "fragment"),
+    [
+        (0, "must be >= 1"),
+        (True, "must be an integer"),
+        (3, "must be <= number of rules (2)"),
+    ],
+)
+def test_minimum_match_count_invalid_thresholds_are_rejected(threshold, fragment: str) -> None:
+    data = illustrative_rules()
+    data["decision"]["block_when"] = "minimum_match_count"
+    data["decision"]["minimum_match_count"] = threshold
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert any(
+        "decision.minimum_match_count" in violation and fragment in violation
+        for violation in result["violations"]
+    ), result
+
+
+@pytest.mark.parametrize("block_when", ["any_rule_matches", "all_rules_match"])
+def test_minimum_match_count_forbidden_for_other_decision_modes(block_when: str) -> None:
+    data = illustrative_rules()
+    data["decision"]["block_when"] = block_when
+    data["decision"]["minimum_match_count"] = 1
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert any(
+        "decision.minimum_match_count" in violation
+        and "allowed only" in violation
+        for violation in result["violations"]
+    ), result
+
+
+def test_unencodable_rule_literal_returns_violation_without_raising() -> None:
+    data = illustrative_rules()
+    data["rules"][0]["literal"] = "\ud800"
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert any(
+        "rules[0].literal" in violation and "valid UTF-8 encodable text" in violation
+        for violation in result["violations"]
+    ), result
+
+
+def test_unencodable_fallback_reason_returns_violation_without_raising() -> None:
+    data = illustrative_rules()
+    data["fallback"]["reason"] = "\ud800"
+
+    result = validate_rules_schema(data)
+
+    assert result["success"] is False
+    assert any(
+        "fallback.reason" in violation and "valid UTF-8 encodable text" in violation
+        for violation in result["violations"]
+    ), result
+
+
+def test_cli_json_unencodable_bounded_string_returns_json_failure(tmp_path: Path) -> None:
+    data = illustrative_rules()
+    data["rules"][0]["literal"] = "\ud800"
+    rules_path = tmp_path / "rules.json"
+    rules_path.write_text(json.dumps(data), encoding="utf-8")
+
+    completed = subprocess.run(
+        [sys.executable, str(CLI), "--json", str(rules_path)],
+        check=False,
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+    )
+
+    assert completed.returncode == 1
+    result = json.loads(completed.stdout)
+    assert result["success"] is False
+    assert any("valid UTF-8" in violation for violation in result["violations"])
+    assert "Traceback" not in completed.stderr
 
 
 def test_positional_args_and_call_signature_shapes_are_rejected() -> None:

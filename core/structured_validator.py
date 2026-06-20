@@ -41,6 +41,7 @@ ALLOWED_DECISION_KEYS = {
     "reason",
     "confidence_strategy",
     "matched_signals",
+    "minimum_match_count",
 }
 ALLOWED_BLOCK_WHEN = {"any_rule_matches", "all_rules_match", "minimum_match_count"}
 ALLOWED_CONFIDENCE_STRATEGY_KEYS = {
@@ -83,12 +84,17 @@ def validate_rules_schema(data: dict) -> dict:
         return {"success": False, "violations": ["$: document must be an object"]}
 
     _check_keys("$", data, ALLOWED_TOP_LEVEL_KEYS, ALLOWED_TOP_LEVEL_KEYS, violations)
-    if data.get("schema_version") != 1 or isinstance(data.get("schema_version"), bool):
+    schema_version = data.get("schema_version")
+    if (
+        not isinstance(schema_version, int)
+        or isinstance(schema_version, bool)
+        or schema_version != 1
+    ):
         violations.append("$.schema_version: must be integer 1")
 
     _validate_features(data.get("features"), violations)
     _validate_rules(data.get("rules"), violations)
-    _validate_decision(data.get("decision"), violations)
+    _validate_decision(data.get("decision"), data.get("rules"), violations)
     _validate_fallback(data.get("fallback"), violations)
     return {"success": not violations, "violations": violations}
 
@@ -151,7 +157,7 @@ def _validate_rules(value: Any, violations: list[str]) -> None:
             continue
         _check_keys(path, rule, ALLOWED_RULE_KEYS, ALLOWED_RULE_KEYS, violations)
         rule_id = rule.get("id")
-        if _check_bounded_string(f"{path}.id", rule_id, MAX_ID_BYTES, violations) and rule_id in seen_ids:
+        if _check_bounded_string(f"{path}.id", rule_id, MAX_ID_BYTES, violations) is not None and rule_id in seen_ids:
             violations.append(f"{path}.id: duplicate rule id {rule_id!r}")
         if isinstance(rule_id, str):
             seen_ids.add(rule_id)
@@ -159,24 +165,50 @@ def _validate_rules(value: Any, violations: list[str]) -> None:
             violations.append(f"{path}.field: must be 'surface'")
         if rule.get("operator") not in ALLOWED_OPERATORS:
             violations.append(f"{path}.operator: unsupported operator {rule.get('operator')!r}")
-        if _check_bounded_string(f"{path}.literal", rule.get("literal"), MAX_LITERAL_BYTES, violations):
-            total_literal_bytes += len(rule["literal"].encode("utf-8"))
+        literal_bytes = _check_bounded_string(f"{path}.literal", rule.get("literal"), MAX_LITERAL_BYTES, violations)
+        if literal_bytes is not None:
+            total_literal_bytes += literal_bytes
         _check_bounded_string(f"{path}.signal", rule.get("signal"), MAX_SIGNAL_BYTES, violations)
         _check_confidence(f"{path}.confidence", rule.get("confidence"), violations)
     if total_literal_bytes > MAX_TOTAL_LITERAL_BYTES:
         violations.append(f"$.rules: total literal bytes must be <= {MAX_TOTAL_LITERAL_BYTES}")
 
 
-def _validate_decision(value: Any, violations: list[str]) -> None:
+def _validate_decision(value: Any, rules: Any, violations: list[str]) -> None:
     if not isinstance(value, dict):
         violations.append("$.decision: must be an object")
         return
-    _check_keys("$.decision", value, ALLOWED_DECISION_KEYS, ALLOWED_DECISION_KEYS, violations)
-    if value.get("block_when") not in ALLOWED_BLOCK_WHEN:
+    _check_keys(
+        "$.decision",
+        value,
+        {"block_when", "reason", "confidence_strategy", "matched_signals"},
+        ALLOWED_DECISION_KEYS,
+        violations,
+    )
+    block_when = value.get("block_when")
+    if block_when not in ALLOWED_BLOCK_WHEN:
         violations.append("$.decision.block_when: unsupported decision mode")
     _check_bounded_string("$.decision.reason", value.get("reason"), MAX_REASON_BYTES, violations)
     if value.get("matched_signals") != "matched_rule_signals":
         violations.append("$.decision.matched_signals: must be 'matched_rule_signals'")
+    rule_count = len(rules) if isinstance(rules, list) else None
+    minimum_match_count = value.get("minimum_match_count")
+    if block_when == "minimum_match_count":
+        if "minimum_match_count" not in value:
+            violations.append(
+                "$.decision.minimum_match_count: required when block_when is 'minimum_match_count'"
+            )
+        else:
+            _check_minimum_match_count(
+                "$.decision.minimum_match_count",
+                minimum_match_count,
+                rule_count,
+                violations,
+            )
+    elif "minimum_match_count" in value:
+        violations.append(
+            "$.decision.minimum_match_count: allowed only when block_when is 'minimum_match_count'"
+        )
     strategy = value.get("confidence_strategy")
     if not isinstance(strategy, dict):
         violations.append("$.decision.confidence_strategy: must be an object")
@@ -260,6 +292,21 @@ def _check_body_scan_bytes(path: str, value: Any, violations: list[str]) -> None
         violations.append(f"{path}: must be <= {MAX_BOUND_VALUE}")
 
 
+def _check_minimum_match_count(
+    path: str,
+    value: Any,
+    rule_count: int | None,
+    violations: list[str],
+) -> None:
+    if not isinstance(value, int) or isinstance(value, bool):
+        violations.append(f"{path}: must be an integer")
+        return
+    if value < 1:
+        violations.append(f"{path}: must be >= 1")
+    if rule_count is not None and value > rule_count:
+        violations.append(f"{path}: must be <= number of rules ({rule_count})")
+
+
 def _check_confidence(path: str, value: Any, violations: list[str]) -> None:
     if (
         not isinstance(value, (int, float))
@@ -270,14 +317,25 @@ def _check_confidence(path: str, value: Any, violations: list[str]) -> None:
         violations.append(f"{path}: must be a finite number in [0.0, 1.0]")
 
 
-def _check_bounded_string(path: str, value: Any, max_bytes: int, violations: list[str]) -> bool:
+def _check_bounded_string(path: str, value: Any, max_bytes: int, violations: list[str]) -> int | None:
     if not isinstance(value, str):
         violations.append(f"{path}: must be a string")
-        return False
+        return None
     if not value:
         violations.append(f"{path}: must be non-empty")
-        return False
-    if len(value.encode("utf-8")) > max_bytes:
+        return None
+    byte_length = _utf8_len(path, value, violations)
+    if byte_length is None:
+        return None
+    if byte_length > max_bytes:
         violations.append(f"{path}: must be at most {max_bytes} bytes")
-        return False
-    return True
+        return None
+    return byte_length
+
+
+def _utf8_len(path: str, value: str, violations: list[str]) -> int | None:
+    try:
+        return len(value.encode("utf-8"))
+    except UnicodeEncodeError:
+        violations.append(f"{path}: must be valid UTF-8 encodable text")
+        return None
