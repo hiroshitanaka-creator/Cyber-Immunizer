@@ -1,0 +1,3 @@
+display_name: Cyber-Immunizer MITRE DevSecOps
+short_description: Defensive MITRE audit workflow for Cyber-Immunizer.
+default_prompt: Run a defensive Cyber-Immunizer security audit with MITRE ATT&CK mapping, no exploit steps, and repository guardrails.
