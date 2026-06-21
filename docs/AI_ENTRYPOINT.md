@@ -48,10 +48,25 @@ See `docs/audit_gate/PR_AUDIT_PROTOCOL.md` (Terminology rule section) for the fu
 
 ---
 
+## Mandatory orientation (read before any task)
+
+**For value / deliverable / roadmap / completion tasks**: read `docs/VALUE_DELIVERY_BLUEPRINT.md`
+and `docs/DEFINITION_OF_DONE.md` before starting. These define what counts as a
+high-level deliverable, which layer a task advances, and what blocks externalization.
+They do not override current-state SSOT (`data/project_state.json`, `docs/PROJECT_STATE.md`,
+`data/genome.json`, machine evidence).
+
+**For all other tasks** (implementation, PR audit, thread handoff, etc.): use the task
+table below directly. Do not force-read value documents as a process tax before routine tasks.
+
+---
+
 ## Task reference table
 
 | User request / task | Read first | Then read |
 |---|---|---|
+| Value / deliverable / "is this worth building" / 価値判断 / roadmap of outputs | docs/VALUE_DELIVERY_BLUEPRINT.md | docs/DEFINITION_OF_DONE.md, docs/PROJECT_STATE.md, data/project_state.json |
+| Completion / DoD / layer judgment / "which layer does this advance" | docs/DEFINITION_OF_DONE.md | docs/VALUE_DELIVERY_BLUEPRINT.md, docs/PROJECT_STATE.md |
 | PR audit / merge decision | docs/audit_gate/PR_AUDIT_PROTOCOL.md | docs/AUDIT_CHARTER.md, docs/audit_gate/CHANGELOG.md |
 | Implementation task prompt / Claude Code prompt / Codex task prompt | docs/audit_gate/TASK_PROMPT_PROTOCOL.md | docs/audit_gate/PR_AUDIT_PROTOCOL.md, docs/audit_gate/CHANGELOG.md, relevant canonical implementation/tests/docs for the target scope |
 | GPT drift / pullback prompt | docs/audit_gate/PULLBACK_PROMPT.md | docs/audit_gate/CHANGELOG.md |
