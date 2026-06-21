@@ -70,6 +70,30 @@ python3 -m pytest tests/ -x -q
 - `--history-path` 明示指定が動作することを確認: ✅
 - CLI 出力に symbolic corpus / real-world limitation 文言が含まれることを確認: ✅
 
+## PR #154 対応（スコアスキーマ移行修正）— 追記
+
+本タスク報告は PR #154 の実装を含む（PR #151 の実質的な後継）。PR #151 はこの PR が受理された後にクローズまたは無効化されること。
+
+### スコアスキーマ移行問題
+
+PR #154 で以下の追加修正を実施した：
+
+**問題:** `cli/report.py` が Generation 1 を "Default Scored Comparison" の `before` として使用しており、Generation 4（新スキーマ）と比較していた。しかし Generation 1/2 は旧スキーマ（`-10.0 * changed_lines` ペナルティ有り）で採点されており、Generation 3+ の新スキーマとは直接比較不可。
+
+**修正内容:**
+- `_PRE_MIGRATION_MAX_GENERATION = 2` 定数を追加（境界: gen ≤ 2 = 旧スキーマ、gen ≥ 3 = 新スキーマ）
+- `_is_pre_migration(entry)` 関数を追加
+- `_first_same_schema_measured_generation(history, current_gen)` 関数を追加（同スキーマの最初の計測世代を返す）
+- `_score_for_display()` を修正: 移行前世代のスコアに "(pre-migration)" ラベルを付与
+- `build_markdown()` を修正: 同スキーマ世代のみを比較（Gen 3 → Gen 4）、スコアスキーマ移行セクションを追加
+- 同スキーマのベースラインが存在しない場合は "No same-schema baseline available" を出力（クロススキーマ比較を抑制）
+
+**テスト更新:**
+- `_write_history()` に Gen 3（947.66, 新スキーマ）を追加
+- `_write_history_no_same_schema_baseline()` ヘルパーを追加
+- 2テスト名変更・修正 + 2テスト新規追加（計9テスト）
+- `pytest tests/ -x -q` → 2670 passed
+
 ## 残存事項・注意点
 
 - console-script エントリポイント（`cyber-immunize` コマンド）は、install 検証が完了するまで追加しない。
