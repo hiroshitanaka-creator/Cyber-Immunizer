@@ -9,43 +9,65 @@ import pytest
 from cli import report
 
 
-def _write_history(repo_root: Path) -> Path:
+# Generation 1 and Generation 2 carry pre-migration scores (older fitness
+# formula). Generation 3 and Generation 4 are post-migration / same-schema.
+_FULL_HISTORY = [
+    {
+        "generation": 0,
+        "score": -1000000.0,
+        "passed_adoption_gate": False,
+        "promoted_at": "2026-05-26T00:00:00Z",
+        "note": "Initial baseline generation",
+    },
+    {
+        "generation": 1,
+        "score": 383.67051093329087,
+        "passed_adoption_gate": True,
+        "promoted_at": "2026-05-26T01:09:22.857101Z",
+        "tp_rate": 1.0,
+        "fp_rate": 0.0,
+        "fn_rate": 0.0,
+        "total_cases": 15,
+    },
+    {
+        "generation": 2,
+        "score": 729.34,
+        "passed_adoption_gate": True,
+        "promoted_at": "2026-05-26T07:28:45.915954Z",
+        "tp_rate": 1.0,
+        "fp_rate": 0.0,
+        "fn_rate": 0.0,
+        "total_cases": 15,
+    },
+    {
+        "generation": 3,
+        "score": 947.66,
+        "passed_adoption_gate": True,
+        "promoted_at": "2026-06-18T02:13:36.244423Z",
+        "tp_rate": 1.0,
+        "fp_rate": 0.0,
+        "fn_rate": 0.0,
+        "total_cases": 15,
+    },
+    {
+        "generation": 4,
+        "score": 948.04,
+        "passed_adoption_gate": True,
+        "promoted_at": "2026-06-18T09:26:32.863814Z",
+        "tp_rate": 1.0,
+        "fp_rate": 0.0,
+        "fn_rate": 0.0,
+        "total_cases": 15,
+    },
+]
+
+
+def _write_history(repo_root: Path, entries: list[dict] | None = None) -> Path:
     data_dir = repo_root / "data"
     data_dir.mkdir(parents=True)
     history_path = data_dir / "evolution_history.json"
     history_path.write_text(
-        json.dumps(
-            [
-                {
-                    "generation": 0,
-                    "score": -1000000.0,
-                    "passed_adoption_gate": False,
-                    "promoted_at": "2026-05-26T00:00:00Z",
-                    "note": "Initial baseline generation",
-                },
-                {
-                    "generation": 1,
-                    "score": 383.67051093329087,
-                    "passed_adoption_gate": True,
-                    "promoted_at": "2026-05-26T01:09:22.857101Z",
-                    "tp_rate": 1.0,
-                    "fp_rate": 0.0,
-                    "fn_rate": 0.0,
-                    "total_cases": 15,
-                },
-                {
-                    "generation": 4,
-                    "score": 948.04,
-                    "passed_adoption_gate": True,
-                    "promoted_at": "2026-06-18T09:26:32.863814Z",
-                    "tp_rate": 1.0,
-                    "fp_rate": 0.0,
-                    "fn_rate": 0.0,
-                    "total_cases": 15,
-                },
-            ],
-            indent=2,
-        ),
+        json.dumps(entries if entries is not None else _FULL_HISTORY, indent=2),
         encoding="utf-8",
     )
     return history_path
@@ -57,22 +79,86 @@ def test_generation_zero_placeholder_not_used_as_measured_score_delta(tmp_path: 
 
     markdown = report.build_markdown(repo_root=repo_root)
 
-    assert "Gen 1 measured baseline" in markdown
-    assert "Gen 4 current" in markdown
     assert "unevaluated placeholder" in markdown
+    # Generation 0 sentinel score must never appear in a measured delta.
     assert "-1000000.0000" not in markdown
     assert "+1000948.0400" not in markdown
+    # The measured-delta baseline is a post-migration generation, not gen0.
+    assert "Gen 0 measured baseline" not in markdown
 
 
-def test_default_scored_comparison_uses_generation_one_to_current(tmp_path: Path):
+def test_default_measured_comparison_uses_same_schema_generation_three_to_four(tmp_path: Path):
     repo_root = tmp_path / "repo"
     _write_history(repo_root)
 
     markdown = report.build_markdown(repo_root=repo_root)
 
-    assert "| Fitness score | 383.6705 | 948.0400 | +564.3695 |" in markdown
-    assert "| Generation | 1 | 4 | +3.0000 |" in markdown
+    # Default measured comparison is same-schema gen3 -> gen4.
+    assert "Gen 3 measured baseline" in markdown
+    assert "Gen 4 current" in markdown
+    assert "| Fitness score | 947.6600 | 948.0400 | +0.3800 |" in markdown
+    assert "| Generation | 3 | 4 | +1.0000 |" in markdown
+
+
+def test_cross_schema_generation_one_to_four_delta_is_not_displayed(tmp_path: Path):
+    repo_root = tmp_path / "repo"
+    _write_history(repo_root)
+
+    markdown = report.build_markdown(repo_root=repo_root)
+
+    # The pre-migration -> post-migration delta must not be presented as measured.
+    assert "| Fitness score | 383.6705 | 948.0400 | +564.3695 |" not in markdown
+    assert "Gen 1 measured baseline" not in markdown
+    assert "Gen 2 measured baseline" not in markdown
+    # No measured delta should originate from the gen0 sentinel either.
     assert "| Fitness score | -1000000.0000 | 948.0400 |" not in markdown
+
+
+def test_pre_migration_generations_remain_visible_as_lineage_only(tmp_path: Path):
+    repo_root = tmp_path / "repo"
+    _write_history(repo_root)
+
+    markdown = report.build_markdown(repo_root=repo_root)
+
+    # Gen1 and Gen2 stay visible in the evidence table as historical lineage.
+    assert "383.6705" in markdown
+    assert "729.3400" in markdown
+    assert "pre-migration lineage" in markdown
+    assert "post-migration (same-schema)" in markdown
+
+
+def test_report_includes_score_schema_migration_note(tmp_path: Path):
+    repo_root = tmp_path / "repo"
+    _write_history(repo_root)
+
+    markdown = report.build_markdown(repo_root=repo_root)
+
+    assert (
+        "Scores before the Generation 3 score-schema migration are historical"
+        in markdown
+    )
+    assert "Cross-schema score deltas are not measured improvement." in markdown
+    assert (
+        "Current internal symbolic-corpus evidence still does not prove "
+        "real-world defensive value." in markdown
+    )
+
+
+def test_score_delta_suppressed_when_no_same_schema_pair(tmp_path: Path):
+    repo_root = tmp_path / "repo"
+    # Only gen0 placeholder + pre-migration gen1/gen2 + a single post-migration
+    # gen3 → fewer than two same-schema records → delta must be suppressed.
+    _write_history(repo_root, entries=_FULL_HISTORY[:4])
+
+    markdown = report.build_markdown(repo_root=repo_root)
+
+    assert "Score delta suppressed: score schema changed before Generation 3." in markdown
+    # No silent fallback to a cross-schema measured delta.
+    assert "measured baseline | Gen" not in markdown
+    assert "| Fitness score | 383.6705 | 947.6600 |" not in markdown
+    # Pre-migration scores still visible as lineage.
+    assert "383.6705" in markdown
+    assert "pre-migration lineage" in markdown
 
 
 @pytest.mark.parametrize("protected_relative", ["data/genome.json", "data/evolution_history.json"])
@@ -97,7 +183,7 @@ def test_explicit_history_path_works(tmp_path: Path):
     markdown = report.build_markdown(history_path=history_path)
 
     assert "Source: `data/evolution_history.json`" in markdown
-    assert "Gen 1 measured baseline" in markdown
+    assert "Gen 3 measured baseline" in markdown
 
 
 def test_explicit_repo_root_works(tmp_path: Path):

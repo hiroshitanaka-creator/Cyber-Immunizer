@@ -193,6 +193,8 @@ Cyber-Immunizer/
 
 現時点ではリポジトリ checkout 上での直接実行のみを前提とします。`data/evolution_history.json` を読むだけで、検出器・genome・台帳・ワークフローは変更せず、API 呼び出しも行いません。
 
+スコアスキーマ注記：Generation 3 のスコアスキーマ移行より前のスコア（Generation 1 / 2）は historical lineage であり、移行後のスコアとは直接比較できません。測定済みスコアデルタは same-schema（移行後）レコードのみで報告し、デフォルトの測定比較は Generation 3 → Generation 4 です。Generation 0 は未評価プレースホルダで、scored baseline には使いません。same-schema のペアが得られない場合はスコアデルタを抑制します。
+
 ```bash
 python -m cli.report --repo-root .
 python -m cli.report --repo-root . --export /tmp/cyber-immunizer-report.md

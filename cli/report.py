@@ -38,6 +38,15 @@ _PROTECTED_REPO_PATHS = (
     "docs/VALUE_DELIVERY_BLUEPRINT.md",
 )
 
+# Generation 1 and Generation 2 were scored with an older fitness formula.
+# Generation 3 onward use the post-migration / generation-invariant score.
+# Measured score deltas must only compare same-schema (post-migration) records,
+# so the migration boundary is the first post-migration generation.
+_SCHEMA_MIGRATION_GENERATION = 3
+_SCORE_DELTA_SUPPRESSED_MESSAGE = (
+    "Score delta suppressed: score schema changed before Generation 3."
+)
+
 
 class ReportError(ValueError):
     """Raised for user-correctable report generation errors."""
@@ -64,19 +73,35 @@ def _select_generation(history: Sequence[dict[str, Any]], generation: int) -> di
     raise ReportError(f"Generation {generation} not found in evolution history")
 
 
-def _current_generation(history: Sequence[dict[str, Any]]) -> dict[str, Any]:
-    if not history:
-        raise ReportError("Evolution history is empty")
-    return max(history, key=lambda item: int(item["generation"]))
+def _has_numeric_score(entry: dict[str, Any]) -> bool:
+    score = entry.get("score")
+    return isinstance(score, (int, float)) and not isinstance(score, bool)
 
 
-def _first_measured_generation(history: Sequence[dict[str, Any]]) -> dict[str, Any]:
+def _same_schema_measured(history: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return post-migration generations carrying a numeric score, ordered by generation.
+
+    Generation 0 (unevaluated placeholder) and pre-migration generations
+    (older fitness formula) are excluded so measured deltas never compare
+    incompatible score scales.
+    """
+    records: list[dict[str, Any]] = []
     for entry in history:
-        if int(entry["generation"]) == 0:
+        if int(entry["generation"]) < _SCHEMA_MIGRATION_GENERATION:
             continue
-        if isinstance(entry.get("score"), (int, float)) and not isinstance(entry.get("score"), bool):
-            return entry
-    raise ReportError("No measured generation with a numeric score was found")
+        if not _has_numeric_score(entry):
+            continue
+        records.append(entry)
+    return records
+
+
+def _schema_basis(entry: dict[str, Any]) -> str:
+    generation = int(entry["generation"])
+    if generation == 0:
+        return "unevaluated placeholder"
+    if generation < _SCHEMA_MIGRATION_GENERATION:
+        return "pre-migration lineage"
+    return "post-migration (same-schema)"
 
 
 def _format_value(value: Any) -> str:
@@ -180,8 +205,7 @@ def build_markdown(*, repo_root: Path | None = None, history_path: Path | None =
     resolved_history_path = _resolve_history_path(resolved_repo_root, history_path)
     history = _load_history(resolved_history_path)
     placeholder = _select_generation(history, 0)
-    before = _first_measured_generation(history)
-    after = _current_generation(history)
+    same_schema = _same_schema_measured(history)
 
     lines = [
         "# Cyber-Immunizer Owner/Auditor Evolution Validation Report",
@@ -192,21 +216,49 @@ def build_markdown(*, repo_root: Path | None = None, history_path: Path | None =
         "",
         f"Source: `{_relative_to_repo(resolved_history_path, resolved_repo_root)}`",
         "",
+        "## Score Schema Note",
+        "",
+        "Score schema note: Scores before the Generation 3 score-schema migration are historical "
+        "lineage values and are not directly comparable with post-migration scores. Measured score "
+        "deltas are reported only for same-schema records.",
+        "",
+        "- Generation 0 is an unevaluated placeholder.",
+        "- Pre-migration scores (Generation 1 and Generation 2) are historical lineage only.",
+        "- Cross-schema score deltas are not measured improvement.",
+        "- The default measured score comparison uses same-schema (post-migration) records only.",
+        "- Current internal symbolic-corpus evidence still does not prove real-world defensive value.",
+        "",
         "## Default Scored Comparison",
         "",
-        f"Measured score deltas exclude generation 0 because it is an unevaluated placeholder sentinel, not a measured baseline.",
-        "",
-        f"| Metric | Gen {before['generation']} measured baseline | Gen {after['generation']} current | Delta |",
-        "|---|---:|---:|---:|",
     ]
-    for field in _MEASURED_COLUMNS:
-        lines.append(
-            "| "
-            f"{_metric_label(field)} | "
-            f"{_format_value(before.get(field))} | "
-            f"{_format_value(after.get(field))} | "
-            f"{_delta(before, after, field)} |"
-        )
+    if len(same_schema) >= 2:
+        before = same_schema[0]
+        after = same_schema[-1]
+        lines.extend([
+            f"Measured score deltas use same-schema generations only "
+            f"(Generation {before['generation']} -> Generation {after['generation']}). "
+            "Generation 0 is excluded as an unevaluated placeholder, and pre-migration "
+            "generations are excluded because their scores use an incompatible formula.",
+            "",
+            f"| Metric | Gen {before['generation']} measured baseline | Gen {after['generation']} current | Delta |",
+            "|---|---:|---:|---:|",
+        ])
+        for field in _MEASURED_COLUMNS:
+            lines.append(
+                "| "
+                f"{_metric_label(field)} | "
+                f"{_format_value(before.get(field))} | "
+                f"{_format_value(after.get(field))} | "
+                f"{_delta(before, after, field)} |"
+            )
+    else:
+        lines.extend([
+            _SCORE_DELTA_SUPPRESSED_MESSAGE,
+            "",
+            "Fewer than two same-schema (post-migration) generations with numeric scores are "
+            "available, so a measured score delta is not reported. Pre-migration scores remain "
+            "visible below as historical lineage only.",
+        ])
 
     lines.extend([
         "",
@@ -225,14 +277,17 @@ def build_markdown(*, repo_root: Path | None = None, history_path: Path | None =
         "",
         "## Generation Evidence",
         "",
-        "| Generation | Score | TP rate | FP rate | FN rate | Cases | Gate | Promoted at |",
-        "|---:|---|---:|---:|---:|---:|---|---|",
+        "Pre-migration generations are shown for lineage only and are not used for measured score deltas.",
+        "",
+        "| Generation | Score | Schema basis | TP rate | FP rate | FN rate | Cases | Gate | Promoted at |",
+        "|---:|---|---|---:|---:|---:|---:|---|---|",
     ])
     for entry in history:
         lines.append(
             "| "
             f"{_format_value(entry.get('generation'))} | "
             f"{_score_for_display(entry)} | "
+            f"{_schema_basis(entry)} | "
             f"{_format_value(entry.get('tp_rate'))} | "
             f"{_format_value(entry.get('fp_rate'))} | "
             f"{_format_value(entry.get('fn_rate'))} | "
