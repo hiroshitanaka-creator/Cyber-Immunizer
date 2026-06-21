@@ -151,7 +151,7 @@ def test_project_state_matches_ledger_success_count() -> None:
         f"data/project_state.json declares {declared} success records "
         f"but ledger has {actual}"
     )
-    assert actual == 10, "ledger must contain exactly 10 primary-model paid-credit success records"
+    assert actual == 13, "ledger must contain exactly 13 primary-model paid-credit success records"
 
 
 # 5.
@@ -323,10 +323,10 @@ def test_project_state_doc_no_stale_3_calls_claim() -> None:
 
 
 # 19.
-def test_project_state_doc_shows_10_success_records() -> None:
+def test_project_state_doc_shows_13_success_records() -> None:
     text = _PROJECT_STATE_DOC.read_text(encoding="utf-8")
-    assert "**10**" in text, (
-        "docs/PROJECT_STATE.md must show 10 primary-model paid-credit success records"
+    assert "**13**" in text, (
+        "docs/PROJECT_STATE.md must show 13 primary-model paid-credit success records"
     )
 
 
