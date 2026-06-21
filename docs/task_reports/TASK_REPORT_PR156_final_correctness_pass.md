@@ -19,9 +19,9 @@ scalar null 拒否修正・`_make_request()` body 修正・`_TIER_TAGS` / `per_t
 |---|---|---|
 | `cli/structured_eval.py` | 変更 | scalar null 修正・body 修正・`_TIER_TAGS`・`per_tier` 集計・Markdown/JSON 出力追加 |
 | `scripts/propose_mutation.py` | 変更 | GOOD example `.values()` → `.items()` でキー+値を両方包含 |
-| `tests/test_structured_eval_cli.py` | 変更 | 63 → 77 テスト（null rejection・source_ip null 受容・per_tier・L2-V3 Tier セクション） |
-| `docs/task_reports/TASK_REPORT_structured_eval_layer2_framework.md` | 変更 | 39テスト→77テスト / 2709→2747 に更新 |
-| `docs/task_reports/TASK_REPORT_PR156.md` | 変更 | 2727 → 2747 に更新 |
+| `tests/test_structured_eval_cli.py` | 変更 | 63 → 84 テスト（null rejection・source_ip null 受容・per_tier・L2-V3 Tier セクション・明示 null 拒否） |
+| `docs/task_reports/TASK_REPORT_structured_eval_layer2_framework.md` | 変更 | 39テスト→84テスト / 2709→2754 に更新 |
+| `docs/task_reports/TASK_REPORT_PR156.md` | 変更 | 2727 → 2754 に更新 |
 
 ---
 
@@ -49,15 +49,19 @@ scalar null 拒否修正・`_make_request()` body 修正・`_TIER_TAGS` / `per_t
 - `.values()` → `.items()` で `k, v` ペアを展開し、クエリ/ヘッダーのキーも surface に含める
 - プロンプトヘッドルーム: +54 chars 増加で約 216 chars 残存（最小 200 chars 要件 ✅）
 
-### 5. テスト追加（63 → 77 テスト）
+### 5. テスト追加（63 → 84 テスト）
 
-- `test_load_corpus_rejects_malformed` 17 → 20 ケース（`method=null`・`path=null`・`body=null` の 3 件追加）
+- `test_load_corpus_rejects_malformed` 17 → 25 ケース（`method=null`・`path=null`・`body=null` の 3 件 + `query=null`・`headers=null` + `id=null`・`kind=null`・`tags=null` の明示 null 拒否を追加）
 - `TestLoadCorpus.test_source_ip_null_is_accepted` — source_ip=null が受容されることを確認
-- `TestLoadCorpus.test_build_json_report_null_path_raises_eval_error` — エンドツーエンド EvalError 確認
-- `TestMainCLI.test_main_exits_2_on_null_body_corpus` — CLI exit-code-2 確認
+- `TestLoadCorpus.test_build_json_report_null_path_raises_eval_error` — エンドツーエンド EvalError 確認（path=null）
+- `TestLoadCorpus.test_build_json_report_null_query_raises_eval_error` — エンドツーエンド EvalError 確認（query=null）
+- `TestMainCLI.test_main_exits_2_on_null_body_corpus` — CLI exit-code-2 確認（body=null）
+- `TestMainCLI.test_main_exits_2_on_null_id_corpus` — CLI exit-code-2 確認（id=null）
 - `TestRunEvaluation`: 5 件追加（per_tier キー存在・holdout/drift/counterfactual 集計・複数 tier・空・exception only）
 - `TestBuildMarkdown.test_markdown_has_l2v3_tier_section` — `## L2-V3 Tier Results` セクション存在確認
 - `TestBuildJsonReport.test_json_has_per_tier`, `test_json_per_tier_has_pass_rate` — JSON per_tier 確認
+
+**明示 null 拒否（追加分）**: `request.query=null`・`request.headers=null`・`id=null`・`kind=null`・`tags=null` はすべて EvalError で即時拒否。`request.source_ip=null` のみ許容。
 
 ---
 
@@ -65,8 +69,10 @@ scalar null 拒否修正・`_make_request()` body 修正・`_TIER_TAGS` / `per_t
 
 ```
 pytest tests/ -q
-2747 passed, 5 warnings in 11.67s
+2754 passed, 5 warnings in 13.78s
 ```
+
+（test_structured_eval_cli.py: 84 tests — PR #156 explicit-null 修正後の確定値）
 
 ```bash
 # CLI smoke test — Markdown
