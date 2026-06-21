@@ -1,0 +1,7 @@
+Cyber-Immunizer/
+  .codex/
+    agents/
+      pr-explorer.toml
+      security-reviewer.toml
+      test-reviewer.toml
+      docs-consistency-reviewer.toml
