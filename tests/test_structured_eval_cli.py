@@ -172,6 +172,13 @@ class TestLoadCorpus:
         with pytest.raises(EvalError, match="must be a string or absent"):
             build_json_report(rules_path, corpus_path)
 
+    def test_build_json_report_null_query_raises_eval_error(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        bad_corpus = [{"request": {"query": None}, "expected_blocked": False}]
+        corpus_path = _write_json(tmp_path, "corpus.json", bad_corpus)
+        with pytest.raises(EvalError, match="must be a JSON object or absent"):
+            build_json_report(rules_path, corpus_path)
+
 
 @pytest.mark.parametrize("bad_entry,match", [
     # expected_blocked type errors
@@ -192,12 +199,19 @@ class TestLoadCorpus:
     # request mapping field type errors (query/headers must be dict)
     ({"request": {"query": "?x=1"}, "expected_blocked": True}, "must be a JSON object or absent"),
     ({"request": {"headers": []}, "expected_blocked": True}, "must be a JSON object or absent"),
+    # explicit null for query/headers must be rejected (present but not a dict)
+    ({"request": {"query": None}, "expected_blocked": False}, "must be a JSON object or absent"),
+    ({"request": {"headers": None}, "expected_blocked": False}, "must be a JSON object or absent"),
     # request mapping field value type errors (values must be str)
     ({"request": {"query": {"q": 1}}, "expected_blocked": True}, r"'query'\["),
     ({"request": {"headers": {"Host": 80}}, "expected_blocked": True}, r"'headers'\["),
-    # optional top-level field type errors
+    # optional top-level field type errors (non-null wrong types)
     ({"request": {}, "expected_blocked": True, "id": 42}, "must be a string or absent"),
     ({"request": {}, "expected_blocked": True, "kind": 1}, "must be a string or absent"),
+    # explicit null for id/kind/tags must be rejected (present but wrong type)
+    ({"request": {}, "expected_blocked": True, "id": None}, "must be a string or absent"),
+    ({"request": {}, "expected_blocked": True, "kind": None}, "must be a string or absent"),
+    ({"request": {}, "expected_blocked": True, "tags": None}, "must be a list of strings"),
     # tags must be a list of strings
     ({"request": {}, "expected_blocked": True, "tags": "attack"}, "must be a list of strings"),
     ({"request": {}, "expected_blocked": True, "tags": ["attack", 2]}, r"'tags'\["),
@@ -732,4 +746,12 @@ class TestMainCLI:
         corpus_path = _write_json(tmp_path, "corpus.json", bad_corpus)
         with pytest.raises(SystemExit) as exc_info:
             main(["--rules", str(rules_path), "--corpus", str(corpus_path)])
+        assert exc_info.value.code == 2
+
+    def test_main_exits_2_on_null_id_corpus(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        bad_corpus = [{"request": {}, "expected_blocked": False, "id": None}]
+        corpus_path = _write_json(tmp_path, "corpus.json", bad_corpus)
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--rules", str(rules_path), "--corpus", str(corpus_path), "--json"])
         assert exc_info.value.code == 2

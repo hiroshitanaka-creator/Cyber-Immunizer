@@ -27,7 +27,7 @@ evolution_history.json のスコア改善が「コードサイズ削減」に起
 - `fixtures/structured_rules/sqli_only.json` — SQLi カテゴリ専用ルール
 - `fixtures/structured_rules/cmdi_only.json` — CMDi カテゴリ専用ルール
 - `fixtures/evaluation_corpus/symbolic_corpus.json` — 中立化テストコーパス（10件）
-- `tests/test_structured_eval_cli.py` — 77テスト（PR #156 最終修正後の確定値）
+- `tests/test_structured_eval_cli.py` — 84テスト（PR #156 explicit-null 修正後の確定値）
 
 **変更:**
 - `cli/report.py` — Score Interpretation + Layer 2 Gap セクション追加
@@ -76,12 +76,12 @@ python -m cli.structured_eval \
 
 ```
 pytest tests/ -q
-2747 passed, 5 warnings in 11.67s
+2754 passed, 5 warnings in 15.53s
 ```
 
-- 追加テスト: 77件（test_structured_eval_cli.py — PR #156 最終修正後の確定値）
+- 追加テスト: 84件（test_structured_eval_cli.py — PR #156 explicit-null 修正後の確定値）
 - 既存テスト: 2670件（全通過）
-- 合計: 2747件
+- 合計: 2754件
 
 ---
 

@@ -14,7 +14,7 @@ PR #156「fix(propose) + feat(structured-eval): indicator-preservation prompt ha
 | `data/project_state.json` | 変更 | success records 10→13・run_11/12/13 triage エントリ追加 |
 | `docs/PROJECT_STATE.md` | 変更 | SSOT 同期（13件・run 11/12/13 triage 記録） |
 | `tests/test_project_state_sync.py` | 変更 | `assert actual == 13`・test_19 更新 |
-| `tests/test_structured_eval_cli.py` | 変更 | 17ケース parametrized テスト + CLI exit-code-2 テスト追加（39→57テスト） |
+| `tests/test_structured_eval_cli.py` | 変更 | null 拒否 / per_tier / 明示 null 拒否テスト追加（39→84テスト） |
 
 ## 主な変更内容
 
@@ -51,8 +51,14 @@ PR #156「fix(propose) + feat(structured-eval): indicator-preservation prompt ha
 
 ### corpus validation 強化（Request Changes Task Prompt 対応）
 - `_validate_optional_str()` / `_validate_optional_str_list()` / `_validate_request_mapping()` ヘルパー追加
-- `load_corpus()`: `id`/`kind`（string or absent）・`source_ip`（string or absent）・`tags`（list of strings）・`query`/`headers` 値（全 string）を検証
-- `_make_request()`: 不要な `str()` ラッパーを除去（`body=req.get("body") or ""`）
+- `_validate_present_str()` / `_validate_present_str_list()` ヘルパー追加（明示 null 拒否用）
+- `load_corpus()`:
+  - `method`/`path`/`body`: key-presence チェックで明示 null 拒否（string or absent, null rejected）
+  - `source_ip`: `_validate_optional_str` で null 許容（string or null or absent）
+  - `query`/`headers`: key-presence チェック後 `_validate_request_mapping` で明示 null 拒否
+  - `id`/`kind`: key-presence チェック後 `_validate_present_str` で明示 null 拒否
+  - `tags`: key-presence チェック後 `_validate_present_str_list` で明示 null 拒否
+- `_make_request()`: `body=req.get("body", "")` (or-coerce 除去済み)
 
 ### CI 修正（ledger カウント 10→13）
 - Runs #64/#65/#66 が CI で auto-commit されたが `project_state.json` は未更新だった
@@ -64,7 +70,7 @@ PR #156「fix(propose) + feat(structured-eval): indicator-preservation prompt ha
 
 ```
 pytest tests/ -q
-2747 passed, 5 warnings in 11.67s
+2754 passed, 5 warnings in 15.53s
 ```
 
 ## 残存事項・注意点

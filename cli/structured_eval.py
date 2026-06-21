@@ -54,6 +54,15 @@ def _validate_optional_str(entry_idx: int, field: str, value: object) -> None:
         )
 
 
+def _validate_present_str(entry_idx: int, field: str, value: object) -> None:
+    """Validate that an explicitly-present field is a string. None is rejected."""
+    if not isinstance(value, str):
+        raise EvalError(
+            f"Corpus entry {entry_idx} {field!r} must be a string or absent, "
+            f"got {type(value).__name__}: {value!r}"
+        )
+
+
 def _validate_optional_str_list(entry_idx: int, field: str, value: object) -> None:
     if value is None:
         return
@@ -70,9 +79,22 @@ def _validate_optional_str_list(entry_idx: int, field: str, value: object) -> No
             )
 
 
+def _validate_present_str_list(entry_idx: int, field: str, value: object) -> None:
+    """Validate that an explicitly-present field is a list of strings. None is rejected."""
+    if not isinstance(value, list):
+        raise EvalError(
+            f"Corpus entry {entry_idx} {field!r} must be a list of strings or absent, "
+            f"got {type(value).__name__}: {value!r}"
+        )
+    for j, item in enumerate(value):
+        if not isinstance(item, str):
+            raise EvalError(
+                f"Corpus entry {entry_idx} {field!r}[{j}] must be a string, "
+                f"got {type(item).__name__}: {item!r}"
+            )
+
+
 def _validate_request_mapping(entry_idx: int, field: str, value: object) -> None:
-    if value is None:
-        return
     if not isinstance(value, dict):
         raise EvalError(
             f"Corpus entry {entry_idx} request.{field!r} must be a JSON object or absent, "
@@ -139,8 +161,10 @@ def load_corpus(path: Path) -> list[dict]:
                         f"got {type(_v).__name__}: {_v!r}"
                     )
         _validate_optional_str(i, "source_ip", _req.get("source_ip"))
-        _validate_request_mapping(i, "query", _req.get("query"))
-        _validate_request_mapping(i, "headers", _req.get("headers"))
+        if "query" in _req:
+            _validate_request_mapping(i, "query", _req["query"])
+        if "headers" in _req:
+            _validate_request_mapping(i, "headers", _req["headers"])
         if "expected_blocked" not in entry:
             raise EvalError(f"Corpus entry {i} missing 'expected_blocked' field")
         if not isinstance(entry["expected_blocked"], bool):
@@ -149,9 +173,12 @@ def load_corpus(path: Path) -> list[dict]:
                 f"(true/false), got {type(entry['expected_blocked']).__name__}: "
                 f"{entry['expected_blocked']!r}"
             )
-        _validate_optional_str(i, "id", entry.get("id"))
-        _validate_optional_str(i, "kind", entry.get("kind"))
-        _validate_optional_str_list(i, "tags", entry.get("tags"))
+        if "id" in entry:
+            _validate_present_str(i, "id", entry["id"])
+        if "kind" in entry:
+            _validate_present_str(i, "kind", entry["kind"])
+        if "tags" in entry:
+            _validate_present_str_list(i, "tags", entry["tags"])
     return data
 
 
