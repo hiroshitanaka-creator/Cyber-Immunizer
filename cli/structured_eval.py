@@ -42,6 +42,9 @@ _KIND_TAGS: frozenset[str] = frozenset(
     {"attack", "benign", "regression", "holdout", "counterfactual", "drift"}
 )
 
+# Tags that represent L2-V3 evaluation tiers (holdout / drift / counterfactual).
+_TIER_TAGS: frozenset[str] = frozenset({"holdout", "drift", "counterfactual"})
+
 
 def _validate_optional_str(entry_idx: int, field: str, value: object) -> None:
     if value is not None and not isinstance(value, str):
@@ -127,13 +130,15 @@ def load_corpus(path: Path) -> list[dict]:
         if not isinstance(entry["request"], dict):
             raise EvalError(f"Corpus entry {i} 'request' must be a JSON object")
         _req = entry["request"]
-        for _sf in ("method", "path", "body", "source_ip"):
-            _v = _req.get(_sf)
-            if _v is not None and not isinstance(_v, str):
-                raise EvalError(
-                    f"Corpus entry {i} request.{_sf!r} must be a string or absent, "
-                    f"got {type(_v).__name__}: {_v!r}"
-                )
+        for _sf in ("method", "path", "body"):
+            if _sf in _req:
+                _v = _req[_sf]
+                if not isinstance(_v, str):
+                    raise EvalError(
+                        f"Corpus entry {i} request.{_sf!r} must be a string or absent, "
+                        f"got {type(_v).__name__}: {_v!r}"
+                    )
+        _validate_optional_str(i, "source_ip", _req.get("source_ip"))
         _validate_request_mapping(i, "query", _req.get("query"))
         _validate_request_mapping(i, "headers", _req.get("headers"))
         if "expected_blocked" not in entry:
@@ -157,7 +162,7 @@ def _make_request(entry: dict) -> Request:
         path=req.get("path", "/"),
         query=dict(req.get("query") or {}),
         headers=dict(req.get("headers") or {}),
-        body=req.get("body") or "",
+        body=req.get("body", ""),
         source_ip=req.get("source_ip"),
     )
 
@@ -184,11 +189,12 @@ def _pass_rate(counts: dict[str, int]) -> float | None:
 def run_evaluation(rules_doc: dict, corpus: list[dict]) -> dict[str, Any]:
     """Evaluate a rules document against a corpus.
 
-    Returns a dict with keys 'per_case', 'per_category', 'per_kind', and 'overall'.
+    Returns a dict with keys 'per_case', 'per_category', 'per_kind', 'per_tier', and 'overall'.
     """
     per_case: list[dict] = []
     per_category: dict[str, dict[str, int]] = {}
     per_kind: dict[str, dict[str, int]] = {}
+    per_tier: dict[str, dict[str, int]] = {}
     overall = _empty_counts()
 
     for entry in corpus:
@@ -238,6 +244,15 @@ def run_evaluation(rules_doc: dict, corpus: list[dict]) -> dict[str, Any]:
             per_category[category]["exceptions"] += 1
             per_kind[kind]["exceptions"] += 1
             overall["exceptions"] += 1
+        if isinstance(tags, list):
+            for _tag in tags:
+                if isinstance(_tag, str) and _tag in _TIER_TAGS:
+                    if _tag not in per_tier:
+                        per_tier[_tag] = _empty_counts()
+                    if outcome is not None:
+                        per_tier[_tag][outcome] += 1
+                    if exception:
+                        per_tier[_tag]["exceptions"] += 1
 
         per_case.append(
             {
@@ -252,7 +267,13 @@ def run_evaluation(rules_doc: dict, corpus: list[dict]) -> dict[str, Any]:
             }
         )
 
-    return {"per_case": per_case, "per_category": per_category, "per_kind": per_kind, "overall": overall}
+    return {
+        "per_case": per_case,
+        "per_category": per_category,
+        "per_kind": per_kind,
+        "per_tier": per_tier,
+        "overall": overall,
+    }
 
 
 def _tp_rate(counts: dict[str, int]) -> float | None:
@@ -293,6 +314,7 @@ def build_markdown(rules_path: Path, corpus_path: Path) -> str:
     overall = results["overall"]
     per_category = results["per_category"]
     per_kind = results["per_kind"]
+    per_tier = results["per_tier"]
     per_case = results["per_case"]
 
     total_cases = sum(overall[k] for k in ("TP", "FP", "TN", "FN"))
@@ -352,6 +374,26 @@ def build_markdown(rules_path: Path, corpus_path: Path) -> str:
             f"| {_md_cell(k)} | {stats['TP']} | {stats['FP']} | {stats['TN']} | {stats['FN']}"
             f" | {stats['exceptions']} | {_pct(_pass_rate(stats))} |"
         )
+
+    lines += [
+        "",
+        "## L2-V3 Tier Results",
+        "",
+        "Tag-based aggregation for holdout / drift / counterfactual corpus entries (L2-V3).",
+        "A corpus entry contributes to each tier whose tag it carries.",
+        "",
+        "| Tier | TP | FP | TN | FN | Exc | Pass rate |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for _tier in ("holdout", "drift", "counterfactual"):
+        if _tier in per_tier:
+            _ts = per_tier[_tier]
+            lines.append(
+                f"| {_md_cell(_tier)} | {_ts['TP']} | {_ts['FP']} | {_ts['TN']} | {_ts['FN']}"
+                f" | {_ts['exceptions']} | {_pct(_pass_rate(_ts))} |"
+            )
+    if not per_tier:
+        lines.append("| (none) | — | — | — | — | — | — |")
 
     lines += [
         "",
@@ -430,6 +472,13 @@ def build_json_report(rules_path: Path, corpus_path: Path) -> dict:
             "pass_rate": _pass_rate(stats),
         }
 
+    tier_summary: dict[str, Any] = {}
+    for tier, stats in results["per_tier"].items():
+        tier_summary[tier] = {
+            **stats,
+            "pass_rate": _pass_rate(stats),
+        }
+
     return {
         "rules_path": str(rules_path),
         "corpus_path": str(corpus_path),
@@ -442,6 +491,7 @@ def build_json_report(rules_path: Path, corpus_path: Path) -> dict:
         },
         "per_category": cat_summary,
         "per_kind": kind_summary,
+        "per_tier": tier_summary,
         "per_case": results["per_case"],
         "latency_note": (
             "This CLI does not capture per-request latency. "

@@ -63,8 +63,8 @@ PR #156「fix(propose) + feat(structured-eval): indicator-preservation prompt ha
 ## 後検証結果
 
 ```
-pytest tests/ -x -q
-2727 passed, 5 warnings in 12.09s
+pytest tests/ -q
+2747 passed, 5 warnings in 11.67s
 ```
 
 ## 残存事項・注意点

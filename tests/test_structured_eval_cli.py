@@ -159,6 +159,19 @@ class TestLoadCorpus:
         with pytest.raises(EvalError, match="missing 'expected_blocked'"):
             load_corpus(p)
 
+    def test_source_ip_null_is_accepted(self, tmp_path: Path) -> None:
+        corpus = [{"request": {"source_ip": None}, "expected_blocked": False}]
+        p = _write_json(tmp_path, "corpus.json", corpus)
+        result = load_corpus(p)
+        assert result[0]["request"]["source_ip"] is None
+
+    def test_build_json_report_null_path_raises_eval_error(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        bad_corpus = [{"request": {"path": None}, "expected_blocked": True}]
+        corpus_path = _write_json(tmp_path, "corpus.json", bad_corpus)
+        with pytest.raises(EvalError, match="must be a string or absent"):
+            build_json_report(rules_path, corpus_path)
+
 
 @pytest.mark.parametrize("bad_entry,match", [
     # expected_blocked type errors
@@ -172,6 +185,10 @@ class TestLoadCorpus:
     ({"request": {"path": []}, "expected_blocked": True}, "must be a string or absent"),
     ({"request": {"body": {}}, "expected_blocked": True}, "must be a string or absent"),
     ({"request": {"source_ip": 12345}, "expected_blocked": True}, "must be a string or absent"),
+    # explicit null for method/path/body must be rejected (present but not a string)
+    ({"request": {"method": None}, "expected_blocked": True}, "must be a string or absent"),
+    ({"request": {"path": None}, "expected_blocked": True}, "must be a string or absent"),
+    ({"request": {"body": None}, "expected_blocked": True}, "must be a string or absent"),
     # request mapping field type errors (query/headers must be dict)
     ({"request": {"query": "?x=1"}, "expected_blocked": True}, "must be a JSON object or absent"),
     ({"request": {"headers": []}, "expected_blocked": True}, "must be a JSON object or absent"),
@@ -361,6 +378,84 @@ class TestRunEvaluation:
         results = run_evaluation(_minimal_rules_doc(), _minimal_corpus())
         assert "per_kind" in results
 
+    def test_per_tier_key_in_results(self) -> None:
+        results = run_evaluation(_minimal_rules_doc(), _minimal_corpus())
+        assert "per_tier" in results
+
+    def test_per_tier_aggregates_holdout_drift_counterfactual_by_tag(self) -> None:
+        rules = _minimal_rules_doc()
+        corpus = [
+            {
+                "id": "h1",
+                "kind": "attack",
+                "expected_blocked": True,
+                "tags": ["attack", "holdout", "test-cat"],
+                "request": {"method": "GET", "path": "/TEST_ATTACK_SIGNAL", "query": {}, "headers": {}, "body": ""},
+            },
+            {
+                "id": "d1",
+                "kind": "benign",
+                "expected_blocked": False,
+                "tags": ["benign", "drift"],
+                "request": {"method": "GET", "path": "/safe", "query": {}, "headers": {}, "body": ""},
+            },
+            {
+                "id": "c1",
+                "kind": "benign",
+                "expected_blocked": False,
+                "tags": ["benign", "counterfactual"],
+                "request": {"method": "GET", "path": "/safe", "query": {}, "headers": {}, "body": ""},
+            },
+        ]
+        results = run_evaluation(rules, corpus)
+        pt = results["per_tier"]
+        assert "holdout" in pt
+        assert "drift" in pt
+        assert "counterfactual" in pt
+        assert pt["holdout"]["TP"] == 1
+        assert pt["drift"]["TN"] == 1
+        assert pt["counterfactual"]["TN"] == 1
+
+    def test_per_tier_entry_counts_in_multiple_tiers(self) -> None:
+        rules = _minimal_rules_doc()
+        corpus = [
+            {
+                "id": "multi",
+                "kind": "attack",
+                "expected_blocked": True,
+                "tags": ["attack", "holdout", "drift", "test-cat"],
+                "request": {"method": "GET", "path": "/TEST_ATTACK_SIGNAL", "query": {}, "headers": {}, "body": ""},
+            },
+        ]
+        results = run_evaluation(rules, corpus)
+        pt = results["per_tier"]
+        assert pt["holdout"]["TP"] == 1
+        assert pt["drift"]["TP"] == 1
+        assert "counterfactual" not in pt
+
+    def test_per_tier_empty_when_no_tier_tags(self) -> None:
+        results = run_evaluation(_minimal_rules_doc(), _minimal_corpus())
+        assert results["per_tier"] == {}
+
+    def test_per_tier_exception_increments_exceptions_only(self) -> None:
+        rules = _minimal_rules_doc()
+        corpus = [
+            {
+                "id": "exc1",
+                "kind": "attack",
+                "expected_blocked": True,
+                "tags": ["attack", "holdout"],
+                "request": {"method": "GET", "path": "/TEST_ATTACK_SIGNAL", "query": {}, "headers": {}, "body": ""},
+            },
+        ]
+        from unittest.mock import patch
+        with patch("cli.structured_eval.inspect_request_with_structured_rules", side_effect=RuntimeError("boom")):
+            results = run_evaluation(rules, corpus)
+        pt = results["per_tier"]
+        assert pt["holdout"]["exceptions"] == 1
+        assert pt["holdout"]["TP"] == 0
+        assert pt["holdout"]["FN"] == 0
+
 
 # ---------------------------------------------------------------------------
 # build_markdown
@@ -411,6 +506,22 @@ class TestBuildMarkdown:
         corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
         with pytest.raises(EvalError):
             build_markdown(bad_rules, corpus_path)
+
+    def test_markdown_has_l2v3_tier_section(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        tier_corpus = [
+            {
+                "id": "h1",
+                "kind": "attack",
+                "expected_blocked": True,
+                "tags": ["attack", "holdout", "test-cat"],
+                "request": {"method": "GET", "path": "/TEST_ATTACK_SIGNAL", "query": {}, "headers": {}, "body": ""},
+            }
+        ]
+        corpus_path = _write_json(tmp_path, "corpus.json", tier_corpus)
+        md = build_markdown(rules_path, corpus_path)
+        assert "## L2-V3 Tier Results" in md
+        assert "holdout" in md
 
 
 # ---------------------------------------------------------------------------
@@ -472,6 +583,30 @@ class TestBuildJsonReport:
         corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
         report = build_json_report(rules_path, corpus_path)
         assert "latency_note" in report
+
+    def test_json_has_per_tier(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        report = build_json_report(rules_path, corpus_path)
+        assert "per_tier" in report
+
+    def test_json_per_tier_has_pass_rate(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        tier_corpus = [
+            {
+                "id": "h1",
+                "kind": "attack",
+                "expected_blocked": True,
+                "tags": ["attack", "holdout", "test-cat"],
+                "request": {"method": "GET", "path": "/TEST_ATTACK_SIGNAL", "query": {}, "headers": {}, "body": ""},
+            }
+        ]
+        corpus_path = _write_json(tmp_path, "corpus.json", tier_corpus)
+        report = build_json_report(rules_path, corpus_path)
+        assert "holdout" in report["per_tier"]
+        assert "pass_rate" in report["per_tier"]["holdout"]
+        assert report["per_tier"]["holdout"]["TP"] == 1
+        assert report["per_tier"]["holdout"]["pass_rate"] == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -589,4 +724,12 @@ class TestMainCLI:
         bad_corpus.write_text('[{"request": {}, "expected_blocked": "true"}]', encoding="utf-8")
         with pytest.raises(SystemExit) as exc_info:
             main(["--rules", str(rules_path), "--corpus", str(bad_corpus)])
+        assert exc_info.value.code == 2
+
+    def test_main_exits_2_on_null_body_corpus(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        bad_corpus = [{"request": {"body": None}, "expected_blocked": True}]
+        corpus_path = _write_json(tmp_path, "corpus.json", bad_corpus)
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--rules", str(rules_path), "--corpus", str(corpus_path)])
         assert exc_info.value.code == 2
