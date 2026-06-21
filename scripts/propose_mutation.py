@@ -326,9 +326,9 @@ FORBIDDEN:
 - Do NOT include mutation markers (# === MUTATION_START === etc.).
 - Do NOT wrap in markdown fences (```python ... ```).
 
-GOOD example — 4-space-indented function body (this WILL be accepted):
+GOOD example — includes ALL FIVE required indicator strings (this WILL be accepted):
 {
-  "replacement_code": "    surface = request.path.lower() + \" \" + request.body.lower()\\n    matched = []\\n    if \"path_traversal_indicator\" in surface:\\n        matched.append(\"path_traversal_indicator\")\\n    if matched:\\n        return DetectionResult(blocked=True, reason=\"suspicious indicator matched\", confidence=0.7, matched_signals=tuple(matched))\\n    return DetectionResult(blocked=False, reason=\"no suspicious indicator matched\", confidence=0.0, matched_signals=())"
+  "replacement_code": "    surface = request.path.lower() + \" \" + request.body.lower()\\n    matched = []\\n    for ind in (\"path_traversal_indicator\", \"script_injection_indicator\", \"sqli_indicator\", \"command_delimiter_indicator\", \"encoded_traversal_indicator\"):\\n        if ind in surface:\\n            matched.append(ind)\\n    if matched:\\n        return DetectionResult(blocked=True, reason=\"suspicious indicator matched\", confidence=0.7, matched_signals=tuple(matched))\\n    return DetectionResult(blocked=False, reason=\"no suspicious indicator matched\", confidence=0.0, matched_signals=())"
 }
 
 BAD example 1 — unindented body (will be REJECTED with indentation contract violation):

@@ -302,14 +302,32 @@ def build_markdown(*, repo_root: Path | None = None, history_path: Path | None =
             + ".",
         ])
 
+    scored_gens = [
+        e for e in history
+        if e.get("tp_rate") is not None and e.get("fp_rate") is not None
+    ]
+    if scored_gens and all(
+        e.get("tp_rate") == 1.0 and e.get("fp_rate") == 0.0
+        for e in scored_gens
+    ):
+        _score_interp_lead = (
+            "**All scored generations show tp_rate=1.0000 and fp_rate=0.0000.** This is expected:"
+            " the test corpus uses symbolic indicator tokens (e.g., `path_traversal_indicator`) and"
+            " the detector matches those same tokens. Perfect symbolic-corpus detection is by design,"
+            " not evidence of realistic threat coverage."
+        )
+    else:
+        _score_interp_lead = (
+            "Scored generations show varying TP/FP/FN rates. Review the Generation Evidence table"
+            " above. Rates below 1.0/0.0 may indicate corpus cases the current detector does not"
+            " fully match."
+        )
+
     lines.extend([
         "",
         "## Score Interpretation",
         "",
-        "**All scored generations show tp_rate=1.0000 and fp_rate=0.0000.** This is expected:"
-        " the test corpus uses symbolic indicator tokens (e.g., `path_traversal_indicator`) and"
-        " the detector matches those same tokens. Perfect symbolic-corpus detection is by design,"
-        " not evidence of realistic threat coverage.",
+        _score_interp_lead,
         "",
         "The fitness score formula is:",
         "",
@@ -331,13 +349,16 @@ def build_markdown(*, repo_root: Path | None = None, history_path: Path | None =
         "",
         "Layer 2 value validation (DEFINITION_OF_DONE.md L2-V1 through L2-V5) requires:",
         "",
-        "1. **Realistic threat coverage** — evaluation against realistic but safely neutralized"
+        "1. **Realistic threat coverage** (L2-V1) — evaluation against realistic but safely neutralized"
         " threat categories, not symbolic-only corpus.",
-        "2. **Per-category TP/FP/FN reporting** — path-traversal, XSS, SQLi, and command delimiter"
-        " categories evaluated separately.",
-        "3. **Improvement explanation** — documentation of which threat classes improved and why.",
-        "4. **No overfitting claim** — results must distinguish symbolic corpus performance from"
-        " realistic threat coverage.",
+        "2. **Per-category TP/FP/FN and latency reporting** (L2-V2) — path-traversal, XSS, SQLi,"
+        " and command delimiter categories evaluated separately, with latency data.",
+        "3. **Holdout / drift / counterfactual evaluation** (L2-V3) — overfitting risk addressed by"
+        " evaluating on holdout, drift, and counterfactual request sets; pass rates reported.",
+        "4. **Improvement explanation** (L2-V4) — documentation of which threat classes improved"
+        " and why.",
+        "5. **No overfitting claim** (L2-V5) — results must distinguish symbolic corpus performance"
+        " from realistic threat coverage.",
         "",
         "**Current status:** Layer 2 criteria are not yet satisfied. The symbolic corpus score"
         " (generation 4: 948.04) is research-foundation evidence, not defensive value evidence.",

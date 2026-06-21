@@ -86,6 +86,12 @@ def load_corpus(path: Path) -> list[dict]:
             raise EvalError(f"Corpus entry {i} missing 'request' field")
         if "expected_blocked" not in entry:
             raise EvalError(f"Corpus entry {i} missing 'expected_blocked' field")
+        if not isinstance(entry["expected_blocked"], bool):
+            raise EvalError(
+                f"Corpus entry {i} 'expected_blocked' must be a JSON boolean "
+                f"(true/false), got {type(entry['expected_blocked']).__name__}: "
+                f"{entry['expected_blocked']!r}"
+            )
     return data
 
 
@@ -126,7 +132,13 @@ def run_evaluation(rules_doc: dict, corpus: list[dict]) -> dict[str, Any]:
 
     for entry in corpus:
         case_id = str(entry.get("id", "unknown"))
-        expected_blocked = bool(entry.get("expected_blocked", False))
+        expected_blocked_raw = entry.get("expected_blocked")
+        if not isinstance(expected_blocked_raw, bool):
+            raise EvalError(
+                f"corpus entry {case_id!r}: 'expected_blocked' must be a JSON boolean "
+                f"(true/false), got {type(expected_blocked_raw).__name__}: {expected_blocked_raw!r}"
+            )
+        expected_blocked: bool = expected_blocked_raw
         tags = entry.get("tags", [])
         kind = str(entry.get("kind", "unknown"))
         category = _primary_category(tags)
@@ -142,7 +154,9 @@ def run_evaluation(rules_doc: dict, corpus: list[dict]) -> dict[str, Any]:
             matched_signals = []
             exception = True
 
-        if expected_blocked and actual_blocked:
+        if exception:
+            outcome = None  # excluded from TP/FP/TN/FN; counted only in exceptions
+        elif expected_blocked and actual_blocked:
             outcome = "TP"
         elif expected_blocked and not actual_blocked:
             outcome = "FN"
@@ -153,12 +167,11 @@ def run_evaluation(rules_doc: dict, corpus: list[dict]) -> dict[str, Any]:
 
         if category not in per_category:
             per_category[category] = _empty_counts()
-        per_category[category][outcome] += 1
+        if outcome is not None:
+            per_category[category][outcome] += 1
+            overall[outcome] += 1
         if exception:
             per_category[category]["exceptions"] += 1
-
-        overall[outcome] += 1
-        if exception:
             overall["exceptions"] += 1
 
         per_case.append(
@@ -168,7 +181,7 @@ def run_evaluation(rules_doc: dict, corpus: list[dict]) -> dict[str, Any]:
                 "category": category,
                 "expected_blocked": expected_blocked,
                 "actual_blocked": actual_blocked,
-                "outcome": outcome,
+                "outcome": outcome if outcome is not None else "exception",
                 "exception": exception,
                 "matched_signals": matched_signals,
             }
