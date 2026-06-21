@@ -36,6 +36,18 @@
 
 ---
 
+## MicroPR Evidence
+
+Before review, attach or link the evidence required by `docs/review/MICROPR_ENFORCEMENT_CHECKLIST.md`:
+
+- [ ] `reports/ruff.txt`
+- [ ] `reports/bandit.json`
+- [ ] `pytest-junit.xml`
+- [ ] `fitness_report.json`
+- [ ] CI Run ID: <!-- paste GitHub Actions run ID -->
+
+---
+
 ## GPT Audit Gate
 
 > **手順**: このセクションに GPT Audit Gate のレポートを貼り付けてください。  
