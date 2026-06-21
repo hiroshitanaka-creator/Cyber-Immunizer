@@ -2,144 +2,177 @@
 AI_DOC_META:
   doc_type: value_delivery_blueprint
   status: CANONICAL
-  scope: project-wide value direction and external-deliverable standard
+  scope: project-wide mission / value definition
   authority: |
-    Canonical for deciding what counts as value-producing work in Cyber-Immunizer.
-    Does not override current-state SSOT: machine evidence, data/project_state.json,
-    docs/PROJECT_STATE.md, data/genome.json, and CI remain authoritative for state.
-  intent: Prevent docs/tests/protocol accumulation from being mistaken for completion.
+    CANONICAL for the VALUE MISSION and the definition of a "high-level deliverable."
+    Does NOT override current-state SSOT.
+    Current state is governed by data/project_state.json, docs/PROJECT_STATE.md,
+    data/genome.json, and machine evidence (per CLAUDE.md authority order).
+    Deliverable specifics marked PLANNING are proposed, not yet implemented.
+  must_read_for: all task participants (Claude / GPT / Codex / Project Owner)
+  read_alongside: docs/DEFINITION_OF_DONE.md
+  origin: Authored from machine-verified As-Is analysis at main HEAD 552ccb5 (generation 4 baseline).
 -->
 
-# Cyber-Immunizer — Value Delivery Blueprint
+# Cyber-Immunizer — Value Delivery Blueprint（価値創出の正典ブループリント）
 
-Cyber-Immunizer is not a documentation project. It is a defensive autonomous-code-evolution repository whose current strength is the safety-governed evolution engine: AST policy, subprocess/Docker isolation, deterministic fitness evaluation, adoption gates, SSOT state tracking, and a Generation 4 promoted baseline.
-
-The next phase is not “more complete documentation.” The next phase is converting that engine into executable outputs that a developer can run locally and use to observe a measurable defensive improvement.
-
----
-
-## 1. Non-negotiable value standard
-
-A change is value-producing only if it advances at least one of the following:
-
-1. **Executable local output** — a CLI, library API, export command, report generator, scanner, or integration example that a user can run.
-2. **Measurable defensive result** — before/after score, TP/FP/FN, latency, adoption-gate outcome, coverage delta, or per-request verdicts.
-3. **Externalizable artifact** — Markdown/JSON report, packaged detector, local fixture format, CI template, or ruleset interface usable outside this repository.
-4. **Safety-critical enablement** — a small guard that directly prevents unsafe execution, false promotion, cost leakage, or payload leakage.
-
-A PR that only adds more documentation, tests, protocol language, checklists, roadmaps, or completion definitions is **not value-producing by default**. It is acceptable only when it is explicitly requested by the Project Owner or when it removes ambiguity that blocks a named executable deliverable.
+> **このファイルの位置づけ**：本リポジトリで作業する全関係者（Claude / GPT / Codex / Project Owner）がタスク着手前に読むべき**必読の正典**。
+> 「何を作れば価値があるか」の定義と実現方針を記録する。
+> 現在状態の正典ではない。現在状態は `data/project_state.json` / `docs/PROJECT_STATE.md` / `data/genome.json` / 機械的証拠が定義する。
 
 ---
 
-## 2. What is already real
+## 0. このドキュメントが存在する理由（Project Owner の核心的意志）
 
-The repository is not empty research scaffolding. Current-state SSOT records that Phase 3 is active, paid-credit API connection succeeded, Generation 4 is the current promoted baseline, and the adoption gate has passed at least once.
+このドキュメントは、**これまでの AI アドバイスが繰り返しドキュメント・テスト・プロトコルを「進捗」として扱い続けた結果、外部に実質的な防御価値を届けられない状態が生まれたこと**を記録し、同じ失敗を防ぐために書かれた。
 
-That is a real foundation. It should be treated as an engine to export value from, not as permission to add more meta-process.
+- GPT の提案によって大量のドキュメント・テスト・プロトコルが積み上がった。
+- 結果として「研究用として聞こえが良い」リポジトリが生まれたが、**現実の防御システムとしての実用性は未検証のまま**である。
+- ドキュメントとテストの量は Project Owner を安心させるためではなく、実際の防御価値を保証するために存在する。
+- **「ドキュメントとテストを増やせば安全で完成に近い」という AI の思考パターンは、このプロジェクトでは明確に否定する。**
 
-The current limitation is equally real: the promoted detector and committed evaluation corpus are intentionally neutralized/symbolic. That protects the repository from becoming an exploit corpus, but it also means internal score improvement is not yet the same as real-world defensive usefulness.
-
-Therefore, the path forward is:
-
-> keep the repository neutralized and defensive-only, while allowing users to supply their own local fixtures/rulesets outside the repository and receive measurable local reports.
-
----
-
-## 3. Safety boundary for practical outputs
-
-Practical outputs must preserve the existing defensive-only boundary.
-
-- Do not commit raw exploit payloads, exploit-like examples, attack recipes, bypass guidance, or real traffic captures.
-- Committed examples and rulesets must stay neutralized/symbolic.
-- If real-world signatures or request samples are needed, they must be **user-supplied local files** that are read at runtime and never committed to the repository.
-- Do not connect to real traffic, scan networks, call paid-credit APIs, or trigger workflow_dispatch unless the Project Owner explicitly approves it for that task.
-- Prefer read-only consumer-layer additions over edits to FROZEN areas (`core/**`, `scripts/**`, `.github/**`, `data/**`).
+Project Owner の意志：
+- **必要なドキュメントは残す。** 安全境界・Owner の意図・現在状態・監査証拠を守るドキュメントは価値がある。
+- **不要なドキュメントは価値がない。** 網羅性を示すための文書、自己目的化したプロトコル、「完成らしく見える」だけの記述は進捗ではない。
+- **実行可能な価値が先。** 外部の誰かが使って「セキュリティが上がった」と実感できるものが最終目標。
 
 ---
 
-## 4. Product direction: engine vs consumer layer
+## 1. 高レベル成果物の価値定義（これを満たさないものは「完成」と認めない）
 
-The existing engine should remain stable and conservative:
+次のいずれか（または複合）を満たすものだけを「高レベル成果物」と認める：
 
-- `core/**` and `scripts/**` are the defensive evolution engine.
-- `data/**` is SSOT/evidence and evaluation state.
-- `.github/**` is workflow control.
+1. 実際に実行でき、**実在する脅威カテゴリに対して測定可能な防御改善を示す**（TP/FP/FN の before/after）。
+2. Project Owner または監査者が「この進化サイクルで何の脅威クラスが改善されたか、なぜか」を読める形で説明できる。
+3. 上記の価値検証（Layer 2）を通過した後にのみ、外部への公開・配布・デモを検討する。
 
-External value should be built in a separate consumer layer first:
-
-```text
-cyber_immunizer/
-  cli/
-    report.py
-    scan.py
-  reporting.py
-  local_fixture.py
-examples/
-  neutralized_requests.json
-  github-action/
-```
-
-This avoids turning the safety engine into a product surface too early.
-
-Short term, consumer code may import existing top-level packages such as `core.*`. A future packaging cleanup may introduce a `cyber_immunizer.*` namespace package, but do not claim `cyber_immunizer.core` exists until it is actually implemented.
-
-Runtime dependencies should remain empty by default. Use the standard library first. Optional UX dependencies such as `rich` or `typer` may be considered later, isolated behind extras, only after a working CLI exists.
+**「もっとドキュメントを増やす／テストを足す／プロトコルを強化する」だけで終わる提案は、明確に価値がないと判断し、却下する。**
 
 ---
 
-## 5. First executable deliverable
+## 2. README ミッションとの整合（誤ったフレーミングの修正）
 
-The first value-producing implementation should be:
+README は本プロジェクトのミッションを以下のように定義している：
+- 現実世界のサイバー脅威の進化スピードに対し、人間によるパッチ開発の限界を突破すること
+- デジタル自律免疫システムの確立
+- ローカルファーストの研究基盤（本番 WAF・実トラフィック接続ではない）
 
-```text
-PR-VALUE-001: cyber-immunize report
-```
+### 誤ったフレーミング（使ってはならない）
 
-Goal: add a read-only local CLI that converts internal evolution evidence into a human-readable and machine-readable value report.
+> 「研究として70%完成、実用的な価値はほぼゼロ」
 
-Minimum behavior:
+このフレーミングは README ミッションに対して無効である。ミッションは「実用的なプロダクト」ではなく「防御コードの自律進化エンジン」だからである。
 
-```bash
-python -m cyber_immunizer.cli.report --format markdown --output cyber-immunizer-value-report.md
-```
+### 正しいフレーミング
 
-The report must show, at minimum:
-
-- current generation and detector hash from `data/genome.json`
-- promoted generation history from `data/evolution_history.json`
-- Generation 1 -> Generation 4 score delta (`383.67 -> 948.04` from current evidence)
-- TP/FP/FN rates, average latency, and adoption-gate status when present
-- a clear statement that the current committed corpus is neutralized/symbolic and that real-world usefulness requires user-supplied local fixtures/rulesets in later deliverables
-
-Generation 0 must not be used as the score baseline unless the report explicitly labels it as an unevaluated placeholder.
-
-Definition of Done for PR-VALUE-001:
-
-- CLI exits 0 without API calls, workflow dispatch, Docker requirement, or real traffic.
-- FROZEN areas are read-only unless the Project Owner explicitly approves otherwise.
-- Output is available as terminal text, JSON, and Markdown file export.
-- Tests cover the Generation 1 -> Generation 4 baseline selection and reject accidental `gen0 -> gen4 score 383 -> 948` labeling.
-- Existing test suite remains green.
+- 安全性に統治された自律進化エンジンとしての**研究基盤は意味のある進捗**（Layer 1）を持つ。
+- リポジトリは空の研究スキャフォールドではない。
+- しかし、このエンジンが**現実の進化する脅威クラスに対して意味のある防御価値を提供できるかどうかはまだ検証されていない**（Layer 2 未達）。
+- 「研究基盤の成熟度」と「README ミッションの達成度」は別の軸で評価する。
+- **価値が検証される前に、外部向けの成果物でリポジトリを実用的に見せることは行わない。**
 
 ---
 
-## 6. Merge policy implication
+## 3. 核心的診断 — なぜ「価値が届いていない」のか（技術的根拠）
 
-From this point forward, default task selection should favor executable value over process expansion.
+機械検証（main HEAD `552ccb5` / generation 4 / `best_score=948.04`）の上でコードを読んだ結論：
 
-Prefer:
+> `core/detector.py`（Generation 4）と `data/attack_requests.json` は、`PATH_TRAVERSAL_INDICATOR`・`SQLI_INDICATOR` のような**記号トークンだけ**を対象にしている。これは「リポジトリに実 exploit 文字列を置かない」という**正しい安全設計**の副作用であり、結果として進化した検出器は現実の攻撃パターンを1つも検知しない。
 
-- report CLI
-- scan CLI over user-supplied local fixtures
-- structured-rules opt-in interface over committed raw signatures
-- CI integration examples under `examples/`
-- exported detector/report artifacts
+根拠：
+- `core/detector.py:39-65`（symbolic token のみ照合）
+- `data/attack_requests.json`（攻撃ケースが `*_INDICATOR` 記号のみ）
 
-Avoid:
+したがって score 383→948 の上昇は「symbolic corpus 上の内部数値」であり、**外部防御価値ではない。**
 
-- new broad completion documents
-- new mandatory reading requirements
-- new protocol layers unless they remove or replace older process
-- docs-only PRs that do not unblock a named executable deliverable
+### ボトルネックの本質（3層）
 
-The Project Owner remains the final decision-maker. This blueprint exists to prevent the project from mistaking governance, documentation, or test volume for delivered security value.
+1. **記号の壁**：検出器・コーパスが symbolic のみ → 現実脅威への検知力が未検証。
+2. **出力の閉鎖**：進化成果が `genome.json` / `evolution_history.json` という内部状態にしか書き出されない。価値検証に必要な per-category TP/FP/FN レポートが存在しない。
+3. **価値検証の未実施**：「安全に進化させる仕組み」は整っているが、「何を検知できるか」の現実評価が行われていない。
+
+---
+
+## 4. 強みと資産の再解釈（希望的、かつ正確な評価）
+
+| 既存資産 | 正確な評価 |
+|---|---|
+| CLAUDE.md ゲート群・監査プロトコル | LLM がコードを自己書き換えする危険行為を、誤受理ゼロで運用できるガバナンス基盤。これは強み。**ただし安全基盤と防御価値は別物。** |
+| `core/policy.py`（17段 AST 検査）+ Docker 隔離 | 信頼できないコードを安全に実行・評価するエンジン。堅牢。 |
+| `core/fitness.py` の `FitnessReport` | per-category TP/FP/FN を持つ。**価値検証ツール（Owner/監査者向け）のベースになり得る。** |
+| `core/structured_*`（宣言型ルール、未統合） | 実 exploit を置かずに防御シグネチャ（`contains_literal "../"` 等、WAF ルールと同等）を表現できる安全な器。記号の壁を突破する正規の経路候補。 |
+| Generation 4 baseline（昇格実績） | adoption gate を通過した実物。symbolic corpus 上での完全検知（tp=1.0, fp=0.0）。価値検証のベースラインとして使える。 |
+
+**結論**：このリポジトリは「価値のない研究」ではなく、**価値検証層（validation layer）が欠けているだけの高完成度エンジン**。エンジンは堅牢。次に必要なのは「外の誰かに届ける前に、まず価値を検証すること」。
+
+---
+
+## 5. 価値を阻害するボトルネックと克服策
+
+### 記号の壁の克服（FROZEN 編集なし）
+
+- `core/structured_*` に**本物の防御シグネチャ（データ）**を投入する。`../`・`<script`・`' or '1'='1`・`;|&&` 等は防御側が書くシグネチャであり攻撃コードではない。
+- 既存の公開関数 `inspect_request_with_structured_rules`（`core/structured_detector.py`）を呼ぶだけで `core/detector.py` を編集せずに現実パターン評価が動く。
+- **リポジトリにコミットする rulesets / examples は中立化・記号化されたものだけ。**
+- ユーザーが自分のローカルなフィクスチャを使う場合も、防御制約の下でのみ許可。
+
+### 出力の開放（価値検証ツール）
+
+- `FitnessReport` の per-category 結果と `evolution_history.json` を読み、**Owner / 監査者向けに** gen0→genN の改善を説明する検証ツールを構築する。
+- これは**外部ユーザー向け製品ではない**。価値が検証されるまでは Owner と監査者のためのツールである。
+
+### 外部化の禁止（Layer 2 達成まで）
+
+以下は Layer 2（価値検証完了）まで**明示的に禁止**：
+
+- `cyber-immunize scan` またはユーザー向けスキャン CLI
+- パッケージ配布（PyPI その他）
+- 外部プロジェクト向け GitHub Action テンプレート
+- ダッシュボード（Streamlit / Gradio / その他）
+- 公開デモまたはベンチマーク公表
+- 「外部ユーザーが使える」と主張するいかなる成果物
+
+**価値が検証されていない成果物を外部ユーザーに公開することは、高レベル成果物ではない。**
+
+---
+
+## 6. 段階的な価値創出の方向性（PLANNING）
+
+Layer 1（研究基盤）が確立された上で、Layer 2（価値検証）へ進む道筋：
+
+### ステップ 1（Owner / 監査者向け価値検証ツール）
+
+- **目的**：symbolic corpus スコアを、脅威カテゴリ別の防御改善証拠に変換する。
+- **手段**：`core/fitness.py` の `FitnessReport` と `evolution_history.json` を読み、gen0→gen4 の改善を per-category で説明するレポートを Owner / 監査者向けに出力。
+- **位置づけ**：これは**外部ユーザー向けではない**。Layer 2 達成の判断根拠となる内部ツール。
+- **FROZEN 編集**：不要（読み取りのみ）。
+
+### ステップ 2（現実脅威カテゴリの評価）
+
+- 防御シグネチャ（中立化済み）を用いて、現実の脅威カテゴリ（path-traversal / XSS / SQLi / cmdi）に対する検知率を評価。
+- 結果を Layer 2 基準（L2-V1〜L2-V5、`docs/DEFINITION_OF_DONE.md` 参照）で評価。
+
+### ステップ 3（Layer 2 達成後の外部化、時期未定）
+
+Layer 2 が Owner に受け入れられた後にのみ検討する：
+- 外部ユーザー向けスキャンツール
+- パッケージ配布
+- CI 統合テンプレート
+
+**これらはステップ 3 であり、今の目標ではない。**
+
+---
+
+## 7. 安全制約（全成果物に常時適用）
+
+- 防御専用。攻撃コード生成・実トラフィック接続・マルウェア技術・exploit ペイロードの追加は一切しない。
+- **コミットする examples / rulesets は中立化・記号化されたもののみ。** Raw exploit-looking literals をリポジトリにコミットしない。
+- paid-credit API / live model / workflow_dispatch は Project Owner の明示承認時のみ。
+- FROZEN（`core/**`, `scripts/**`, `.github/**`, `data/**`, 既存 `tests/**`）は原則編集しない。触る場合は CLAUDE.md の全ゲートを通過。
+- Generation 1 を Generation 0 と誤表記しない（gen0 は初期 baseline でスコア未計算、gen1 は最初の有効な採用 generation）。
+- `cyber_immunizer.core` として import 可能なパッケージ名前空間は**現時点では実装されていない**。将来のパッケージング判断であり、実装済みとして記述してはならない。
+
+---
+
+> 本ブループリントは As-Is 解析（main HEAD `552ccb5`, generation 4 baseline）から導出した価値定義の正典である。
+> 現在状態の数値・状態の正典は `data/genome.json` / `data/project_state.json` / `docs/PROJECT_STATE.md` であり、矛盾時はそれらが優先する。
