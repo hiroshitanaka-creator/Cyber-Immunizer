@@ -84,6 +84,23 @@ def load_corpus(path: Path) -> list[dict]:
             raise EvalError(f"Corpus entry {i} must be a JSON object")
         if "request" not in entry:
             raise EvalError(f"Corpus entry {i} missing 'request' field")
+        if not isinstance(entry["request"], dict):
+            raise EvalError(f"Corpus entry {i} 'request' must be a JSON object")
+        _req = entry["request"]
+        for _sf in ("method", "path", "body"):
+            _v = _req.get(_sf)
+            if _v is not None and not isinstance(_v, str):
+                raise EvalError(
+                    f"Corpus entry {i} request.{_sf!r} must be a string or absent, "
+                    f"got {type(_v).__name__}: {_v!r}"
+                )
+        for _df in ("query", "headers"):
+            _v = _req.get(_df)
+            if _v is not None and not isinstance(_v, dict):
+                raise EvalError(
+                    f"Corpus entry {i} request.{_df!r} must be a JSON object or absent, "
+                    f"got {type(_v).__name__}: {_v!r}"
+                )
         if "expected_blocked" not in entry:
             raise EvalError(f"Corpus entry {i} missing 'expected_blocked' field")
         if not isinstance(entry["expected_blocked"], bool):
@@ -190,23 +207,30 @@ def run_evaluation(rules_doc: dict, corpus: list[dict]) -> dict[str, Any]:
     return {"per_case": per_case, "per_category": per_category, "overall": overall}
 
 
-def _tp_rate(counts: dict[str, int]) -> float:
+def _tp_rate(counts: dict[str, int]) -> float | None:
     denom = counts["TP"] + counts["FN"]
-    return counts["TP"] / denom if denom else 0.0
+    return counts["TP"] / denom if denom else None
 
 
-def _fp_rate(counts: dict[str, int]) -> float:
+def _fp_rate(counts: dict[str, int]) -> float | None:
     denom = counts["TN"] + counts["FP"]
-    return counts["FP"] / denom if denom else 0.0
+    return counts["FP"] / denom if denom else None
 
 
-def _fn_rate(counts: dict[str, int]) -> float:
+def _fn_rate(counts: dict[str, int]) -> float | None:
     denom = counts["TP"] + counts["FN"]
-    return counts["FN"] / denom if denom else 0.0
+    return counts["FN"] / denom if denom else None
 
 
-def _pct(rate: float) -> str:
+def _pct(rate: float | None) -> str:
+    if rate is None:
+        return "n/a"
     return f"{rate * 100:.1f}%"
+
+
+def _md_cell(value: str) -> str:
+    """Escape | and newlines so Owner-supplied values cannot break MD table structure."""
+    return value.replace("|", "\\|").replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
 
 
 def build_markdown(rules_path: Path, corpus_path: Path) -> str:
@@ -260,7 +284,7 @@ def build_markdown(rules_path: Path, corpus_path: Path) -> str:
 
     for cat, stats in sorted(per_category.items()):
         lines.append(
-            f"| {cat} | {stats['TP']} | {stats['FP']} | {stats['TN']} | {stats['FN']}"
+            f"| {_md_cell(cat)} | {stats['TP']} | {stats['FP']} | {stats['TN']} | {stats['FN']}"
             f" | {_pct(_tp_rate(stats))} | {_pct(_fp_rate(stats))} | {_pct(_fn_rate(stats))} |"
         )
 
@@ -272,12 +296,13 @@ def build_markdown(rules_path: Path, corpus_path: Path) -> str:
         "|---|---|---|---|---|---|---|",
     ]
     for case in per_case:
-        signals = ", ".join(case["matched_signals"]) or "—"
+        signals = _md_cell(", ".join(case["matched_signals"]) or "—")
         expected = "block" if case["expected_blocked"] else "allow"
         actual = "block" if case["actual_blocked"] else "allow"
         lines.append(
-            f"| {case['id']} | {case['kind']} | {case['category']}"
-            f" | {expected} | {actual} | {case['outcome']} | {signals} |"
+            f"| {_md_cell(str(case['id']))} | {_md_cell(case['kind'])}"
+            f" | {_md_cell(case['category'])}"
+            f" | {expected} | {actual} | {_md_cell(case['outcome'])} | {signals} |"
         )
 
     lines += [
