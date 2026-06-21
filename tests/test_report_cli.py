@@ -318,6 +318,33 @@ def test_evidence_table_preserves_append_order(tmp_path: Path):
     # Measured comparison still uses same-schema gen3 -> gen4 regardless of order.
     assert "Gen 3 measured baseline" in markdown
     assert "Gen 4 current" in markdown
+    # The rejected rollback record (passed_adoption_gate=False) must not be used
+    # as the current measured generation.
+    assert _fitness_row(947.66, 900.55) not in markdown
+    assert _fitness_row(900.55, 948.04) not in markdown
+
+
+def test_rejected_highest_generation_is_not_current(tmp_path: Path):
+    repo_root = tmp_path / "repo"
+    # A later, higher-numbered but rejected post-migration attempt must not be
+    # presented as the current generation; the measured comparison stays on the
+    # promoted gen3 -> gen4 pair.
+    rejected_record = {
+        "generation": 5,
+        "score": 10.0,
+        "passed_adoption_gate": False,
+        "promoted_at": "2026-06-20T00:00:00Z",
+        "note": "rejected attempt",
+    }
+    _write_history(repo_root, entries=_FULL_HISTORY + [rejected_record])
+
+    markdown = report.build_markdown(repo_root=repo_root)
+
+    assert "Gen 3 measured baseline" in markdown
+    assert "Gen 4 current" in markdown
+    assert "Gen 5 current" not in markdown
+    # Rejected record is still visible in the evidence table as lineage.
+    assert "| 5 | 10.0000 |" in markdown
 
 
 def test_explicit_history_path_works(tmp_path: Path):

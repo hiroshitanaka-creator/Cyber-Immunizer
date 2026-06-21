@@ -82,18 +82,25 @@ def _has_numeric_score(entry: dict[str, Any]) -> bool:
 
 
 def _same_schema_measured(history: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return post-migration generations carrying a numeric score, ordered by generation.
+    """Return promoted post-migration generations carrying a numeric score.
 
-    Generation 0 (unevaluated placeholder) and pre-migration generations
-    (older fitness formula) are excluded so measured deltas never compare
-    incompatible score scales. The history may be in append (audit) order, so a
-    sorted copy is used here purely to pick a deterministic before/after pair.
+    Excluded from the measured comparison:
+      - Generation 0 (unevaluated placeholder);
+      - pre-migration generations (older, incompatible fitness formula);
+      - records that did not pass the adoption gate (e.g. rejected attempts or
+        rollback/backtrack audit records), so an inactive record is never shown
+        as the current generation.
+
+    The history may be in append (audit) order, so a sorted copy is returned
+    purely to pick a deterministic before/after pair.
     """
     records: list[dict[str, Any]] = []
     for entry in history:
         if int(entry["generation"]) < _SCHEMA_MIGRATION_GENERATION:
             continue
         if not _has_numeric_score(entry):
+            continue
+        if entry.get("passed_adoption_gate") is not True:
             continue
         records.append(entry)
     return sorted(records, key=lambda item: int(item["generation"]))
