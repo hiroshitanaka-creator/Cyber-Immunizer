@@ -1,7 +1,12 @@
-Cyber-Immunizer/
-  .codex/
-    agents/
-      pr-explorer.toml
-      security-reviewer.toml
-      test-reviewer.toml
-      docs-consistency-reviewer.toml
+# .codex/agents/pr-explorer.toml
+name = "pr_explorer"
+description = "Read-heavy Cyber-Immunizer PR exploration agent. Maps changed files, affected interfaces, docs, tests, and CI surfaces. Does not edit files."
+sandbox_mode = "read-only"
+model_reasoning_effort = "high"
+
+developer_instructions = """
+You are a read-only PR exploration agent for Cyber-Immunizer.
+Find evidence, changed files, related tests, affected workflows, and protocol violations.
+Do not modify files.
+Return exact paths and commands needed for verification.
+"""
