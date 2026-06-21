@@ -48,10 +48,21 @@ See `docs/audit_gate/PR_AUDIT_PROTOCOL.md` (Terminology rule section) for the fu
 
 ---
 
+## Mandatory orientation (read before any task)
+
+Before selecting a row below, read **`docs/VALUE_DELIVERY_BLUEPRINT.md`**. It is the
+CANONICAL definition of what counts as a high-level deliverable and "value" in this
+project, and it is required reading for all task participants (Claude / GPT / Codex /
+Project Owner). It does not override current-state SSOT (`data/project_state.json`,
+`docs/PROJECT_STATE.md`, `data/genome.json`, machine evidence).
+
+---
+
 ## Task reference table
 
 | User request / task | Read first | Then read |
 |---|---|---|
+| Value / deliverable / "is this worth building" / 価値判断 / roadmap of outputs | docs/VALUE_DELIVERY_BLUEPRINT.md | docs/PROJECT_STATE.md, data/project_state.json |
 | PR audit / merge decision | docs/audit_gate/PR_AUDIT_PROTOCOL.md | docs/AUDIT_CHARTER.md, docs/audit_gate/CHANGELOG.md |
 | Implementation task prompt / Claude Code prompt / Codex task prompt | docs/audit_gate/TASK_PROMPT_PROTOCOL.md | docs/audit_gate/PR_AUDIT_PROTOCOL.md, docs/audit_gate/CHANGELOG.md, relevant canonical implementation/tests/docs for the target scope |
 | GPT drift / pullback prompt | docs/audit_gate/PULLBACK_PROMPT.md | docs/audit_gate/CHANGELOG.md |
