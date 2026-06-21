@@ -179,7 +179,8 @@ not the central definition of project completion.
 
 - Lint / type check / coverage threshold enforcement is useful but not the project's completion headline.
 - Adding more docs, tests, or protocols is not progress toward Layer 2.
-- Symbolic corpus score improvement (gen1→gen4: 383.67→948.04; gen0 is an unevaluated placeholder, not a scored baseline) is research foundation evidence, not defensive value evidence.
+- Symbolic corpus score improvement (first evaluated generation through Generation 4: 383.67→948.04) is research foundation evidence, not defensive value evidence.
+- Generation 0 is an unevaluated placeholder and is never used as a scored baseline; scored comparisons start at the first evaluated generation (Generation 1).
 - Package export, scan CLI, CI templates, or dashboards are blocked until Layer 2 is satisfied.
 - `cyber_immunizer.core` as a public importable package namespace does not exist yet; it is a future packaging decision and must not be claimed as implemented.
 
