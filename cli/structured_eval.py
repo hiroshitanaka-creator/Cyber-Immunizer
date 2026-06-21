@@ -43,6 +43,46 @@ _KIND_TAGS: frozenset[str] = frozenset(
 )
 
 
+def _validate_optional_str(entry_idx: int, field: str, value: object) -> None:
+    if value is not None and not isinstance(value, str):
+        raise EvalError(
+            f"Corpus entry {entry_idx} {field!r} must be a string or absent, "
+            f"got {type(value).__name__}: {value!r}"
+        )
+
+
+def _validate_optional_str_list(entry_idx: int, field: str, value: object) -> None:
+    if value is None:
+        return
+    if not isinstance(value, list):
+        raise EvalError(
+            f"Corpus entry {entry_idx} {field!r} must be a list of strings or absent, "
+            f"got {type(value).__name__}: {value!r}"
+        )
+    for j, item in enumerate(value):
+        if not isinstance(item, str):
+            raise EvalError(
+                f"Corpus entry {entry_idx} {field!r}[{j}] must be a string, "
+                f"got {type(item).__name__}: {item!r}"
+            )
+
+
+def _validate_request_mapping(entry_idx: int, field: str, value: object) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise EvalError(
+            f"Corpus entry {entry_idx} request.{field!r} must be a JSON object or absent, "
+            f"got {type(value).__name__}: {value!r}"
+        )
+    for k, v in value.items():
+        if not isinstance(v, str):
+            raise EvalError(
+                f"Corpus entry {entry_idx} request.{field!r}[{k!r}] value must be a string, "
+                f"got {type(v).__name__}: {v!r}"
+            )
+
+
 def load_rules(path: Path) -> dict:
     """Load and validate a structured rules document.
 
@@ -87,20 +127,15 @@ def load_corpus(path: Path) -> list[dict]:
         if not isinstance(entry["request"], dict):
             raise EvalError(f"Corpus entry {i} 'request' must be a JSON object")
         _req = entry["request"]
-        for _sf in ("method", "path", "body"):
+        for _sf in ("method", "path", "body", "source_ip"):
             _v = _req.get(_sf)
             if _v is not None and not isinstance(_v, str):
                 raise EvalError(
                     f"Corpus entry {i} request.{_sf!r} must be a string or absent, "
                     f"got {type(_v).__name__}: {_v!r}"
                 )
-        for _df in ("query", "headers"):
-            _v = _req.get(_df)
-            if _v is not None and not isinstance(_v, dict):
-                raise EvalError(
-                    f"Corpus entry {i} request.{_df!r} must be a JSON object or absent, "
-                    f"got {type(_v).__name__}: {_v!r}"
-                )
+        _validate_request_mapping(i, "query", _req.get("query"))
+        _validate_request_mapping(i, "headers", _req.get("headers"))
         if "expected_blocked" not in entry:
             raise EvalError(f"Corpus entry {i} missing 'expected_blocked' field")
         if not isinstance(entry["expected_blocked"], bool):
@@ -109,6 +144,9 @@ def load_corpus(path: Path) -> list[dict]:
                 f"(true/false), got {type(entry['expected_blocked']).__name__}: "
                 f"{entry['expected_blocked']!r}"
             )
+        _validate_optional_str(i, "id", entry.get("id"))
+        _validate_optional_str(i, "kind", entry.get("kind"))
+        _validate_optional_str_list(i, "tags", entry.get("tags"))
     return data
 
 
@@ -119,7 +157,7 @@ def _make_request(entry: dict) -> Request:
         path=req.get("path", "/"),
         query=dict(req.get("query") or {}),
         headers=dict(req.get("headers") or {}),
-        body=str(req.get("body") or ""),
+        body=req.get("body") or "",
         source_ip=req.get("source_ip"),
     )
 

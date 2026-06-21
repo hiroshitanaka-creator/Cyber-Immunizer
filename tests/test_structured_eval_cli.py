@@ -160,6 +160,39 @@ class TestLoadCorpus:
             load_corpus(p)
 
 
+@pytest.mark.parametrize("bad_entry,match", [
+    # expected_blocked type errors
+    ({"request": {}, "expected_blocked": "true"}, "must be a JSON boolean"),
+    ({"request": {}, "expected_blocked": 1}, "must be a JSON boolean"),
+    ({"request": {}, "expected_blocked": None}, "must be a JSON boolean"),
+    # request field must be a dict
+    ({"request": "not-a-dict", "expected_blocked": True}, "'request' must be a JSON object"),
+    # request scalar field type errors (method/path/body/source_ip)
+    ({"request": {"method": 123}, "expected_blocked": True}, "must be a string or absent"),
+    ({"request": {"path": []}, "expected_blocked": True}, "must be a string or absent"),
+    ({"request": {"body": {}}, "expected_blocked": True}, "must be a string or absent"),
+    ({"request": {"source_ip": 12345}, "expected_blocked": True}, "must be a string or absent"),
+    # request mapping field type errors (query/headers must be dict)
+    ({"request": {"query": "?x=1"}, "expected_blocked": True}, "must be a JSON object or absent"),
+    ({"request": {"headers": []}, "expected_blocked": True}, "must be a JSON object or absent"),
+    # request mapping field value type errors (values must be str)
+    ({"request": {"query": {"q": 1}}, "expected_blocked": True}, r"'query'\["),
+    ({"request": {"headers": {"Host": 80}}, "expected_blocked": True}, r"'headers'\["),
+    # optional top-level field type errors
+    ({"request": {}, "expected_blocked": True, "id": 42}, "must be a string or absent"),
+    ({"request": {}, "expected_blocked": True, "kind": 1}, "must be a string or absent"),
+    # tags must be a list of strings
+    ({"request": {}, "expected_blocked": True, "tags": "attack"}, "must be a list of strings"),
+    ({"request": {}, "expected_blocked": True, "tags": ["attack", 2]}, r"'tags'\["),
+    # entry must be a dict
+    ("not-a-dict", "must be a JSON object"),
+])
+def test_load_corpus_rejects_malformed(tmp_path: Path, bad_entry: object, match: str) -> None:
+    p = _write_json(tmp_path, "corpus.json", [bad_entry])
+    with pytest.raises(EvalError, match=match):
+        load_corpus(p)
+
+
 # ---------------------------------------------------------------------------
 # run_evaluation
 # ---------------------------------------------------------------------------
@@ -481,3 +514,11 @@ class TestMainCLI:
         with pytest.raises(SystemExit) as exc_info:
             main([])
         assert exc_info.value.code != 0
+
+    def test_main_exits_2_on_malformed_corpus(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        bad_corpus = tmp_path / "bad.json"
+        bad_corpus.write_text('[{"request": {}, "expected_blocked": "true"}]', encoding="utf-8")
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--rules", str(rules_path), "--corpus", str(bad_corpus)])
+        assert exc_info.value.code == 2
