@@ -1,12 +1,12 @@
-"""Read-only evolution report CLI for Cyber-Immunizer.
+"""Owner/auditor-facing evolution report for Cyber-Immunizer.
 
-The report converts internal evolution-history records into a portable
-before/after summary without mutating genome, detector, ledger, or history data.
+This module is intentionally read-only. It summarizes internal symbolic-corpus
+fitness history for repository checkout validation and does not claim external
+user value, real-world defensive value, or production WAF suitability.
 """
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import sys
 from dataclasses import fields
@@ -15,11 +15,9 @@ from typing import Any, Sequence
 
 from core.types import FitnessReport
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_HISTORY_PATH = _REPO_ROOT / "data" / "evolution_history.json"
 _REPORT_FIELDS = {field.name for field in fields(FitnessReport)}
 _RATE_FIELDS = ("tp_rate", "fp_rate", "fn_rate")
-_REPORT_COLUMNS = (
+_MEASURED_COLUMNS = (
     "generation",
     "score",
     "tp_rate",
@@ -28,18 +26,33 @@ _REPORT_COLUMNS = (
     "total_cases",
     "passed_adoption_gate",
 )
+_PROTECTED_REPO_PATHS = (
+    "data",
+    "core",
+    "scripts",
+    ".github",
+    "README.md",
+    "pyproject.toml",
+    "docs/PROJECT_STATE.md",
+    "docs/DEFINITION_OF_DONE.md",
+    "docs/VALUE_DELIVERY_BLUEPRINT.md",
+)
+
+
+class ReportError(ValueError):
+    """Raised for user-correctable report generation errors."""
 
 
 def _load_history(path: Path) -> list[dict[str, Any]]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, list):
-        raise ValueError(f"Expected list in {path}")
+        raise ReportError(f"Expected list in {path}")
     generations: list[dict[str, Any]] = []
     for entry in data:
         if not isinstance(entry, dict):
-            raise ValueError(f"Expected object entries in {path}")
+            raise ReportError(f"Expected object entries in {path}")
         if "generation" not in entry:
-            raise ValueError(f"History entry missing generation in {path}")
+            raise ReportError(f"History entry missing generation in {path}")
         generations.append(entry)
     return sorted(generations, key=lambda item: int(item["generation"]))
 
@@ -48,7 +61,22 @@ def _select_generation(history: Sequence[dict[str, Any]], generation: int) -> di
     for entry in history:
         if int(entry["generation"]) == generation:
             return entry
-    raise ValueError(f"Generation {generation} not found in evolution history")
+    raise ReportError(f"Generation {generation} not found in evolution history")
+
+
+def _current_generation(history: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    if not history:
+        raise ReportError("Evolution history is empty")
+    return max(history, key=lambda item: int(item["generation"]))
+
+
+def _first_measured_generation(history: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    for entry in history:
+        if int(entry["generation"]) == 0:
+            continue
+        if isinstance(entry.get("score"), (int, float)) and not isinstance(entry.get("score"), bool):
+            return entry
+    raise ReportError("No measured generation with a numeric score was found")
 
 
 def _format_value(value: Any) -> str:
@@ -59,6 +87,12 @@ def _format_value(value: Any) -> str:
     if isinstance(value, float):
         return f"{value:.4f}"
     return str(value)
+
+
+def _score_for_display(entry: dict[str, Any]) -> str:
+    if int(entry["generation"]) == 0:
+        return "unevaluated placeholder"
+    return _format_value(entry.get("score"))
 
 
 def _delta(before: dict[str, Any], after: dict[str, Any], field: str) -> str:
@@ -85,25 +119,87 @@ def _metric_label(field: str) -> str:
     return labels[field]
 
 
-def build_markdown(history_path: Path = _DEFAULT_HISTORY_PATH) -> str:
-    """Build a portable Markdown report from evolution history only."""
-    history = _load_history(history_path)
-    before = _select_generation(history, 0)
-    after = _select_generation(history, 4)
+def _resolve_repo_root(repo_root: Path | None, history_path: Path | None) -> Path:
+    if repo_root is not None:
+        return repo_root.expanduser().resolve()
+    if history_path is not None:
+        expanded = history_path.expanduser().resolve()
+        if expanded.name == "evolution_history.json" and expanded.parent.name == "data":
+            return expanded.parent.parent.resolve()
+        raise ReportError("--repo-root is required when --history-path is not data/evolution_history.json")
+    raise ReportError("Provide --repo-root or --history-path for repository-checkout validation")
+
+
+def _resolve_history_path(repo_root: Path, history_path: Path | None) -> Path:
+    if history_path is not None:
+        return history_path.expanduser().resolve()
+    return (repo_root / "data" / "evolution_history.json").resolve()
+
+
+def _relative_to_repo(path: Path, repo_root: Path) -> str:
+    resolved = path.expanduser().resolve()
+    try:
+        return resolved.relative_to(repo_root).as_posix()
+    except ValueError:
+        return str(resolved)
+
+
+def _is_within(child: Path, parent: Path) -> bool:
+    try:
+        child.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def _is_protected_export_path(export_path: Path, repo_root: Path) -> bool:
+    resolved = export_path.expanduser().resolve()
+    root = repo_root.expanduser().resolve()
+    for protected in _PROTECTED_REPO_PATHS:
+        protected_path = (root / protected).resolve()
+        if protected_path.is_dir() or protected in {"data", "core", "scripts", ".github"}:
+            if _is_within(resolved, protected_path):
+                return True
+        elif resolved == protected_path:
+            return True
+    return False
+
+
+def _write_export(path: Path, markdown: str, repo_root: Path) -> None:
+    if _is_protected_export_path(path, repo_root):
+        raise ReportError(
+            f"Refusing to export into protected repository path: {_relative_to_repo(path, repo_root)}"
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(markdown, encoding="utf-8")
+
+
+def build_markdown(*, repo_root: Path | None = None, history_path: Path | None = None) -> str:
+    """Build a portable Markdown validation report from evolution history only."""
+    resolved_repo_root = _resolve_repo_root(repo_root, history_path)
+    resolved_history_path = _resolve_history_path(resolved_repo_root, history_path)
+    history = _load_history(resolved_history_path)
+    placeholder = _select_generation(history, 0)
+    before = _first_measured_generation(history)
+    after = _current_generation(history)
 
     lines = [
-        "# Cyber-Immunizer Evolution Report",
+        "# Cyber-Immunizer Owner/Auditor Evolution Validation Report",
         "",
-        "Read-only summary of exported detection improvement evidence from generation 0 to generation 4.",
+        "This read-only report summarizes internal symbolic-corpus evolution evidence for Owner/auditor validation only.",
+        "It does not prove real-world defensive value, does not connect to real traffic, and does not validate production WAF suitability.",
+        "Externalization remains blocked until Layer 2 value validation is satisfied.",
         "",
-        f"Source: `{history_path.relative_to(_REPO_ROOT) if history_path.is_relative_to(_REPO_ROOT) else history_path}`",
+        f"Source: `{_relative_to_repo(resolved_history_path, resolved_repo_root)}`",
         "",
-        "## Before / After",
+        "## Default Scored Comparison",
         "",
-        "| Metric | Gen 0 before | Gen 4 after | Delta |",
+        f"Measured score deltas exclude generation 0 because it is an unevaluated placeholder sentinel, not a measured baseline.",
+        "",
+        f"| Metric | Gen {before['generation']} measured baseline | Gen {after['generation']} current | Delta |",
         "|---|---:|---:|---:|",
     ]
-    for field in _REPORT_COLUMNS:
+    for field in _MEASURED_COLUMNS:
         lines.append(
             "| "
             f"{_metric_label(field)} | "
@@ -114,16 +210,29 @@ def build_markdown(history_path: Path = _DEFAULT_HISTORY_PATH) -> str:
 
     lines.extend([
         "",
+        "## Generation 0 Placeholder",
+        "",
+        "Generation 0 is retained for lineage only. Its score is unavailable/placeholder and is excluded from measured improvement deltas.",
+        "",
+        "| Generation | Score status | Gate | Promoted at | Note |",
+        "|---:|---|---|---|---|",
+        "| "
+        f"{_format_value(placeholder.get('generation'))} | "
+        f"{_score_for_display(placeholder)} | "
+        f"{_format_value(placeholder.get('passed_adoption_gate'))} | "
+        f"{_format_value(placeholder.get('promoted_at'))} | "
+        f"{_format_value(placeholder.get('note'))} |",
+        "",
         "## Generation Evidence",
         "",
         "| Generation | Score | TP rate | FP rate | FN rate | Cases | Gate | Promoted at |",
-        "|---:|---:|---:|---:|---:|---:|---|---|",
+        "|---:|---|---:|---:|---:|---:|---|---|",
     ])
     for entry in history:
         lines.append(
             "| "
             f"{_format_value(entry.get('generation'))} | "
-            f"{_format_value(entry.get('score'))} | "
+            f"{_score_for_display(entry)} | "
             f"{_format_value(entry.get('tp_rate'))} | "
             f"{_format_value(entry.get('fp_rate'))} | "
             f"{_format_value(entry.get('fn_rate'))} | "
@@ -132,59 +241,61 @@ def build_markdown(history_path: Path = _DEFAULT_HISTORY_PATH) -> str:
             f"{_format_value(entry.get('promoted_at'))} |"
         )
 
-    missing = [field for field in _RATE_FIELDS if before.get(field) is None]
+    missing = [field for field in _RATE_FIELDS if placeholder.get(field) is None]
     if missing:
         lines.extend([
             "",
-            "Note: generation 0 predates exported FitnessReport rate fields, so rate deltas are reported as `n/a`.",
+            "Note: generation 0 predates exported FitnessReport rate fields, so gen0 rate deltas are not reported.",
         ])
-    unknown_fields = sorted(set().union(*(entry.keys() for entry in history)) - _REPORT_FIELDS - {"generation", "detector_hash", "promoted_at", "note"})
+    unknown_fields = sorted(
+        set().union(*(entry.keys() for entry in history))
+        - _REPORT_FIELDS
+        - {"generation", "detector_hash", "promoted_at", "note"}
+    )
     if unknown_fields:
         lines.extend([
             "",
-            "Additional history-only fields observed: " + ", ".join(f"`{field}`" for field in unknown_fields) + ".",
+            "Additional history-only fields observed: "
+            + ", ".join(f"`{field}`" for field in unknown_fields)
+            + ".",
         ])
     lines.append("")
     return "\n".join(lines)
 
 
-def _print_console(markdown: str) -> None:
-    if importlib.util.find_spec("rich") is not None:
-        from rich.console import Console
-        from rich.markdown import Markdown
-
-        Console().print(Markdown(markdown))
-    else:
-        print(markdown)
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     args_list = list(argv) if argv is not None else sys.argv[1:]
-    if args_list and args_list[0] == "report":
-        args_list = args_list[1:]
-
     parser = argparse.ArgumentParser(
-        prog="cyber-immunize report",
-        description="Print a read-only gen0→gen4 detection improvement report.",
+        prog="python -m cli.report",
+        description="Print a read-only Owner/auditor evolution validation report.",
+    )
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument(
+        "--repo-root",
+        type=Path,
+        help="Repository checkout root containing data/evolution_history.json.",
+    )
+    source_group.add_argument(
+        "--history-path",
+        type=Path,
+        help="Explicit path to evolution_history.json for repository-checkout validation.",
     )
     parser.add_argument(
         "--export",
         type=Path,
-        help="Write the report as Markdown to the given path.",
-    )
-    parser.add_argument(
-        "--history",
-        type=Path,
-        default=_DEFAULT_HISTORY_PATH,
-        help=argparse.SUPPRESS,
+        help="Write Markdown outside protected repository paths.",
     )
     args = parser.parse_args(args_list)
 
-    markdown = build_markdown(args.history)
-    if args.export is not None:
-        args.export.write_text(markdown, encoding="utf-8")
-    else:
-        _print_console(markdown)
+    try:
+        repo_root = _resolve_repo_root(args.repo_root, args.history_path)
+        markdown = build_markdown(repo_root=repo_root, history_path=args.history_path)
+        if args.export is not None:
+            _write_export(args.export, markdown, repo_root)
+        else:
+            print(markdown)
+    except (OSError, ReportError, json.JSONDecodeError) as exc:
+        parser.exit(status=2, message=f"error: {exc}\n")
     return 0
 
 
