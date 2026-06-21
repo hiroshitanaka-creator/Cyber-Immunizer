@@ -31,12 +31,12 @@ _PROTECTED_REPO_PATHS = (
     "core",
     "scripts",
     ".github",
+    "docs",
     "README.md",
     "pyproject.toml",
-    "docs/PROJECT_STATE.md",
-    "docs/DEFINITION_OF_DONE.md",
-    "docs/VALUE_DELIVERY_BLUEPRINT.md",
 )
+# Entries treated as whole protected directories (anything inside is protected).
+_PROTECTED_REPO_DIRS = frozenset({"data", "core", "scripts", ".github", "docs"})
 
 # Generation 1 and Generation 2 were scored with an older fitness formula.
 # Generation 3 onward use the post-migration / generation-invariant score.
@@ -182,7 +182,7 @@ def _is_protected_export_path(export_path: Path, repo_root: Path) -> bool:
     root = repo_root.expanduser().resolve()
     for protected in _PROTECTED_REPO_PATHS:
         protected_path = (root / protected).resolve()
-        if protected_path.is_dir() or protected in {"data", "core", "scripts", ".github"}:
+        if protected_path.is_dir() or protected in _PROTECTED_REPO_DIRS:
             if _is_within(resolved, protected_path):
                 return True
         elif resolved == protected_path:

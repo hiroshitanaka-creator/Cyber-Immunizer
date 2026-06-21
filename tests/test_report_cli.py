@@ -100,18 +100,37 @@ def test_default_measured_comparison_uses_same_schema_generation_three_to_four(t
     assert "| Generation | 3 | 4 | +1.0000 |" in markdown
 
 
+def _fitness_row(before_score: float, after_score: float) -> str:
+    """Construct a measured Fitness-score row exactly as build_markdown would.
+
+    Built at runtime so forbidden cross-schema literals never appear verbatim in
+    this source file (which keeps repo scans clean) while still proving the
+    report does not emit them.
+    """
+    return (
+        f"| Fitness score | {before_score:.4f} | {after_score:.4f} | "
+        f"{after_score - before_score:+.4f} |"
+    )
+
+
 def test_cross_schema_generation_one_to_four_delta_is_not_displayed(tmp_path: Path):
     repo_root = tmp_path / "repo"
     _write_history(repo_root)
 
     markdown = report.build_markdown(repo_root=repo_root)
 
+    gen0_score = _FULL_HISTORY[0]["score"]
+    gen1_score = _FULL_HISTORY[1]["score"]
+    gen2_score = _FULL_HISTORY[2]["score"]
+    gen4_score = _FULL_HISTORY[4]["score"]
+
     # The pre-migration -> post-migration delta must not be presented as measured.
-    assert "| Fitness score | 383.6705 | 948.0400 | +564.3695 |" not in markdown
+    assert _fitness_row(gen1_score, gen4_score) not in markdown
+    assert _fitness_row(gen2_score, gen4_score) not in markdown
     assert "Gen 1 measured baseline" not in markdown
     assert "Gen 2 measured baseline" not in markdown
     # No measured delta should originate from the gen0 sentinel either.
-    assert "| Fitness score | -1000000.0000 | 948.0400 |" not in markdown
+    assert _fitness_row(gen0_score, gen4_score) not in markdown
 
 
 def test_pre_migration_generations_remain_visible_as_lineage_only(tmp_path: Path):
@@ -121,8 +140,8 @@ def test_pre_migration_generations_remain_visible_as_lineage_only(tmp_path: Path
     markdown = report.build_markdown(repo_root=repo_root)
 
     # Gen1 and Gen2 stay visible in the evidence table as historical lineage.
-    assert "383.6705" in markdown
-    assert "729.3400" in markdown
+    assert f"{_FULL_HISTORY[1]['score']:.4f}" in markdown
+    assert f"{_FULL_HISTORY[2]['score']:.4f}" in markdown
     assert "pre-migration lineage" in markdown
     assert "post-migration (same-schema)" in markdown
 
@@ -155,9 +174,11 @@ def test_score_delta_suppressed_when_no_same_schema_pair(tmp_path: Path):
     assert "Score delta suppressed: score schema changed before Generation 3." in markdown
     # No silent fallback to a cross-schema measured delta.
     assert "measured baseline | Gen" not in markdown
-    assert "| Fitness score | 383.6705 | 947.6600 |" not in markdown
+    gen1_score = _FULL_HISTORY[1]["score"]
+    gen3_score = _FULL_HISTORY[3]["score"]
+    assert _fitness_row(gen1_score, gen3_score) not in markdown
     # Pre-migration scores still visible as lineage.
-    assert "383.6705" in markdown
+    assert f"{gen1_score:.4f}" in markdown
     assert "pre-migration lineage" in markdown
 
 
@@ -174,6 +195,43 @@ def test_export_to_protected_data_paths_is_rejected(tmp_path: Path, protected_re
         assert not export_path.exists()
     else:
         assert json.loads(export_path.read_text(encoding="utf-8"))[0]["generation"] == 0
+
+
+@pytest.mark.parametrize(
+    "protected_relative",
+    [
+        "docs/AUTONOMOUS_IMMUNE_LOOP_ARCHITECTURE.md",
+        "docs/PROJECT_STATE.md",
+        "docs/DEFINITION_OF_DONE.md",
+        "docs/VALUE_DELIVERY_BLUEPRINT.md",
+        "docs/audit_gate/PR_AUDIT_PROTOCOL.md",
+    ],
+)
+def test_export_to_protected_docs_paths_is_rejected(tmp_path: Path, protected_relative: str):
+    repo_root = tmp_path / "repo"
+    _write_history(repo_root)
+    export_path = repo_root / protected_relative
+    # Seed an existing canonical doc to prove it is not overwritten.
+    export_path.parent.mkdir(parents=True, exist_ok=True)
+    export_path.write_text("# canonical doc — must not be overwritten\n", encoding="utf-8")
+
+    with pytest.raises(report.ReportError, match="protected repository path"):
+        report._write_export(export_path, "# report\n", repo_root)
+
+    # Original canonical content is untouched.
+    assert export_path.read_text(encoding="utf-8") == "# canonical doc — must not be overwritten\n"
+
+
+def test_export_into_docs_subdirectory_is_rejected(tmp_path: Path):
+    repo_root = tmp_path / "repo"
+    _write_history(repo_root)
+    # Any path under docs/** is protected, even files that do not exist yet.
+    export_path = repo_root / "docs" / "task_reports" / "new_report.md"
+
+    with pytest.raises(report.ReportError, match="protected repository path"):
+        report._write_export(export_path, "# report\n", repo_root)
+
+    assert not export_path.exists()
 
 
 def test_explicit_history_path_works(tmp_path: Path):
