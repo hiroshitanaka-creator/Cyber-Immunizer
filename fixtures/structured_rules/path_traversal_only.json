@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "features": {
+    "surface": {
+      "fields": [
+        "path",
+        "query.keys",
+        "query.values",
+        "body"
+      ],
+      "normalization": ["lowercase"],
+      "max_collection_entries": {
+        "query": 1000,
+        "headers": 1000
+      },
+      "max_scalar_bytes": {
+        "method": 4096,
+        "path": 1048576,
+        "query.item": 1048576,
+        "header.item": 1048576
+      },
+      "body_scan": {
+        "mode": "full",
+        "max_bytes": 1048576
+      }
+    }
+  },
+  "rules": [
+    {
+      "id": "symbolic_path_traversal",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "path_traversal_indicator",
+      "signal": "symbolic_path_traversal",
+      "confidence": 0.86
+    },
+    {
+      "id": "symbolic_encoded_traversal",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "encoded_traversal_indicator",
+      "signal": "symbolic_encoded_traversal",
+      "confidence": 0.86
+    }
+  ],
+  "decision": {
+    "block_when": "any_rule_matches",
+    "reason": "path traversal indicator matched",
+    "confidence_strategy": {
+      "type": "bounded_match_count",
+      "default": 0.86,
+      "two_matches": 0.94,
+      "three_or_more_matches": 0.99
+    },
+    "matched_signals": "matched_rule_signals"
+  },
+  "fallback": {
+    "blocked": false,
+    "reason": "no path traversal indicator matched",
+    "confidence": 0.0,
+    "matched_signals": []
+  }
+}

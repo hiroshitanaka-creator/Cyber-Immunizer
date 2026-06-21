@@ -301,7 +301,59 @@ def build_markdown(*, repo_root: Path | None = None, history_path: Path | None =
             + ", ".join(f"`{field}`" for field in unknown_fields)
             + ".",
         ])
-    lines.append("")
+
+    lines.extend([
+        "",
+        "## Score Interpretation",
+        "",
+        "**All scored generations show tp_rate=1.0000 and fp_rate=0.0000.** This is expected:"
+        " the test corpus uses symbolic indicator tokens (e.g., `path_traversal_indicator`) and"
+        " the detector matches those same tokens. Perfect symbolic-corpus detection is by design,"
+        " not evidence of realistic threat coverage.",
+        "",
+        "The fitness score formula is:",
+        "",
+        "```",
+        "score = 1000*tp_rate − 2000*fp_rate − 1500*fn_rate − 50*exceptions − 0.02*code_chars",
+        "```",
+        "",
+        "When tp_rate=1.0 and fp_rate=fn_rate=0 across all scored generations, the score"
+        " improvement between generations reflects **code size reduction only** (−0.02 × code_chars)."
+        " The generation 3→4 delta is attributable to the LLM producing a more compact implementation,"
+        " not to improved threat detection capability.",
+        "",
+        "This is not a bug in the evolution loop. It is the expected research-foundation result"
+        " (Layer 1 complete). The symbolic corpus confirms that the mutation pipeline functions"
+        " correctly end-to-end (propose → apply → evaluate → promote). What remains is Layer 2"
+        " value validation: demonstrating detection capability against realistic threat patterns.",
+        "",
+        "## Layer 2 Gap",
+        "",
+        "Layer 2 value validation (DEFINITION_OF_DONE.md L2-V1 through L2-V5) requires:",
+        "",
+        "1. **Realistic threat coverage** — evaluation against realistic but safely neutralized"
+        " threat categories, not symbolic-only corpus.",
+        "2. **Per-category TP/FP/FN reporting** — path-traversal, XSS, SQLi, and command delimiter"
+        " categories evaluated separately.",
+        "3. **Improvement explanation** — documentation of which threat classes improved and why.",
+        "4. **No overfitting claim** — results must distinguish symbolic corpus performance from"
+        " realistic threat coverage.",
+        "",
+        "**Current status:** Layer 2 criteria are not yet satisfied. The symbolic corpus score"
+        " (generation 4: 948.04) is research-foundation evidence, not defensive value evidence.",
+        "",
+        "**Path forward:** Use `cli/structured_eval` with Owner-supplied realistic (but safely"
+        " neutralized) rules and corpus files outside the repository:",
+        "",
+        "```bash",
+        "python -m cli.structured_eval \\",
+        "  --rules /path/to/owner/realistic_rules.json \\",
+        "  --corpus /path/to/owner/realistic_corpus.json",
+        "```",
+        "",
+        "See `fixtures/README.md` for the rules document schema and corpus format.",
+        "",
+    ])
     return "\n".join(lines)
 
 
