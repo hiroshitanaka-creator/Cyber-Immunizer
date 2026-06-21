@@ -323,6 +323,44 @@ class TestRunEvaluation:
         assert results["per_category"] == {}
         assert results["per_case"] == []
 
+    def test_per_kind_aggregated_by_kind_field(self) -> None:
+        rules = _minimal_rules_doc()
+        corpus = [
+            {
+                "id": "a1",
+                "kind": "attack",
+                "expected_blocked": True,
+                "tags": ["attack", "test"],
+                "request": {"method": "GET", "path": "/TEST_ATTACK_SIGNAL", "query": {}, "headers": {}, "body": ""},
+            },
+            {
+                "id": "h1",
+                "kind": "holdout",
+                "expected_blocked": True,
+                "tags": ["attack", "test"],
+                "request": {"method": "GET", "path": "/TEST_ATTACK_SIGNAL", "query": {}, "headers": {}, "body": ""},
+            },
+            {
+                "id": "b1",
+                "kind": "benign",
+                "expected_blocked": False,
+                "tags": ["benign", "test"],
+                "request": {"method": "GET", "path": "/safe", "query": {}, "headers": {}, "body": ""},
+            },
+        ]
+        results = run_evaluation(rules, corpus)
+        pk = results["per_kind"]
+        assert "attack" in pk
+        assert "holdout" in pk
+        assert "benign" in pk
+        assert pk["attack"]["TP"] == 1
+        assert pk["holdout"]["TP"] == 1
+        assert pk["benign"]["TN"] == 1
+
+    def test_per_kind_in_result_keys(self) -> None:
+        results = run_evaluation(_minimal_rules_doc(), _minimal_corpus())
+        assert "per_kind" in results
+
 
 # ---------------------------------------------------------------------------
 # build_markdown
@@ -351,6 +389,21 @@ class TestBuildMarkdown:
         corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
         md = build_markdown(rules_path, corpus_path)
         assert "True Positive (TP) | 1" in md
+
+    def test_markdown_has_per_kind_section(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        md = build_markdown(rules_path, corpus_path)
+        assert "## Per-Kind Results" in md
+        assert "attack" in md
+        assert "benign" in md
+
+    def test_markdown_has_latency_note(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        md = build_markdown(rules_path, corpus_path)
+        assert "latency" in md.lower()
+        assert "L2-V2" in md
 
     def test_invalid_rules_raises_eval_error(self, tmp_path: Path) -> None:
         bad_rules = tmp_path / "bad.json"
@@ -404,6 +457,21 @@ class TestBuildJsonReport:
         report = build_json_report(rules_path, corpus_path)
         tp_case = next(c for c in report["per_case"] if c["outcome"] == "TP")
         assert "test_attack_signal" in tp_case["matched_signals"]
+
+    def test_json_has_per_kind(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        report = build_json_report(rules_path, corpus_path)
+        assert "per_kind" in report
+        assert "attack" in report["per_kind"]
+        assert "benign" in report["per_kind"]
+        assert "pass_rate" in report["per_kind"]["attack"]
+
+    def test_json_has_latency_note(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        report = build_json_report(rules_path, corpus_path)
+        assert "latency_note" in report
 
 
 # ---------------------------------------------------------------------------

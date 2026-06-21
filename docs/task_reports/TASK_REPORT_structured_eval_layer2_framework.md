@@ -106,8 +106,9 @@ python -m cli.structured_eval \
   Layer 2 達成には Owner による現実（非シンボリック）コーパスの提供と評価承認が必要。
 - フィクスチャ（`fixtures/`）はシンボリックプレースホルダのみ。
   Layer 2 証拠として使用不可。
-- `data/**` は FROZEN のため変更なし。
-- `core/**`, `scripts/**`, `.github/**` は FROZEN のため変更なし。
+- `data/project_state.json` は Owner 承認のもと変更済み（ledger カウント同期）。`data/**` のその他のファイルは変更なし。
+- `scripts/propose_mutation.py` は Owner 承認のもと変更済み（GOOD example 更新・プロンプト強化）。`scripts/**` のその他のファイルは変更なし。
+- `core/**`, `.github/**` は FROZEN のため変更なし。
 
 ---
 
@@ -115,14 +116,13 @@ python -m cli.structured_eval \
 
 ```
 Which layer did this task advance?
-[ ] Layer 1 — Research Foundation  ← 変更なし（既存Layer1は完了維持）
-[x] Layer 2 — Value Validation     ← 評価フレームワーク実装（部分的、Ownerによる
-                                      現実コーパス評価・承認は未実施）
+[ ] Layer 1 — Research Foundation
+[ ] Layer 2 — Value Validation
 [ ] Layer 3 — AI Operation Control
-[ ] None
+[x] None（ドキュメント整備・ツール実装のみ。Layer 2 は Owner による現実コーパス評価・承認が必要）
 ```
 
 **注**: Layer 2 完了条件（L2-V1〜V5 全充足 + Owner 承認）は未達。
-本タスクは L2-V2（per-category TP/FP/FN ツール）と
-L2-V4/V5（スコア解釈説明）を実装した。
-L2-V1 達成には Owner 提供の現実コーパスが必要。
+`docs/DEFINITION_OF_DONE.md` に明示のとおり、ドキュメント・テスト・プロトコルの追加のみでは
+Layer 2 の進捗としてカウントしない。
+L2-V1〜V5 の達成には Owner 提供の現実（非シンボリック）コーパスでの評価と Owner 承認が必要。

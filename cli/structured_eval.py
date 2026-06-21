@@ -176,13 +176,19 @@ def _empty_counts() -> dict[str, int]:
     return {"TP": 0, "FP": 0, "TN": 0, "FN": 0, "exceptions": 0}
 
 
+def _pass_rate(counts: dict[str, int]) -> float | None:
+    denom = counts["TP"] + counts["FP"] + counts["TN"] + counts["FN"]
+    return (counts["TP"] + counts["TN"]) / denom if denom else None
+
+
 def run_evaluation(rules_doc: dict, corpus: list[dict]) -> dict[str, Any]:
     """Evaluate a rules document against a corpus.
 
-    Returns a dict with keys 'per_case', 'per_category', and 'overall'.
+    Returns a dict with keys 'per_case', 'per_category', 'per_kind', and 'overall'.
     """
     per_case: list[dict] = []
     per_category: dict[str, dict[str, int]] = {}
+    per_kind: dict[str, dict[str, int]] = {}
     overall = _empty_counts()
 
     for entry in corpus:
@@ -222,11 +228,15 @@ def run_evaluation(rules_doc: dict, corpus: list[dict]) -> dict[str, Any]:
 
         if category not in per_category:
             per_category[category] = _empty_counts()
+        if kind not in per_kind:
+            per_kind[kind] = _empty_counts()
         if outcome is not None:
             per_category[category][outcome] += 1
+            per_kind[kind][outcome] += 1
             overall[outcome] += 1
         if exception:
             per_category[category]["exceptions"] += 1
+            per_kind[kind]["exceptions"] += 1
             overall["exceptions"] += 1
 
         per_case.append(
@@ -242,7 +252,7 @@ def run_evaluation(rules_doc: dict, corpus: list[dict]) -> dict[str, Any]:
             }
         )
 
-    return {"per_case": per_case, "per_category": per_category, "overall": overall}
+    return {"per_case": per_case, "per_category": per_category, "per_kind": per_kind, "overall": overall}
 
 
 def _tp_rate(counts: dict[str, int]) -> float | None:
@@ -282,6 +292,7 @@ def build_markdown(rules_path: Path, corpus_path: Path) -> str:
 
     overall = results["overall"]
     per_category = results["per_category"]
+    per_kind = results["per_kind"]
     per_case = results["per_case"]
 
     total_cases = sum(overall[k] for k in ("TP", "FP", "TN", "FN"))
@@ -328,6 +339,22 @@ def build_markdown(rules_path: Path, corpus_path: Path) -> str:
 
     lines += [
         "",
+        "## Per-Kind Results",
+        "",
+        "Pass rate = (TP + TN) / (TP + FP + TN + FN). Holdout, drift, and counterfactual"
+        " kind pass rates address L2-V3 overfitting-risk evaluation.",
+        "",
+        "| Kind | TP | FP | TN | FN | Exc | Pass rate |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for k, stats in sorted(per_kind.items()):
+        lines.append(
+            f"| {_md_cell(k)} | {stats['TP']} | {stats['FP']} | {stats['TN']} | {stats['FN']}"
+            f" | {stats['exceptions']} | {_pct(_pass_rate(stats))} |"
+        )
+
+    lines += [
+        "",
         "## Per-Case Results",
         "",
         "| ID | Kind | Category | Expected | Actual | Outcome | Matched signals |",
@@ -351,6 +378,12 @@ def build_markdown(rules_path: Path, corpus_path: Path) -> str:
         "If the corpus uses **neutralized placeholder patterns** (e.g.,"
         " `PATH_TRAVERSAL_SIGNATURE_PLACEHOLDER`), detection statistics reflect"
         " symbolic coverage only — not realistic threat coverage.",
+        "",
+        "**Latency note**: This CLI does **not** capture per-request evaluation latency."
+        " L2-V2 requires per-category latency data alongside TP/FP/FN statistics."
+        " Latency evidence must be collected separately by the Owner during realistic-corpus"
+        " evaluation and reported alongside this tool's output."
+        " This CLI alone does not satisfy the latency component of L2-V2.",
         "",
         "For Layer 2 value validation (DEFINITION_OF_DONE.md L2-V1 through L2-V5),"
         " the Owner must supply:",
@@ -378,6 +411,7 @@ def build_json_report(rules_path: Path, corpus_path: Path) -> dict:
 
     overall = results["overall"]
     per_category = results["per_category"]
+    per_kind = results["per_kind"]
     total_cases = sum(overall[k] for k in ("TP", "FP", "TN", "FN"))
 
     cat_summary: dict[str, Any] = {}
@@ -387,6 +421,13 @@ def build_json_report(rules_path: Path, corpus_path: Path) -> dict:
             "tp_rate": _tp_rate(stats),
             "fp_rate": _fp_rate(stats),
             "fn_rate": _fn_rate(stats),
+        }
+
+    kind_summary: dict[str, Any] = {}
+    for k, stats in per_kind.items():
+        kind_summary[k] = {
+            **stats,
+            "pass_rate": _pass_rate(stats),
         }
 
     return {
@@ -400,7 +441,12 @@ def build_json_report(rules_path: Path, corpus_path: Path) -> dict:
             "fn_rate": _fn_rate(overall),
         },
         "per_category": cat_summary,
+        "per_kind": kind_summary,
         "per_case": results["per_case"],
+        "latency_note": (
+            "This CLI does not capture per-request latency. "
+            "L2-V2 latency evidence must be collected separately."
+        ),
     }
 
 

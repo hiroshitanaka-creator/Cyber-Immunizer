@@ -326,9 +326,9 @@ FORBIDDEN:
 - Do NOT include mutation markers (# === MUTATION_START === etc.).
 - Do NOT wrap in markdown fences (```python ... ```).
 
-GOOD example — includes ALL FIVE required indicator strings (this WILL be accepted):
+GOOD example — all FIVE indicator strings + all request surfaces (this WILL be accepted):
 {
-  "replacement_code": "    surface = request.path.lower() + \" \" + request.body.lower()\\n    matched = []\\n    for ind in (\"path_traversal_indicator\", \"script_injection_indicator\", \"sqli_indicator\", \"command_delimiter_indicator\", \"encoded_traversal_indicator\"):\\n        if ind in surface:\\n            matched.append(ind)\\n    if matched:\\n        return DetectionResult(blocked=True, reason=\"suspicious indicator matched\", confidence=0.7, matched_signals=tuple(matched))\\n    return DetectionResult(blocked=False, reason=\"no suspicious indicator matched\", confidence=0.0, matched_signals=())"
+  "replacement_code": "    parts = [request.method, request.path, request.body]\\n    for v in request.query.values():\\n        parts.append(v)\\n    for v in request.headers.values():\\n        parts.append(v)\\n    surface = \" \".join(parts).lower()\\n    matched = []\\n    for ind in (\"path_traversal_indicator\", \"script_injection_indicator\", \"sqli_indicator\", \"command_delimiter_indicator\", \"encoded_traversal_indicator\"):\\n        if ind in surface:\\n            matched.append(ind)\\n    if matched:\\n        return DetectionResult(blocked=True, reason=\"suspicious indicator matched\", confidence=0.7, matched_signals=tuple(matched))\\n    return DetectionResult(blocked=False, reason=\"no suspicious indicator matched\", confidence=0.0, matched_signals=())"
 }
 
 BAD example 1 — unindented body (will be REJECTED with indentation contract violation):
