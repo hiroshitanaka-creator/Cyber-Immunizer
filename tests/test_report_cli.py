@@ -234,6 +234,92 @@ def test_export_into_docs_subdirectory_is_rejected(tmp_path: Path):
     assert not export_path.exists()
 
 
+@pytest.mark.parametrize(
+    "tracked_relative",
+    ["AGENTS.md", "CLAUDE.md", "cli/report.py", "tests/test_report_cli.py", "intelligence/x.py"],
+)
+def test_export_to_any_tracked_repo_file_is_rejected(tmp_path: Path, tracked_relative: str):
+    repo_root = tmp_path / "repo"
+    _write_history(repo_root)
+    export_path = repo_root / tracked_relative
+    export_path.parent.mkdir(parents=True, exist_ok=True)
+    export_path.write_text("ORIGINAL REPO CONTENT — must not be overwritten\n", encoding="utf-8")
+
+    with pytest.raises(report.ReportError, match="protected repository path"):
+        report._write_export(export_path, "# report\n", repo_root)
+
+    # Any file inside the repository checkout is protected; content is untouched.
+    assert export_path.read_text(encoding="utf-8") == "ORIGINAL REPO CONTENT — must not be overwritten\n"
+
+
+def test_export_outside_repo_is_allowed(tmp_path: Path):
+    repo_root = tmp_path / "repo"
+    _write_history(repo_root)
+    # A path outside the repository checkout is the intended export target.
+    outside = tmp_path / "exports" / "report.md"
+
+    report._write_export(outside, "# report\n", repo_root)
+
+    assert outside.read_text(encoding="utf-8") == "# report\n"
+
+
+def test_history_path_outside_data_dir_is_usable(tmp_path: Path):
+    # A standalone history file outside the canonical data/ layout must be usable
+    # with --history-path alone (the CLI forbids also passing --repo-root), and
+    # must not raise an unsatisfiable "repo-root required" error.
+    loose_history = tmp_path / "loose" / "evolution_history.json"
+    loose_history.parent.mkdir(parents=True)
+    loose_history.write_text(json.dumps(_FULL_HISTORY, indent=2), encoding="utf-8")
+
+    repo_root = report._resolve_repo_root(None, loose_history)
+    assert repo_root == loose_history.parent.resolve()
+
+    markdown = report.build_markdown(history_path=loose_history)
+    assert "Gen 3 measured baseline" in markdown
+    assert "Gen 4 current" in markdown
+
+
+def test_history_path_outside_data_dir_cli_succeeds(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
+    loose_history = tmp_path / "loose" / "evolution_history.json"
+    loose_history.parent.mkdir(parents=True)
+    loose_history.write_text(json.dumps(_FULL_HISTORY, indent=2), encoding="utf-8")
+
+    result = report.main(["--history-path", str(loose_history)])
+
+    captured = capsys.readouterr()
+    assert result == 0
+    assert "Owner/Auditor Evolution Validation Report" in captured.out
+
+
+def test_evidence_table_preserves_append_order(tmp_path: Path):
+    repo_root = tmp_path / "repo"
+    # Append a rollback/backtrack record whose generation legitimately decreases
+    # (docs/EVOLUTION_HISTORY_AUDIT.md). The evidence table must keep append
+    # order, not re-sort by generation.
+    rollback_record = {
+        "generation": 3,
+        "score": 900.55,
+        "passed_adoption_gate": False,
+        "promoted_at": "2026-06-19T00:00:00Z",
+        "note": "rollback audit record",
+    }
+    entries = _FULL_HISTORY + [rollback_record]
+    _write_history(repo_root, entries=entries)
+
+    markdown = report.build_markdown(repo_root=repo_root)
+
+    # The rollback record (score 900.5500) was appended last, so its evidence
+    # row must appear after the Generation 4 evidence row — order is not
+    # re-sorted. Match evidence-table rows specifically ("| <gen> | <score> |").
+    gen4_row_pos = markdown.index("| 4 | 948.0400 |")
+    rollback_row_pos = markdown.index("| 3 | 900.5500 |")
+    assert rollback_row_pos > gen4_row_pos
+
+    # Measured comparison still uses same-schema gen3 -> gen4 regardless of order.
+    assert "Gen 3 measured baseline" in markdown
+    assert "Gen 4 current" in markdown
+
+
 def test_explicit_history_path_works(tmp_path: Path):
     repo_root = tmp_path / "repo"
     history_path = _write_history(repo_root)

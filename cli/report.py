@@ -63,7 +63,10 @@ def _load_history(path: Path) -> list[dict[str, Any]]:
         if "generation" not in entry:
             raise ReportError(f"History entry missing generation in {path}")
         generations.append(entry)
-    return sorted(generations, key=lambda item: int(item["generation"]))
+    # Preserve the append-only audit order. Rollback/backtrack records may
+    # legitimately decrease the generation number (docs/EVOLUTION_HISTORY_AUDIT.md),
+    # so the evidence table must reflect the recorded sequence, not a re-sort.
+    return generations
 
 
 def _select_generation(history: Sequence[dict[str, Any]], generation: int) -> dict[str, Any]:
@@ -83,7 +86,8 @@ def _same_schema_measured(history: Sequence[dict[str, Any]]) -> list[dict[str, A
 
     Generation 0 (unevaluated placeholder) and pre-migration generations
     (older fitness formula) are excluded so measured deltas never compare
-    incompatible score scales.
+    incompatible score scales. The history may be in append (audit) order, so a
+    sorted copy is used here purely to pick a deterministic before/after pair.
     """
     records: list[dict[str, Any]] = []
     for entry in history:
@@ -92,7 +96,7 @@ def _same_schema_measured(history: Sequence[dict[str, Any]]) -> list[dict[str, A
         if not _has_numeric_score(entry):
             continue
         records.append(entry)
-    return records
+    return sorted(records, key=lambda item: int(item["generation"]))
 
 
 def _schema_basis(entry: dict[str, Any]) -> str:
@@ -151,7 +155,11 @@ def _resolve_repo_root(repo_root: Path | None, history_path: Path | None) -> Pat
         expanded = history_path.expanduser().resolve()
         if expanded.name == "evolution_history.json" and expanded.parent.name == "data":
             return expanded.parent.parent.resolve()
-        raise ReportError("--repo-root is required when --history-path is not data/evolution_history.json")
+        # Standalone history file outside the canonical data/ layout: use its
+        # parent directory as the protection root so an explicit --history-path
+        # is always usable. The mutually-exclusive CLI group forbids also passing
+        # --repo-root, so raising here would be an unsatisfiable dead-end.
+        return expanded.parent.resolve()
     raise ReportError("Provide --repo-root or --history-path for repository-checkout validation")
 
 
@@ -180,6 +188,15 @@ def _is_within(child: Path, parent: Path) -> bool:
 def _is_protected_export_path(export_path: Path, repo_root: Path) -> bool:
     resolved = export_path.expanduser().resolve()
     root = repo_root.expanduser().resolve()
+    # Refuse to write anywhere inside the repository checkout. This protects all
+    # tracked and untracked repository files (AGENTS.md, CLAUDE.md, cli/**,
+    # tests/**, docs/**, data/**, core/**, scripts/**, .github/**, etc.) from
+    # being overwritten by an exported report. Exports must target a path
+    # outside the repository.
+    if resolved == root or _is_within(resolved, root):
+        return True
+    # Defense-in-depth: keep explicit canonical-path protection in case the
+    # resolved root is a parent of a protected path in some edge configuration.
     for protected in _PROTECTED_REPO_PATHS:
         protected_path = (root / protected).resolve()
         if protected_path.is_dir() or protected in _PROTECTED_REPO_DIRS:
