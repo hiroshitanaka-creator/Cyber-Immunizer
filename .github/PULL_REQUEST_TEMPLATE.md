@@ -43,7 +43,7 @@ Before review, attach or link the evidence required by `docs/review/MICROPR_ENFO
 - [ ] `reports/ruff.txt`
 - [ ] `reports/bandit.json`
 - [ ] `pytest-junit.xml`
-- [ ] `fitness_report.json`
+- [ ] `fitness_report.json` when required by the checklist
 - [ ] CI Run ID: <!-- paste GitHub Actions run ID -->
 
 ---

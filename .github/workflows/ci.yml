@@ -139,3 +139,15 @@ jobs:
             --timeout 60 \
             --json \
             --soft-reject
+
+      - name: Upload MicroPR review artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: micropr-review-artifacts
+          if-no-files-found: warn
+          path: |
+            reports/ruff.txt
+            reports/bandit.json
+            pytest-junit.xml
+            fitness_report.json
