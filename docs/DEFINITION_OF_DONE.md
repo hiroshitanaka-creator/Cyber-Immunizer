@@ -8,7 +8,10 @@ AI_DOC_META:
     A task MUST declare which layer it advances.
     Subordinate to current-state SSOT:
       data/project_state.json / docs/PROJECT_STATE.md / data/genome.json / machine evidence.
-  must_read_for: all task participants (Claude / GPT / Codex / Project Owner)
+  must_read_for:
+    - value / deliverable / roadmap / completion tasks
+    - PRs that claim practical defensive value
+    - tasks that classify docs-only work
   read_alongside: docs/VALUE_DELIVERY_BLUEPRINT.md
 -->
 
@@ -77,7 +80,7 @@ A useless artifact exposed to external users is not a high-level deliverable.
 | L2-V1 | Realistic threat coverage | Detector evaluated against realistic but safe / neutralized threat categories (not symbolic-only corpus). Threat categories must cover at minimum: path traversal, XSS-class, SQLi-class, command delimiter. |
 | L2-V2 | TP / FP / FN reporting | Clear per-category TP / FP / FN and latency reporting. Results are reproducible and deterministic. |
 | L2-V3 | Holdout / drift / counterfactual | Adaptive floor tiers (holdout, drift, counterfactual) are evaluated and pass rates reported. Overfitting risk explicitly addressed. |
-| L2-V4 | Improvement explanation | Document explains which threat classes improved generation-over-generation and why. Score increase from gen0→genN is not claimed as defensive value unless linked to threat-class coverage improvement. |
+| L2-V4 | Improvement explanation | Document explains which threat classes improved generation-over-generation and why. Score increase from the first evaluated generation (gen1) to genN is not claimed as defensive value unless linked to threat-class coverage improvement. gen0 is an unevaluated placeholder and must not be used as a scored baseline. |
 | L2-V5 | No overfitting claim | Results distinguish between symbolic corpus performance and realistic threat coverage. Claims are bounded to what the evaluation actually demonstrates. |
 
 **Layer 2 is complete when L2-V1 through L2-V5 all hold and the Project Owner
@@ -176,7 +179,7 @@ not the central definition of project completion.
 
 - Lint / type check / coverage threshold enforcement is useful but not the project's completion headline.
 - Adding more docs, tests, or protocols is not progress toward Layer 2.
-- Symbolic corpus score improvement (gen0→gen4: 383→948) is research foundation evidence, not defensive value evidence.
+- Symbolic corpus score improvement (gen1→gen4: 383.67→948.04; gen0 is an unevaluated placeholder, not a scored baseline) is research foundation evidence, not defensive value evidence.
 - Package export, scan CLI, CI templates, or dashboards are blocked until Layer 2 is satisfied.
 - `cyber_immunizer.core` as a public importable package namespace does not exist yet; it is a future packaging decision and must not be claimed as implemented.
 

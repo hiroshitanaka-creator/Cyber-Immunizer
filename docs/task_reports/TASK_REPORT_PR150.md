@@ -85,3 +85,39 @@ If docs-only, classify:
 | `core/structured_*` 統合または非統合の文書化（L1-F14） | FROZEN 編集が必要。Owner 承認が必要 |
 | `config.backup.toml` の削除 | Windows 個人パスが含まれる。`data/**` ではないが Owner 確認推奨 |
 | Rollback/Backtrack 実装（L1-F15） | Future scope。設計書は既存 |
+
+---
+
+## Change Request 対応（PR #150 Request Changes）
+
+Project Owner の Change Request 8項目に対応した追加修正：
+
+| # | 要求 | 対応 |
+|---|---|---|
+| 1 | Raw exploit-looking literals の除去 | `core/structured_*` の例示を `PATH_TRAVERSAL_SIGNATURE_PLACEHOLDER` 等の中立化プレースホルダに置換。コミットする rulesets/examples/fixtures は中立化済みのみ、現実的シグネチャはリポジトリ外のユーザー提供 read-only ローカルファイル限定、と明記 |
+| 2 | must-read 文言の限定 | `must_read_for` を「value/deliverable/roadmap/completion タスク」「実用的防御価値を主張する PR」「docs-only を分類するタスク」に限定（両 docs の AI_DOC_META と冒頭プロセ）。ルーティンタスクのプロセス税にしない旨を明記 |
+| 3 | Owner complaint の明示維持 | セクション0に「documentation bloat ではなく Owner intent / failure-mode record」「将来の GPT/Claude/Codex ドリフトを防ぐために存在する」を追記 |
+| 4 | README 補正の維持 | 「研究70%完成/実用価値ほぼゼロ」無効の補正を維持（研究基盤成熟度と README ミッション達成度は別軸） |
+| 5 | Completion Layers の維持 | 3レイヤー構造を維持。docs-only は Layer 1/3 のみ前進可、Layer 2 単独満足不可 |
+| 6 | 外部化ブロックの維持 | scan CLI / package / GitHub Action template / dashboard / PyPI を Layer 2 まで明示ブロック。`cyber-immunize report` は Owner/監査者向けツールと明記 |
+| 7 | Generation 0 文言の補正 | 全 `gen0→genN` / `383→948` を `gen1→gen4` / `383.67→948.04` に補正。gen0 は未評価プレースホルダで scored baseline に使わない旨を併記 |
+| 8 | スコープ非拡大 | `core/**` `scripts/**` `.github/**` `data/**` 未編集。依存追加・実装コード・paid-credit API・workflow_dispatch なし |
+
+### Change Request grep 検証結果
+
+```
+git grep "must_read_for: all task participants" docs/ CLAUDE.md
+  → NO MATCH ✅（文言限定済み）
+
+git grep "../|<script|1=1|;|&&|'1'='1" docs/VALUE_DELIVERY_BLUEPRINT.md docs/DEFINITION_OF_DONE.md
+  → NO MATCH ✅（raw exploit literals 除去済み）
+
+git grep "gen0.*383|383.*gen0" docs/
+  → 2件マッチ（DEFINITION_OF_DONE.md:182 / VALUE_DELIVERY_BLUEPRINT.md:89）
+  → いずれも「gen0 は未評価プレースホルダ、scored baseline に使わない」と明示する補正後の文。
+    383.67→948.04 を gen1→gen4 と正しく帰属しており、誤った gen0→gen4 framing ではない。
+    grep がマッチするのは同一行に gen0（否定の文脈）と 383 が併存するため。説明済み。
+
+python -m pytest tests/test_audit_docs.py -q → 49 passed ✅
+python -m pytest tests/ -x -q → 2661 passed ✅
+```
