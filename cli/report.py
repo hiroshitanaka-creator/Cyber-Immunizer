@@ -306,10 +306,14 @@ def build_markdown(*, repo_root: Path | None = None, history_path: Path | None =
         e for e in history
         if e.get("tp_rate") is not None and e.get("fp_rate") is not None
     ]
-    if scored_gens and all(
-        e.get("tp_rate") == 1.0 and e.get("fp_rate") == 0.0
+    _all_perfect = scored_gens and all(
+        e.get("tp_rate") == 1.0
+        and e.get("fp_rate") == 0.0
+        and e.get("fn_rate", 0.0) == 0.0
+        and e.get("exceptions", 0) == 0
         for e in scored_gens
-    ):
+    )
+    if _all_perfect:
         _score_interp_lead = (
             "**All scored generations show tp_rate=1.0000 and fp_rate=0.0000.** This is expected:"
             " the test corpus uses symbolic indicator tokens (e.g., `path_traversal_indicator`) and"
@@ -335,11 +339,16 @@ def build_markdown(*, repo_root: Path | None = None, history_path: Path | None =
         "score = 1000*tp_rate − 2000*fp_rate − 1500*fn_rate − 50*exceptions − 0.02*code_chars",
         "```",
         "",
-        "When tp_rate=1.0 and fp_rate=fn_rate=0 across all scored generations, the score"
-        " improvement between generations reflects **code size reduction only** (−0.02 × code_chars)."
-        " The generation 3→4 delta is attributable to the LLM producing a more compact implementation,"
-        " not to improved threat detection capability.",
-        "",
+    ])
+    if _all_perfect:
+        lines.extend([
+            "When tp_rate=1.0 and fp_rate=fn_rate=0 across all scored generations, the score"
+            " improvement between generations reflects **code size reduction only** (−0.02 × code_chars)."
+            " The generation 3→4 delta is attributable to the LLM producing a more compact implementation,"
+            " not to improved threat detection capability.",
+            "",
+        ])
+    lines.extend([
         "This is not a bug in the evolution loop. It is the expected research-foundation result"
         " (Layer 1 complete). The symbolic corpus confirms that the mutation pipeline functions"
         " correctly end-to-end (propose → apply → evaluate → promote). What remains is Layer 2"

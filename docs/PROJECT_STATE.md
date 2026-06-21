@@ -50,9 +50,9 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Primary model | gemini-3-flash-preview |
 | Fallback model | gemini-3.1-flash-lite |
 | paid-credit API success records (primary model) | **13** |
-| Valid mutation patch produced | **Yes** (S4 run #47 2026-06-11; runs 5, 6 & 8 also produced valid patches) |
-| apply reached | **Yes** (runs 5, 6 & 8 apply succeeded; S4 run #47 reached apply and failed at G1) |
-| evaluate reached | **Yes** (runs 5, 6 & 8 reached evaluate) |
+| Valid mutation patch produced | **Yes** (S4 run #47 2026-06-11; runs 5, 6 & 8 also produced valid patches; runs 11, 12 & 13 produced patches that reached evaluate but were rejected — `missing_baseline_symbolic_indicator_runtime`) |
+| apply reached | **Yes** (runs 5, 6, 8, 11, 12 & 13 apply succeeded; S4 run #47 reached apply and failed at G1) |
+| evaluate reached | **Yes** (runs 5, 6 & 8 reached evaluate and were processed; runs 11, 12 & 13 reached evaluate → rejected as `evaluate_rejected`) |
 | adoption gate passed | **Yes (run 8, 2026-06-17)** — runs 5 & 6 were rejected (score regression under old formula); run 8 passed the adoption gate for the first time |
 | promote reached | **Yes (run 8, 2026-06-17)** — promote was reached; original push failed (push-race; hardened in PR #115); candidate recovered via owner-audited recovery 2026-06-18 |
 | promote_approved | **true** — generation 4 promoted via owner-approved paid-credit run #59 and active on main; score 948.04; hash ebb8799d… |

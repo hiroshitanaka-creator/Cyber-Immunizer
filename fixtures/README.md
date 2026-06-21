@@ -13,6 +13,14 @@ fixtures/
     symbolic_corpus.json       Neutralized symbolic corpus (10 cases: 5 attack, 5 benign)
 ```
 
+## Scope of these fixtures
+
+These fixtures are inputs for the **`cli/structured_eval` evaluation CLI only**.
+They do **not** represent the active runtime detector (`core/detector.py`) and
+do **not** prove that the active detector blocks any real threat class.
+Providing structured rules in `fixtures/structured_rules/` is not the same as
+proving the active runtime detector has equivalent capability.
+
 ## What these fixtures are
 
 These fixtures use **symbolic placeholder patterns** — the same indicator tokens

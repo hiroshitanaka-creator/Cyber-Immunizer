@@ -1,6 +1,6 @@
 import json
 
-from scripts.propose_mutation import _SAMPLE_MUTATION, validate_proposal_output
+from scripts.propose_mutation import _LLM_SYSTEM_PROMPT, _SAMPLE_MUTATION, validate_proposal_output
 
 
 def _proposal(replacement):
@@ -78,3 +78,17 @@ def test_proposal_validation_external_call_not_allowed():
 def test_proposal_validation_success_uses_local_sample_only():
     result = validate_proposal_output(json.dumps(_SAMPLE_MUTATION))
     assert result == {"valid": True, "rejection_reasons": []}
+
+
+def test_llm_system_prompt_good_example_is_valid_json():
+    good_idx = _LLM_SYSTEM_PROMPT.find("GOOD example")
+    assert good_idx != -1, "GOOD example section not found in prompt"
+    brace_idx = _LLM_SYSTEM_PROMPT.find("{", good_idx)
+    brace_end = _LLM_SYSTEM_PROMPT.find("}", brace_idx) + 1
+    good_json_str = _LLM_SYSTEM_PROMPT[brace_idx:brace_end]
+    parsed = json.loads(good_json_str)
+    assert "replacement_code" in parsed
+    code = parsed["replacement_code"]
+    for ind in ("path_traversal_indicator", "script_injection_indicator",
+                "sqli_indicator", "command_delimiter_indicator", "encoded_traversal_indicator"):
+        assert ind in code, f"GOOD example missing indicator: {ind}"

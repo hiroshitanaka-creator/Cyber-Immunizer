@@ -76,12 +76,12 @@ python -m cli.structured_eval \
 
 ```
 pytest tests/ -q
-2754 passed, 5 warnings in 15.53s
+2776 passed, 5 warnings in 10.30s
 ```
 
-- 追加テスト: 84件（test_structured_eval_cli.py — PR #156 explicit-null 修正後の確定値）
-- 既存テスト: 2670件（全通過）
-- 合計: 2754件
+- 追加テスト: 102件（test_structured_eval_cli.py — P2 hardening pass 後の確定値）
+- 既存テスト: 2674件（全通過）
+- 合計: 2776件
 
 ---
 

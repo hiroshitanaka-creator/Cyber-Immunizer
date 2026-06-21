@@ -23,6 +23,7 @@ neutralized placeholder patterns only and do not constitute Layer 2 evidence.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -44,6 +45,9 @@ _KIND_TAGS: frozenset[str] = frozenset(
 
 # Tags that represent L2-V3 evaluation tiers (holdout / drift / counterfactual).
 _TIER_TAGS: frozenset[str] = frozenset({"holdout", "drift", "counterfactual"})
+
+# Required L2-V1 attack categories that must appear in a realistic corpus.
+_REQUIRED_CATEGORIES: tuple[str, ...] = ("path-traversal", "xss", "sqli", "cmdi")
 
 
 def _validate_optional_str(entry_idx: int, field: str, value: object) -> None:
@@ -106,6 +110,10 @@ def _validate_request_mapping(entry_idx: int, field: str, value: object) -> None
                 f"Corpus entry {entry_idx} request.{field!r}[{k!r}] value must be a string, "
                 f"got {type(v).__name__}: {v!r}"
             )
+
+
+def _sha256_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def load_rules(path: Path) -> dict:
@@ -272,14 +280,14 @@ def run_evaluation(rules_doc: dict, corpus: list[dict]) -> dict[str, Any]:
             per_kind[kind]["exceptions"] += 1
             overall["exceptions"] += 1
         if isinstance(tags, list):
-            for _tag in tags:
-                if isinstance(_tag, str) and _tag in _TIER_TAGS:
-                    if _tag not in per_tier:
-                        per_tier[_tag] = _empty_counts()
-                    if outcome is not None:
-                        per_tier[_tag][outcome] += 1
-                    if exception:
-                        per_tier[_tag]["exceptions"] += 1
+            _tier_tags_seen = {t for t in tags if isinstance(t, str) and t in _TIER_TAGS}
+            for _tag in _tier_tags_seen:
+                if _tag not in per_tier:
+                    per_tier[_tag] = _empty_counts()
+                if outcome is not None:
+                    per_tier[_tag][outcome] += 1
+                if exception:
+                    per_tier[_tag]["exceptions"] += 1
 
         per_case.append(
             {
@@ -344,6 +352,7 @@ def build_markdown(rules_path: Path, corpus_path: Path) -> str:
     per_tier = results["per_tier"]
     per_case = results["per_case"]
 
+    total_corpus_entries = len(corpus)
     total_cases = sum(overall[k] for k in ("TP", "FP", "TN", "FN"))
     attack_total = overall["TP"] + overall["FN"]
     benign_total = overall["TN"] + overall["FP"]
@@ -358,8 +367,11 @@ def build_markdown(rules_path: Path, corpus_path: Path) -> str:
         " from a realistic (non-symbolic) threat corpus.",
         "",
         f"Rules: `{rules_path}`",
+        f"Rules SHA-256: `{_sha256_file(rules_path)}`",
         f"Corpus: `{corpus_path}`",
-        f"Total cases: {total_cases}",
+        f"Corpus SHA-256: `{_sha256_file(corpus_path)}`",
+        f"Total corpus entries: {total_corpus_entries}",
+        f"Classified cases: {total_cases} (exceptions excluded from classification counts)",
         "",
         "## Overall Results",
         "",
@@ -376,15 +388,25 @@ def build_markdown(rules_path: Path, corpus_path: Path) -> str:
         "",
         "## Per-Category Results",
         "",
-        "| Category | TP | FP | TN | FN | TP rate | FP rate | FN rate |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| Category | TP | FP | TN | FN | Exc | TP rate | FP rate | FN rate |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
 
+    for cat in _REQUIRED_CATEGORIES:
+        if cat in per_category:
+            stats = per_category[cat]
+            lines.append(
+                f"| {_md_cell(cat)} | {stats['TP']} | {stats['FP']} | {stats['TN']} | {stats['FN']}"
+                f" | {stats['exceptions']} | {_pct(_tp_rate(stats))} | {_pct(_fp_rate(stats))} | {_pct(_fn_rate(stats))} |"
+            )
+        else:
+            lines.append(f"| {_md_cell(cat)} *(absent)* | — | — | — | — | — | — | — | — |")
     for cat, stats in sorted(per_category.items()):
-        lines.append(
-            f"| {_md_cell(cat)} | {stats['TP']} | {stats['FP']} | {stats['TN']} | {stats['FN']}"
-            f" | {_pct(_tp_rate(stats))} | {_pct(_fp_rate(stats))} | {_pct(_fn_rate(stats))} |"
-        )
+        if cat not in _REQUIRED_CATEGORIES:
+            lines.append(
+                f"| {_md_cell(cat)} | {stats['TP']} | {stats['FP']} | {stats['TN']} | {stats['FN']}"
+                f" | {stats['exceptions']} | {_pct(_tp_rate(stats))} | {_pct(_fp_rate(stats))} | {_pct(_fn_rate(stats))} |"
+            )
 
     lines += [
         "",
@@ -419,8 +441,8 @@ def build_markdown(rules_path: Path, corpus_path: Path) -> str:
                 f"| {_md_cell(_tier)} | {_ts['TP']} | {_ts['FP']} | {_ts['TN']} | {_ts['FN']}"
                 f" | {_ts['exceptions']} | {_pct(_pass_rate(_ts))} |"
             )
-    if not per_tier:
-        lines.append("| (none) | — | — | — | — | — | — |")
+        else:
+            lines.append(f"| {_md_cell(_tier)} *(absent)* | — | — | — | — | — | — |")
 
     lines += [
         "",
@@ -481,6 +503,7 @@ def build_json_report(rules_path: Path, corpus_path: Path) -> dict:
     overall = results["overall"]
     per_category = results["per_category"]
     per_kind = results["per_kind"]
+    total_corpus_entries = len(corpus)
     total_cases = sum(overall[k] for k in ("TP", "FP", "TN", "FN"))
 
     cat_summary: dict[str, Any] = {}
@@ -508,9 +531,12 @@ def build_json_report(rules_path: Path, corpus_path: Path) -> dict:
 
     return {
         "rules_path": str(rules_path),
+        "rules_sha256": _sha256_file(rules_path),
         "corpus_path": str(corpus_path),
+        "corpus_sha256": _sha256_file(corpus_path),
         "overall": {
             **overall,
+            "total_corpus_entries": total_corpus_entries,
             "total_cases": total_cases,
             "tp_rate": _tp_rate(overall),
             "fp_rate": _fp_rate(overall),

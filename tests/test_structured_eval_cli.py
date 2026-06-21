@@ -755,3 +755,183 @@ class TestMainCLI:
         with pytest.raises(SystemExit) as exc_info:
             main(["--rules", str(rules_path), "--corpus", str(corpus_path), "--json"])
         assert exc_info.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# New behavior: total_corpus_entries, Exc column, required categories,
+# required tiers, SHA-256 digests, duplicate tier dedup (Items 3-8)
+# ---------------------------------------------------------------------------
+
+class TestTotalCorpusEntries:
+    def test_markdown_shows_total_corpus_entries(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        md = build_markdown(rules_path, corpus_path)
+        assert "Total corpus entries: 2" in md
+
+    def test_markdown_shows_classified_cases(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        md = build_markdown(rules_path, corpus_path)
+        assert "Classified cases: 2" in md
+
+    def test_json_overall_has_total_corpus_entries(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        report = build_json_report(rules_path, corpus_path)
+        assert "total_corpus_entries" in report["overall"]
+        assert report["overall"]["total_corpus_entries"] == 2
+
+    def test_json_total_corpus_entries_exceeds_classified_when_exceptions(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        exc_corpus = [
+            {"id": "exc", "kind": "attack", "expected_blocked": True,
+             "tags": ["attack", "test"], "request": {}},
+            {"id": "ok", "kind": "benign", "expected_blocked": False,
+             "tags": ["benign", "test"], "request": {"path": "/safe"}},
+        ]
+        corpus_path = _write_json(tmp_path, "corpus.json", exc_corpus)
+        with patch("cli.structured_eval.inspect_request_with_structured_rules", side_effect=[RuntimeError("boom"), __import__("unittest.mock", fromlist=["DEFAULT"]).DEFAULT]):
+            from unittest.mock import MagicMock
+            from core.types import DetectionResult
+        report = build_json_report(rules_path, corpus_path)
+        assert report["overall"]["total_corpus_entries"] == 2
+
+
+class TestExcColumnPerCategory:
+    def test_markdown_per_category_has_exc_column_header(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        md = build_markdown(rules_path, corpus_path)
+        assert "| Category | TP | FP | TN | FN | Exc |" in md
+
+    def test_markdown_per_category_exc_is_zero_for_normal_case(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        md = build_markdown(rules_path, corpus_path)
+        assert "| Exc |" in md
+
+
+class TestRequiredCategories:
+    def test_markdown_shows_absent_required_category(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        md = build_markdown(rules_path, corpus_path)
+        assert "*(absent)*" in md
+
+    def test_markdown_required_categories_all_present_in_fixtures(self) -> None:
+        from pathlib import Path as _Path
+        repo = _Path(__file__).parent.parent
+        md = build_markdown(
+            repo / "fixtures" / "structured_rules" / "symbolic_equivalent.json",
+            repo / "fixtures" / "evaluation_corpus" / "symbolic_corpus.json",
+        )
+        for cat in ("path-traversal", "xss", "sqli", "cmdi"):
+            assert cat in md
+            assert f"{cat} *(absent)*" not in md
+
+    def test_json_has_all_required_categories_when_present(self) -> None:
+        from pathlib import Path as _Path
+        repo = _Path(__file__).parent.parent
+        report = build_json_report(
+            repo / "fixtures" / "structured_rules" / "symbolic_equivalent.json",
+            repo / "fixtures" / "evaluation_corpus" / "symbolic_corpus.json",
+        )
+        for cat in ("path-traversal", "xss", "sqli", "cmdi"):
+            assert cat in report["per_category"]
+
+
+class TestRequiredTiersAlwaysRendered:
+    def test_markdown_tier_section_shows_absent_for_missing_tiers(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        md = build_markdown(rules_path, corpus_path)
+        assert "## L2-V3 Tier Results" in md
+        assert "holdout *(absent)*" in md
+        assert "drift *(absent)*" in md
+        assert "counterfactual *(absent)*" in md
+
+    def test_markdown_tier_present_row_and_absent_rows_coexist(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        tier_corpus = [
+            {
+                "id": "h1",
+                "kind": "attack",
+                "expected_blocked": True,
+                "tags": ["attack", "holdout", "test-cat"],
+                "request": {"method": "GET", "path": "/TEST_ATTACK_SIGNAL"},
+            }
+        ]
+        corpus_path = _write_json(tmp_path, "corpus.json", tier_corpus)
+        md = build_markdown(rules_path, corpus_path)
+        assert "| holdout |" in md
+        assert "drift *(absent)*" in md
+        assert "counterfactual *(absent)*" in md
+
+
+class TestSHA256Digests:
+    def test_markdown_has_rules_sha256(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        md = build_markdown(rules_path, corpus_path)
+        assert "Rules SHA-256:" in md
+
+    def test_markdown_has_corpus_sha256(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        md = build_markdown(rules_path, corpus_path)
+        assert "Corpus SHA-256:" in md
+
+    def test_markdown_sha256_is_64_hex_chars(self, tmp_path: Path) -> None:
+        import re
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        md = build_markdown(rules_path, corpus_path)
+        sha_matches = re.findall(r"`([0-9a-f]{64})`", md)
+        assert len(sha_matches) == 2
+
+    def test_json_has_rules_sha256(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        report = build_json_report(rules_path, corpus_path)
+        assert "rules_sha256" in report
+        assert len(report["rules_sha256"]) == 64
+
+    def test_json_has_corpus_sha256(self, tmp_path: Path) -> None:
+        rules_path = _write_json(tmp_path, "rules.json", _minimal_rules_doc())
+        corpus_path = _write_json(tmp_path, "corpus.json", _minimal_corpus())
+        report = build_json_report(rules_path, corpus_path)
+        assert "corpus_sha256" in report
+        assert len(report["corpus_sha256"]) == 64
+
+
+class TestTierTagDeduplication:
+    def test_duplicate_tier_tag_does_not_double_count(self) -> None:
+        rules = _minimal_rules_doc()
+        corpus = [
+            {
+                "id": "dup",
+                "kind": "attack",
+                "expected_blocked": True,
+                "tags": ["attack", "holdout", "holdout", "test-cat"],
+                "request": {"method": "GET", "path": "/TEST_ATTACK_SIGNAL"},
+            }
+        ]
+        results = run_evaluation(rules, corpus)
+        assert results["per_tier"]["holdout"]["TP"] == 1
+        assert results["per_tier"]["holdout"]["FN"] == 0
+
+    def test_single_case_with_two_tier_tags_counts_in_both_once(self) -> None:
+        rules = _minimal_rules_doc()
+        corpus = [
+            {
+                "id": "multi",
+                "kind": "attack",
+                "expected_blocked": True,
+                "tags": ["attack", "holdout", "drift", "holdout"],
+                "request": {"method": "GET", "path": "/TEST_ATTACK_SIGNAL"},
+            }
+        ]
+        results = run_evaluation(rules, corpus)
+        assert results["per_tier"]["holdout"]["TP"] == 1
+        assert results["per_tier"]["drift"]["TP"] == 1

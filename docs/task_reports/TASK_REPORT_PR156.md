@@ -14,7 +14,7 @@ PR #156「fix(propose) + feat(structured-eval): indicator-preservation prompt ha
 | `data/project_state.json` | 変更 | success records 10→13・run_11/12/13 triage エントリ追加 |
 | `docs/PROJECT_STATE.md` | 変更 | SSOT 同期（13件・run 11/12/13 triage 記録） |
 | `tests/test_project_state_sync.py` | 変更 | `assert actual == 13`・test_19 更新 |
-| `tests/test_structured_eval_cli.py` | 変更 | null 拒否 / per_tier / 明示 null 拒否テスト追加（39→84テスト） |
+| `tests/test_structured_eval_cli.py` | 変更 | null 拒否 / per_tier / 明示 null 拒否 / P2 hardening テスト追加（39→102テスト） |
 
 ## 主な変更内容
 
@@ -70,7 +70,7 @@ PR #156「fix(propose) + feat(structured-eval): indicator-preservation prompt ha
 
 ```
 pytest tests/ -q
-2754 passed, 5 warnings in 15.53s
+2776 passed, 5 warnings in 10.30s
 ```
 
 ## 残存事項・注意点

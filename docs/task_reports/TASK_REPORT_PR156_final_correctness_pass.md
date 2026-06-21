@@ -69,10 +69,10 @@ scalar null 拒否修正・`_make_request()` body 修正・`_TIER_TAGS` / `per_t
 
 ```
 pytest tests/ -q
-2754 passed, 5 warnings in 13.78s
+2776 passed, 5 warnings in 10.30s
 ```
 
-（test_structured_eval_cli.py: 84 tests — PR #156 explicit-null 修正後の確定値）
+（test_structured_eval_cli.py: 102 tests — P2 hardening pass 後の確定値）
 
 ```bash
 # CLI smoke test — Markdown
