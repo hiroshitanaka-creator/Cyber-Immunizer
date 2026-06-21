@@ -186,6 +186,16 @@ Cyber-Immunizer/
 
 ---
 
+
+### Owner / auditor 向け進化レポート（Layer 2 validation support）
+
+リポジトリチェックアウト上で、内部の進化履歴を Owner / auditor 向けの検証補助レポートとして出力する read-only CLI を提供します。これは symbolic corpus に基づく内部証跡の要約であり、実世界の防御有用性・本番 WAF 適性・外部ユーザー価値を証明するものではありません。実トラフィック接続、API 呼び出し、検出器・genome・台帳・ワークフローの変更は行いません。
+
+```bash
+python -m cli.report report --repo-root .
+python -m cli.report report --repo-root . --export /tmp/cyber-immunizer-report.md
+```
+
 ## コアコンセプト
 
 ### 変異境界マーカー

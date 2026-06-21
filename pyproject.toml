@@ -24,4 +24,4 @@ addopts = ["-v", "--tb=short"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["core*", "intelligence*", "scripts*"]
+include = ["core*", "intelligence*", "scripts*", "cli*"]
