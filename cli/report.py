@@ -301,7 +301,89 @@ def build_markdown(*, repo_root: Path | None = None, history_path: Path | None =
             + ", ".join(f"`{field}`" for field in unknown_fields)
             + ".",
         ])
-    lines.append("")
+
+    scored_gens = [
+        e for e in history
+        if e.get("tp_rate") is not None and e.get("fp_rate") is not None
+    ]
+    _all_perfect = scored_gens and all(
+        e.get("tp_rate") == 1.0
+        and e.get("fp_rate") == 0.0
+        and e.get("fn_rate", 0.0) == 0.0
+        and e.get("exceptions", 0) == 0
+        for e in scored_gens
+    )
+    if _all_perfect:
+        _score_interp_lead = (
+            "**All scored generations show tp_rate=1.0000 and fp_rate=0.0000.** This is expected:"
+            " the test corpus uses symbolic indicator tokens (e.g., `path_traversal_indicator`) and"
+            " the detector matches those same tokens. Perfect symbolic-corpus detection is by design,"
+            " not evidence of realistic threat coverage."
+        )
+    else:
+        _score_interp_lead = (
+            "Scored generations show varying TP/FP/FN rates. Review the Generation Evidence table"
+            " above. Rates below 1.0/0.0 may indicate corpus cases the current detector does not"
+            " fully match."
+        )
+
+    lines.extend([
+        "",
+        "## Score Interpretation",
+        "",
+        _score_interp_lead,
+        "",
+        "The fitness score formula is:",
+        "",
+        "```",
+        "score = 1000*tp_rate − 2000*fp_rate − 1500*fn_rate − 50*exceptions − 0.02*code_chars",
+        "```",
+        "",
+    ])
+    if _all_perfect:
+        lines.extend([
+            "When tp_rate=1.0 and fp_rate=fn_rate=0 across all scored generations, the score"
+            " improvement between generations reflects **code size reduction only** (−0.02 × code_chars)."
+            " The generation 3→4 delta is attributable to the LLM producing a more compact implementation,"
+            " not to improved threat detection capability.",
+            "",
+        ])
+    lines.extend([
+        "This is not a bug in the evolution loop. It is the expected research-foundation result"
+        " (Layer 1 complete). The symbolic corpus confirms that the mutation pipeline functions"
+        " correctly end-to-end (propose → apply → evaluate → promote). What remains is Layer 2"
+        " value validation: demonstrating detection capability against realistic threat patterns.",
+        "",
+        "## Layer 2 Gap",
+        "",
+        "Layer 2 value validation (DEFINITION_OF_DONE.md L2-V1 through L2-V5) requires:",
+        "",
+        "1. **Realistic threat coverage** (L2-V1) — evaluation against realistic but safely neutralized"
+        " threat categories, not symbolic-only corpus.",
+        "2. **Per-category TP/FP/FN and latency reporting** (L2-V2) — path-traversal, XSS, SQLi,"
+        " and command delimiter categories evaluated separately, with latency data.",
+        "3. **Holdout / drift / counterfactual evaluation** (L2-V3) — overfitting risk addressed by"
+        " evaluating on holdout, drift, and counterfactual request sets; pass rates reported.",
+        "4. **Improvement explanation** (L2-V4) — documentation of which threat classes improved"
+        " and why.",
+        "5. **No overfitting claim** (L2-V5) — results must distinguish symbolic corpus performance"
+        " from realistic threat coverage.",
+        "",
+        "**Current status:** Layer 2 criteria are not yet satisfied. The symbolic corpus score"
+        " (generation 4: 948.04) is research-foundation evidence, not defensive value evidence.",
+        "",
+        "**Path forward:** Use `cli/structured_eval` with Owner-supplied realistic (but safely"
+        " neutralized) rules and corpus files outside the repository:",
+        "",
+        "```bash",
+        "python -m cli.structured_eval \\",
+        "  --rules /path/to/owner/realistic_rules.json \\",
+        "  --corpus /path/to/owner/realistic_corpus.json",
+        "```",
+        "",
+        "See `fixtures/README.md` for the rules document schema and corpus format.",
+        "",
+    ])
     return "\n".join(lines)
 
 

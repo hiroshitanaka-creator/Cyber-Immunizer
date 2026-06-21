@@ -204,3 +204,114 @@ def test_cli_output_states_symbolic_corpus_and_real_world_limitations(
     assert "does not connect to real traffic" in captured.out
     assert "does not validate production WAF suitability" in captured.out
     assert "Externalization remains blocked until Layer 2 value validation is satisfied" in captured.out
+
+
+def _write_history_with_nonzero_fn(repo_root) -> None:
+    """Write history where one generation has fn_rate > 0."""
+    import json
+    data_dir = repo_root / "data"
+    data_dir.mkdir(parents=True)
+    history_path = data_dir / "evolution_history.json"
+    history_path.write_text(
+        json.dumps(
+            [
+                {
+                    "generation": 0,
+                    "score": -1000000.0,
+                    "passed_adoption_gate": False,
+                    "promoted_at": "2026-05-26T00:00:00Z",
+                    "note": "Initial baseline generation",
+                },
+                {
+                    "generation": 3,
+                    "score": 500.0,
+                    "passed_adoption_gate": True,
+                    "promoted_at": "2026-06-17T12:00:00Z",
+                    "tp_rate": 0.9,
+                    "fp_rate": 0.0,
+                    "fn_rate": 0.1,
+                    "exceptions": 0,
+                    "total_cases": 10,
+                },
+                {
+                    "generation": 4,
+                    "score": 600.0,
+                    "passed_adoption_gate": True,
+                    "promoted_at": "2026-06-18T09:26:32Z",
+                    "tp_rate": 1.0,
+                    "fp_rate": 0.0,
+                    "fn_rate": 0.0,
+                    "exceptions": 0,
+                    "total_cases": 10,
+                },
+            ],
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_history_with_exceptions(repo_root) -> None:
+    """Write history where a generation has exceptions > 0."""
+    import json
+    data_dir = repo_root / "data"
+    data_dir.mkdir(parents=True)
+    history_path = data_dir / "evolution_history.json"
+    history_path.write_text(
+        json.dumps(
+            [
+                {
+                    "generation": 0,
+                    "score": -1000000.0,
+                    "passed_adoption_gate": False,
+                    "promoted_at": "2026-05-26T00:00:00Z",
+                    "note": "Initial baseline generation",
+                },
+                {
+                    "generation": 3,
+                    "score": 947.66,
+                    "passed_adoption_gate": True,
+                    "promoted_at": "2026-06-17T12:00:00Z",
+                    "tp_rate": 1.0,
+                    "fp_rate": 0.0,
+                    "fn_rate": 0.0,
+                    "exceptions": 2,
+                    "total_cases": 15,
+                },
+                {
+                    "generation": 4,
+                    "score": 948.04,
+                    "passed_adoption_gate": True,
+                    "promoted_at": "2026-06-18T09:26:32Z",
+                    "tp_rate": 1.0,
+                    "fp_rate": 0.0,
+                    "fn_rate": 0.0,
+                    "exceptions": 0,
+                    "total_cases": 15,
+                },
+            ],
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_code_size_only_note_suppressed_when_fn_rate_nonzero(tmp_path: Path):
+    repo_root = tmp_path / "repo"
+    _write_history_with_nonzero_fn(repo_root)
+    markdown = report.build_markdown(repo_root=repo_root)
+    assert "code size reduction only" not in markdown
+
+
+def test_code_size_only_note_suppressed_when_exceptions_nonzero(tmp_path: Path):
+    repo_root = tmp_path / "repo"
+    _write_history_with_exceptions(repo_root)
+    markdown = report.build_markdown(repo_root=repo_root)
+    assert "code size reduction only" not in markdown
+
+
+def test_code_size_only_note_present_when_all_perfect(tmp_path: Path):
+    repo_root = tmp_path / "repo"
+    _write_history(repo_root)
+    markdown = report.build_markdown(repo_root=repo_root)
+    assert "code size reduction only" in markdown

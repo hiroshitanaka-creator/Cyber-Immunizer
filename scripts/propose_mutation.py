@@ -274,14 +274,11 @@ STRICT RULES — YOU MUST FOLLOW ALL OF THEM:
     Do NOT wrap code in markdown fences (```python ... ```).
 13. Prefer low false positives. Maximize true positive rate while keeping
     false positive rate at or below 5%.
-14. Use only neutralized symbolic indicators from the local test corpus.
-    Tokens like path_traversal_indicator, script_injection_indicator,
-    sqli_indicator, command_delimiter_indicator,
-    encoded_traversal_indicator are the only detection signals.
-    These tokens appear as uppercase in the JSON test corpus
-    (PATH_TRAVERSAL_INDICATOR etc.) but the detector lowercases all input
-    before matching, so use the lowercase forms in replacement_code.
-    Do NOT add double-underscore prefix/suffix to these tokens.
+14. Keep ALL five indicator literals in replacement_code (STATIC CHECK — absence = rejection).
+    Required strings: path_traversal_indicator, script_injection_indicator,
+    sqli_indicator, command_delimiter_indicator, encoded_traversal_indicator.
+    The evaluator rejects any code missing even one with 'missing_baseline_symbolic_indicator_runtime:<name>'.
+    Use lowercase forms; do NOT abstract, rename, or omit any; no double-underscore prefix/suffix.
 15. Do not include real CVE exploit details. No actual vulnerability
     payloads, shellcode, or real attack strings.
 16. Do not include raw offensive payloads. Use only the neutralized
@@ -329,9 +326,9 @@ FORBIDDEN:
 - Do NOT include mutation markers (# === MUTATION_START === etc.).
 - Do NOT wrap in markdown fences (```python ... ```).
 
-GOOD example — 4-space-indented function body (this WILL be accepted):
+GOOD example — all FIVE indicator strings + all request surfaces (ACCEPTED):
 {
-  "replacement_code": "    surface = request.path.lower() + \" \" + request.body.lower()\\n    matched = []\\n    if \"path_traversal_indicator\" in surface:\\n        matched.append(\"path_traversal_indicator\")\\n    if matched:\\n        return DetectionResult(blocked=True, reason=\"suspicious indicator matched\", confidence=0.7, matched_signals=tuple(matched))\\n    return DetectionResult(blocked=False, reason=\"no suspicious indicator matched\", confidence=0.0, matched_signals=())"
+  "replacement_code": "    parts = [request.method, request.path, request.body]\\n    for k, v in request.query.items():\\n        parts.append(k)\\n        parts.append(v)\\n    for k, v in request.headers.items():\\n        parts.append(k)\\n        parts.append(v)\\n    surface = \\" \\".join(parts).lower()\\n    matched = []\\n    for ind in (\\"path_traversal_indicator\\", \\"script_injection_indicator\\", \\"sqli_indicator\\", \\"command_delimiter_indicator\\", \\"encoded_traversal_indicator\\"):\\n        if ind in surface:\\n            matched.append(ind)\\n    if matched:\\n        return DetectionResult(blocked=True, reason=\\"suspicious indicator matched\\", confidence=0.7, matched_signals=tuple(matched))\\n    return DetectionResult(blocked=False, reason=\\"no suspicious indicator matched\\", confidence=0.0, matched_signals=())"
 }
 
 BAD example 1 — unindented body (will be REJECTED with indentation contract violation):
@@ -1136,15 +1133,19 @@ def _build_scoring_guidance(genome: dict) -> str:
         f"min_regression_pass_rate ({min_regression_pass_rate}); "
         f"avg_latency_ms<=max_avg_latency_ms ({max_avg_latency_ms}).\n"
         "BASELINE CONTRACT (do NOT regress coverage):\n"
-        "- Keep five indicators: path_traversal_indicator, script_injection_indicator,\n"
+        "- STATIC CHECK — keep ALL five literals or candidate is REJECTED:\n"
+        "  path_traversal_indicator, script_injection_indicator,\n"
         "  sqli_indicator, command_delimiter_indicator, encoded_traversal_indicator.\n"
+        "  rejection_reason='missing_baseline_symbolic_indicator_runtime:<name>' if any is absent.\n"
+        "  DO NOT abstract, rename, or remove any indicator string.\n"
         "- Keep the full surface: request.method, request.path, request.query, request.headers,\n"
         "  request.body.\n"
         "- Keep a blocked=False fallback so false positives stay low.\n"
         "- Make a minimal additive edit; do NOT replace or narrow it. Keep code size small\n"
         "  and logic deterministic; prefer branch-constant confidence over a multiplier\n"
         "  like 0.3*count.\n"
-        "- Lesson: recent candidates were REJECTED for scoring below best despite a valid patch.\n"
+        "- CRITICAL LESSON: recent candidates were REJECTED with 'missing_baseline_symbolic_indicator_runtime'\n"
+        "  because they dropped indicator strings. Keep all five literals in your code.\n"
         "- NO-COMPREHENSION: list/set/dict comprehensions and generator expressions rejected; use for-loop + append."
     )
 
