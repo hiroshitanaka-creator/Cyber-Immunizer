@@ -186,6 +186,17 @@ Cyber-Immunizer/
 
 ---
 
+
+### 進化レポートCLI
+
+内部の進化履歴を第三者向けの before/after 証跡として出力する read-only CLI を提供します。実行時に `data/evolution_history.json` を読むだけで、検出器・genome・台帳・ワークフローは変更せず、API 呼び出しも行いません。
+
+```bash
+pip install -e .[cli]
+cyber-immunize report
+cyber-immunize report --export report.md
+```
+
 ## コアコンセプト
 
 ### 変異境界マーカー
