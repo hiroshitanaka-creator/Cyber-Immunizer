@@ -8,6 +8,14 @@
 - No file/env/network auto-load.
 - No silent fallback from structured mode to legacy.
 
+## Project Owner approval
+
+- `AGENTS.md` requires explicit Project Owner approval before changing `core/**`.
+- This PR changes `core/**` only by adding `core/runtime_selector.py`.
+- Project Owner approval is specific to PR-E0 / PR #165 and specific to adding the explicit runtime selector module.
+- This approval does **not** authorize changes to `core/detector.py`, `core/structured_detector.py`, `core/structured_evaluator.py`, `core/structured_validator.py`, `data/**`, `.github/**`, scripts, model settings, paid-credit execution, workflow dispatch, or promotion.
+- Approval record: Project Owner requested PR-E0 (`explicit structured-rules runtime selector behind gate`) and, after Codex P1 review, explicitly instructed that the approval-record gap be fixed for PR #165.
+
 ## Changed files
 
 - `core/runtime_selector.py` — new module
