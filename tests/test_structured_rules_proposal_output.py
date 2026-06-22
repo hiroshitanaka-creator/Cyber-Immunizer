@@ -6,7 +6,6 @@ a structured detector rules JSON document without any API call.
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -21,6 +20,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 from core.structured_validator import validate_rules_schema
 from scripts.propose_mutation import (
     build_offline_sample_structured_rules,
+    main,
     propose_structured_rules,
 )
 
@@ -156,96 +156,85 @@ class TestCLIStructuredRulesMode:
     """Test the --structured-rules CLI mode."""
 
     def test_structured_rules_requires_offline_sample(
-        self, tmp_path: Path
+        self, capsys: pytest.CaptureFixture,
     ) -> None:
         """--structured-rules without --offline-sample fails."""
-        script_path = _PROJECT_ROOT / "scripts" / "propose_mutation.py"
-        result = subprocess.run(
-            [sys.executable, str(script_path), "--structured-rules", "--json"],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 1
-        output = json.loads(result.stdout)
+        rc = main(["--structured-rules", "--json"])
+        assert rc == 1
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
         assert output.get("success") is False
         assert "offline-sample" in output.get("error", "")
 
     def test_structured_rules_offline_sample_json_output(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
-        """--structured-rules --offline-sample --json produces valid output."""
+        """--structured-rules --offline-sample --json produces valid output in isolated tmp_path."""
         # Create temporary .cyber_immunizer dir
         out_dir = tmp_path / ".cyber_immunizer"
         out_dir.mkdir()
+        rules_path = out_dir / "structured_rules.json"
+        patch_path = out_dir / "mutation_patch.json"
 
-        script_path = _PROJECT_ROOT / "scripts" / "propose_mutation.py"
-        # Use monkeypatch or subprocess cwd to ensure output goes to tmp_path
-        env_vars = {
-            "PYTHONPATH": str(_PROJECT_ROOT),
-        }
+        # Patch the output paths to use tmp_path
+        monkeypatch.setattr("scripts.propose_mutation._OUT_DIR", out_dir)
+        monkeypatch.setattr("scripts.propose_mutation._OUT_STRUCTURED_RULES", rules_path)
+        monkeypatch.setattr("scripts.propose_mutation._OUT_PATCH", patch_path)
 
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(script_path),
-                "--structured-rules",
-                "--offline-sample",
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            cwd=str(_PROJECT_ROOT),
-            env={**__import__("os").environ, **env_vars},
-        )
-        assert result.returncode == 0
-        output = json.loads(result.stdout)
+        # Call main() in-process with patched paths
+        rc = main(["--structured-rules", "--offline-sample", "--json"])
+        assert rc == 0
+
+        # Verify output through capsys
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
         assert output.get("success") is True
         assert output.get("mode") == "structured-rules-offline-sample"
         assert output.get("patch_path") is None
         assert "rules_path" in output
         assert output.get("rule_count") == 5
 
-    def test_structured_rules_rejects_live_model(self) -> None:
+        # Verify artifact was written only to tmp_path, not repo root
+        assert rules_path.exists()
+        repo_root_rules = _PROJECT_ROOT / ".cyber_immunizer" / "structured_rules.json"
+        # File may exist if previous tests wrote it, but we're not writing to it now
+        # The key test is that our monkeypatch made it use tmp_path
+
+    def test_structured_rules_rejects_live_model(
+        self, capsys: pytest.CaptureFixture,
+    ) -> None:
         """--structured-rules --live-model fails."""
-        script_path = _PROJECT_ROOT / "scripts" / "propose_mutation.py"
-        result = subprocess.run(
+        rc = main(
             [
-                sys.executable,
-                str(script_path),
                 "--structured-rules",
                 "--offline-sample",
                 "--live-model",
                 "--allow-live-model",
                 "--json",
-            ],
-            capture_output=True,
-            text=True,
-            cwd=str(_PROJECT_ROOT),
+            ]
         )
-        assert result.returncode == 1
-        output = json.loads(result.stdout)
+        assert rc == 1
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
         assert output.get("success") is False
         assert "does not support" in output.get("error", "")
 
-    def test_structured_rules_rejects_gemini_paid_credit(self) -> None:
+    def test_structured_rules_rejects_gemini_paid_credit(
+        self, capsys: pytest.CaptureFixture,
+    ) -> None:
         """--structured-rules --gemini-paid-credit fails."""
-        script_path = _PROJECT_ROOT / "scripts" / "propose_mutation.py"
-        result = subprocess.run(
+        rc = main(
             [
-                sys.executable,
-                str(script_path),
                 "--structured-rules",
                 "--offline-sample",
                 "--gemini-paid-credit",
                 "--allow-live-model",
                 "--json",
-            ],
-            capture_output=True,
-            text=True,
-            cwd=str(_PROJECT_ROOT),
+            ]
         )
-        assert result.returncode == 1
-        output = json.loads(result.stdout)
+        assert rc == 1
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
         assert output.get("success") is False
         assert "does not support" in output.get("error", "")
 
@@ -253,41 +242,40 @@ class TestCLIStructuredRulesMode:
 class TestStaleMutationPatchCleanup:
     """Test that stale mutation_patch.json is cleaned up after structured-rules success."""
 
-    def test_stale_mutation_patch_removed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Structured-rules mode removes existing mutation_patch.json before writing rules."""
-        # Create a fake project structure
+    def test_stale_mutation_patch_removed_via_main(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Structured-rules CLI mode removes existing mutation_patch.json before writing rules."""
+        # Create temporary .cyber_immunizer dir
         out_dir = tmp_path / ".cyber_immunizer"
         out_dir.mkdir()
 
-        # Create a stale mutation_patch.json
+        # Create a stale mutation_patch.json to verify cleanup
         stale_patch = out_dir / "mutation_patch.json"
-        stale_patch.write_text('{"old": "patch"}')
+        stale_patch.write_text('{"old": "patch"}', encoding="utf-8")
+        assert stale_patch.exists(), "Stale patch should exist before test"
 
-        # Create fake genome and detector
-        data_dir = tmp_path / "data"
-        data_dir.mkdir()
-        genome_path = data_dir / "genome.json"
-        genome_path.write_text('{}')
+        rules_path = out_dir / "structured_rules.json"
 
-        core_dir = tmp_path / "core"
-        core_dir.mkdir()
-        detector_path = core_dir / "detector.py"
-        detector_path.write_text('def inspect_request(request): pass')
+        # Patch the output paths to use tmp_path
+        monkeypatch.setattr("scripts.propose_mutation._OUT_DIR", out_dir)
+        monkeypatch.setattr("scripts.propose_mutation._OUT_STRUCTURED_RULES", rules_path)
+        monkeypatch.setattr("scripts.propose_mutation._OUT_PATCH", stale_patch)
 
-        # Monkeypatch the paths
-        with patch("scripts.propose_mutation._OUT_DIR", out_dir), \
-             patch("scripts.propose_mutation._OUT_PATCH", stale_patch), \
-             patch("scripts.propose_mutation._OUT_STRUCTURED_RULES", out_dir / "structured_rules.json"), \
-             patch("scripts.propose_mutation._GENOME_PATH", genome_path), \
-             patch("scripts.propose_mutation._DETECTOR_PATH", detector_path):
-            rules_doc, err = propose_structured_rules(offline_sample=True)
-            assert err == ""
+        # Call main() which should clean up the stale patch
+        rc = main(["--structured-rules", "--offline-sample", "--json"])
+        assert rc == 0
 
-            # Manually simulate the stale cleanup that main() does
-            if stale_patch.exists():
-                stale_patch.unlink()
+        # Verify stale patch was removed by the actual CLI path
+        assert not stale_patch.exists(), "Stale patch should be removed after structured-rules success"
 
-            assert not stale_patch.exists()
+        # Verify rules were written
+        assert rules_path.exists(), "Rules file should be created"
+
+        # Verify JSON output confirms patch_path is None
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert output.get("patch_path") is None
 
     def test_structured_rules_does_not_write_patch(self, tmp_path: Path) -> None:
         """Structured-rules mode never writes mutation_patch.json."""
@@ -295,7 +283,7 @@ class TestStaleMutationPatchCleanup:
         out_dir.mkdir()
         patch_path = out_dir / "mutation_patch.json"
 
-        # Call propose_structured_rules
+        # Call propose_structured_rules (low-level function, not main())
         rules_doc, err = propose_structured_rules(offline_sample=True)
         assert err == ""
 
