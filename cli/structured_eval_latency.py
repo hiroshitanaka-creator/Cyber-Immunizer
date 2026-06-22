@@ -80,7 +80,9 @@ def _classify(expected_blocked: bool, actual_blocked: bool, exception: bool) -> 
 
 
 def _record(bucket: dict[str, Any], outcome: str, latency_ms: float) -> None:
-    if outcome in _COUNT_KEYS:
+    if outcome == "exception":
+        bucket["exceptions"] += 1
+    elif outcome in ("TP", "FP", "TN", "FN"):
         bucket[outcome] += 1
     bucket["_latencies_ms"].append(latency_ms)
 
@@ -184,18 +186,30 @@ def run_evaluation_with_latency(
         kind = str(entry.get("kind", "unknown"))
         category = _primary_category(tags)
 
-        start = now()
+        # Build the Request before the timer starts so latency_ms reflects only
+        # the detector call (inspect_request_with_structured_rules), not the CLI
+        # adapter overhead of copying query/header mappings. load_corpus() already
+        # validates request shape, so a _make_request() failure here is rare; if it
+        # does happen we record a safe exception outcome with latency 0.0 rather than
+        # misrepresenting adapter-construction time as detector-call latency.
         try:
             request = _make_request(entry)
-            result = inspect_request_with_structured_rules(request, rules_doc)
-            actual_blocked = result.blocked
-            matched_signals = list(result.matched_signals)
-            exception = False
+            start = now()
+            try:
+                result = inspect_request_with_structured_rules(request, rules_doc)
+                actual_blocked = result.blocked
+                matched_signals = list(result.matched_signals)
+                exception = False
+            except Exception:
+                actual_blocked = False
+                matched_signals = []
+                exception = True
+            latency_ms = max(0.0, (now() - start) * 1000.0)
         except Exception:
             actual_blocked = False
             matched_signals = []
             exception = True
-        latency_ms = max(0.0, (now() - start) * 1000.0)
+            latency_ms = 0.0
         outcome = _classify(expected_blocked, actual_blocked, exception)
 
         _record(overall, outcome, latency_ms)
@@ -313,6 +327,21 @@ def build_markdown(rules_path: Path, corpus_path: Path) -> str:
                 f" | {_pct(stats['tp_rate'])} | {_pct(stats['fp_rate'])} | {_pct(stats['fn_rate'])}"
                 f" | {_ms(stats['avg_latency_ms'])} | {_ms(stats['max_latency_ms'])} |"
             )
+
+    lines.extend([
+        "",
+        "## Per-Kind Results",
+        "",
+        "| Kind | TP | FP | TN | FN | Exceptions | Pass rate | Avg latency ms | Max latency ms |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ])
+    if not report["per_kind"]:
+        lines.append("| *(none)* | — | — | — | — | — | — | — | — |")
+    for kind, stats in report["per_kind"].items():
+        lines.append(
+            f"| {_md_cell(kind)} | {stats['TP']} | {stats['FP']} | {stats['TN']} | {stats['FN']} | {stats['exceptions']}"
+            f" | {_pct(stats['pass_rate'])} | {_ms(stats['avg_latency_ms'])} | {_ms(stats['max_latency_ms'])} |"
+        )
 
     lines.extend([
         "",
