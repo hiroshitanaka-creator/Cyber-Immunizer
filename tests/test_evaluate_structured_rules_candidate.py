@@ -12,6 +12,11 @@ Tests cover:
 9. core/detector.py has no runtime_selector/structured references
 10. Genome load failure is a tool failure (fail-closed)
 11. code_chars uses JSON doc character count (not 0)
+12. Oversized rules file is a tool failure (Fix 1)
+13. Forbidden --report-path is rejected (Fix 2)
+14. Parity guard rejects behavior-equivalent rules without --baseline (Fix 3)
+15. Genome threshold validation rejects invalid values (Fix 4)
+16. Duplicate keys in rules JSON are rejected (Fix 5)
 """
 from __future__ import annotations
 
@@ -101,6 +106,19 @@ def write_rules(tmp_path: Path, rules_doc: dict) -> Path:
     p = tmp_path / "rules.json"
     p.write_text(json.dumps(rules_doc), encoding="utf-8")
     return p
+
+
+def permissive_genome() -> dict:
+    """Return a genome dict with thresholds set so all gates except parity pass."""
+    return {
+        "best_score": -1e9,
+        "max_fp_rate": 1.0,
+        "min_regression_pass_rate": 0.0,
+        "max_avg_latency_ms": 1e9,
+        "min_holdout_pass_rate": 0.0,
+        "min_counterfactual_pass_rate": 0.0,
+        "min_drift_pass_rate": 0.0,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +467,7 @@ class TestExplicitReportPath:
             "exception_count", "total_cases", "tp_rate", "fp_rate", "fn_rate",
             "avg_latency_ms", "score", "code_chars", "rejection_reasons",
             "adaptive_floor_passed", "holdout_pass_rate", "counterfactual_pass_rate",
-            "drift_pass_rate", "mode", "rules_path",
+            "drift_pass_rate", "score_comparison_mode", "mode", "rules_path",
         ]
         for field in required_fields:
             assert field in written, f"Required field {field!r} missing from written report"
@@ -638,5 +656,276 @@ class TestGenomeLoadFailure:
         monkeypatch.setattr(mod, "load_test_cases", failing_load_test_cases)
 
         rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject"])
+        assert exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# 12. File size limit (Fix 1)
+# ---------------------------------------------------------------------------
+
+class TestFileSizeLimit:
+    def test_oversized_rules_file_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Rules file exceeding _MAX_RULES_FILE_BYTES must be a tool failure."""
+        rules_path = tmp_path / "rules.json"
+        rules_path.write_bytes(b"x" * (mod._MAX_RULES_FILE_BYTES + 1))
+        exit_code = main(["--rules", str(rules_path), "--json"])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_oversized_rules_file_soft_reject_still_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Oversized file is a tool failure; --soft-reject does not suppress it."""
+        rules_path = tmp_path / "rules.json"
+        rules_path.write_bytes(b"y" * (mod._MAX_RULES_FILE_BYTES + 1))
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject"])
+        assert exit_code == 1
+
+    def test_oversized_rules_file_not_parsed(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Oversized rules file must not reach json.loads (error must cite size, not parse failure)."""
+        rules_path = tmp_path / "rules.json"
+        # Non-JSON content that is oversized. If json.loads were called, the error
+        # would mention malformed/parse. The size check fires first.
+        rules_path.write_bytes(b"A" * (mod._MAX_RULES_FILE_BYTES + 100))
+        main(["--rules", str(rules_path), "--json"])
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        error_text = (report.get("error", "") + " ".join(report.get("rejection_reasons", []))).lower()
+        assert any(kw in error_text for kw in ("size", "bytes", "limit", "oversized")), (
+            f"Expected size-related error, got: {error_text!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 13. Forbidden --report-path (Fix 2)
+# ---------------------------------------------------------------------------
+
+class TestForbiddenReportPath:
+    def test_report_path_data_dir_rejects(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """--report-path targeting data/** must exit 1."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        forbidden = str(mod._PROJECT_ROOT / "data" / "report.json")
+        exit_code = main(["--rules", str(rules_path), "--soft-reject",
+                          "--report-path", forbidden])
+        assert exit_code == 1
+
+    def test_report_path_core_dir_rejects(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """--report-path targeting core/** must exit 1."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        forbidden = str(mod._PROJECT_ROOT / "core" / "x.json")
+        exit_code = main(["--rules", str(rules_path), "--soft-reject",
+                          "--report-path", forbidden])
+        assert exit_code == 1
+
+    def test_report_path_github_dir_rejects(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """--report-path targeting .github/** must exit 1."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        forbidden = str(mod._PROJECT_ROOT / ".github" / "x.json")
+        exit_code = main(["--rules", str(rules_path), "--soft-reject",
+                          "--report-path", forbidden])
+        assert exit_code == 1
+
+    def test_report_path_tmp_path_works(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """--report-path outside frozen paths must succeed (report is written)."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        report_path = tmp_path / "report.json"
+        exit_code = main(["--rules", str(rules_path), "--soft-reject",
+                          "--report-path", str(report_path)])
+        assert exit_code == 0
+        assert report_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# 14. Parity guard (Fix 3)
+# ---------------------------------------------------------------------------
+
+class TestParityGuard:
+    def test_equivalent_rules_fail_adoption_gate_without_baseline(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Without --baseline, behavior-equivalent rules must fail the adoption gate.
+
+        Uses a permissive genome so all other gates pass — only the parity guard rejects.
+        """
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(permissive_genome()), encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--genome", str(genome_path)])
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["passed_adoption_gate"] is False
+        assert exit_code == 1
+
+    def test_equivalent_rules_pass_with_baseline(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """With --baseline, parity guard is skipped and equivalent rules can pass."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--baseline"])
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["passed_adoption_gate"] is True
+        assert exit_code == 0
+
+    def test_parity_rejection_reason_mentions_no_behavior_improvement(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Parity guard rejection reason must mention no_behavior_improvement or equivalent."""
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(permissive_genome()), encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        main(["--rules", str(rules_path), "--json", "--genome", str(genome_path)])
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        reasons_text = " ".join(report.get("rejection_reasons", []))
+        assert "no_behavior_improvement" in reasons_text or "no improvement" in reasons_text.lower()
+
+    def test_score_comparison_mode_field_in_report(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Completed evaluation must include score_comparison_mode='structured_rules_parity_guard'."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        main(["--rules", str(rules_path), "--json", "--baseline"])
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report.get("score_comparison_mode") == "structured_rules_parity_guard"
+
+
+# ---------------------------------------------------------------------------
+# 15. Genome threshold validation (Fix 4)
+# ---------------------------------------------------------------------------
+
+class TestGenomeThresholdValidation:
+    def test_genome_nan_best_score_is_tool_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Genome with NaN best_score must be treated as a tool failure."""
+        monkeypatch.setattr(mod, "_load_genome", lambda path: {
+            "best_score": float("nan"),
+            "max_fp_rate": 0.05,
+            "min_regression_pass_rate": 1.0,
+            "max_avg_latency_ms": 100.0,
+            "min_holdout_pass_rate": 0.0,
+            "min_counterfactual_pass_rate": 0.0,
+            "min_drift_pass_rate": 0.0,
+        })
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json"])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_genome_string_threshold_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Genome with a string-typed threshold must be treated as a tool failure."""
+        genome = {
+            "best_score": "not_a_number",
+            "max_fp_rate": 0.05,
+            "min_regression_pass_rate": 1.0,
+            "max_avg_latency_ms": 100.0,
+        }
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--genome", str(genome_path)])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_genome_out_of_range_rate_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Genome with a rate threshold outside [0.0, 1.0] must be a tool failure."""
+        genome = {
+            "best_score": 948.0,
+            "max_fp_rate": 1.5,  # > 1.0 — invalid rate
+            "min_regression_pass_rate": 1.0,
+            "max_avg_latency_ms": 100.0,
+        }
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--genome", str(genome_path)])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_genome_threshold_error_soft_reject_still_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Invalid genome threshold is a tool failure; --soft-reject does not suppress it."""
+        genome = {"best_score": 948.0, "max_fp_rate": -0.1, "min_regression_pass_rate": 1.0,
+                  "max_avg_latency_ms": 100.0}
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject",
+                          "--genome", str(genome_path)])
+        assert exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# 16. Duplicate keys in rules JSON (Fix 5)
+# ---------------------------------------------------------------------------
+
+class TestDuplicateKeyRejection:
+    def test_duplicate_top_level_key_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Rules JSON with duplicate top-level key must be a tool failure."""
+        raw = '{"schema_version": 1, "schema_version": 2, "rules": []}'
+        rules_path = tmp_path / "rules.json"
+        rules_path.write_text(raw, encoding="utf-8")
+        exit_code = main(["--rules", str(rules_path), "--json"])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_duplicate_nested_key_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Rules JSON with duplicate key in a nested object must be a tool failure."""
+        raw = '{"schema_version": 1, "rules": [{"id": "x", "id": "y"}]}'
+        rules_path = tmp_path / "rules.json"
+        rules_path.write_text(raw, encoding="utf-8")
+        exit_code = main(["--rules", str(rules_path), "--json"])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_duplicate_key_soft_reject_still_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Duplicate key is a tool failure; --soft-reject does not suppress it."""
+        raw = '{"schema_version": 1, "schema_version": 99}'
+        rules_path = tmp_path / "rules.json"
+        rules_path.write_text(raw, encoding="utf-8")
         exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject"])
         assert exit_code == 1

@@ -9,9 +9,23 @@
 - Does not change default detector behavior (`core/detector.py` unchanged).
 - Does not promote, dispatch workflows, call APIs, or edit data.
 
-## Codex Review P2 Findings (PR #166) — All Fixed
+## Codex Review P2 Findings (PR #166, second pass) — All Fixed
 
-Four P2 findings from the Codex Review were addressed:
+Five additional P2 findings from the second Codex Review pass were addressed:
+
+1. **Rules file size bound**: `_MAX_RULES_FILE_BYTES = 1_048_576`. `rules_path.stat().st_size` is checked before `read_text()`. Oversized files are a tool failure (exit 1, `evaluation_completed=False`) even with `--soft-reject`.
+
+2. **Forbidden `--report-path` rejection**: `_is_forbidden_report_path()` checks whether the resolved path falls inside `data/`, `core/`, `.github/`, `scripts/`, `docs/audit_gate/`, `README.md`, `CLAUDE.md`, `AGENTS.md`, or `docs/PROJECT_STATE.md`. Forbidden targets exit 1 before evaluation starts.
+
+3. **Parity guard**: `evaluate_detector(_legacy_inspect_request, cases)` is called (in non-baseline mode) after structured-rules evaluation. If per-case `actual_blocked` outcomes match the legacy detector's outcomes on all main-tier cases, the candidate is rejected with `"no_behavior_improvement_against_current_detector"`. Report includes `score_comparison_mode: "structured_rules_parity_guard"`.
+
+4. **Genome threshold validation**: `_validate_genome_thresholds()` rejects `bool`, non-number, non-finite values, rates outside `[0.0, 1.0]`, and `max_avg_latency_ms <= 0`. Invalid thresholds are a tool failure.
+
+5. **Duplicate key rejection**: `json.loads(..., object_pairs_hook=_reject_duplicate_keys)` raises `ValueError` on duplicate keys in any JSON object (top-level or nested). Duplicate keys are a tool failure before schema validation.
+
+## Codex Review P2 Findings (PR #166, first pass) — All Fixed
+
+Four P2 findings from the first Codex Review pass were addressed:
 
 1. **Genome load fail-closed**: `_load_genome()` no longer silently returns `{}` on error. It raises `OSError` or `json.JSONDecodeError`, and the call site in `evaluate_structured_rules()` wraps it in try/except that returns a tool failure. A missing or malformed genome cannot silently substitute `previous_best_score=-1e9` and allow an under-performing candidate to pass the adoption gate.
 
@@ -41,7 +55,7 @@ This approval does **not** authorize changes to:
 ## Changed Files
 
 - `scripts/evaluate_structured_rules_candidate.py` — evaluation script (initial + P2 hardening)
-- `tests/test_evaluate_structured_rules_candidate.py` — 38 tests (initial 28 + 10 P2 additions)
+- `tests/test_evaluate_structured_rules_candidate.py` — 56 tests (initial 28 + 10 first-pass P2 + 18 second-pass P2)
 - `docs/task_reports/TASK_REPORT_PR_E1_STRUCTURED_RULES_EVALUATION.md` — this report
 
 ## Verification
@@ -50,13 +64,13 @@ All commands passed:
 
 ```
 python -m pytest tests/test_evaluate_structured_rules_candidate.py -q
-# → 38 passed
+# → 56 passed
 
 python -m pytest tests/test_runtime_selector.py tests/test_structured_detector_integration.py tests/test_structured_detector_equivalence.py -q
 # → 49 passed
 
 python -m pytest tests/ -q
-# → 2869 passed
+# → 2887 passed
 
 git diff --check
 # → PASS (no whitespace errors)

@@ -11,11 +11,13 @@ Usage:
 
 Exit codes (default mode):
     0  Candidate passed adoption gate
-    1  Tool failure (malformed JSON, unreadable file, genome load failure) OR adoption gate failed
+    1  Tool failure (malformed JSON, unreadable file, genome load failure, test-case load
+       failure, oversized rules file, duplicate keys in rules JSON, invalid genome
+       thresholds, forbidden --report-path) OR adoption gate failed
 
 Exit codes with --soft-reject:
     0  Evaluation completed (regardless of gate outcome)
-    1  Tool failure only (malformed JSON, unreadable file, genome load failure, test-case load failure)
+    1  Tool failure only
 
 This script intentionally reuses current core.fitness scoring/adoption helper
 semantics to avoid creating a second score formula.
@@ -29,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -36,6 +39,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from core.detector import inspect_request as _legacy_inspect_request
 from core.runtime_selector import inspect_request_with_runtime_selector
 from core.structured_validator import validate_rules_schema
 from core.test_attacker import evaluate_detector, load_test_cases, summarize_results
@@ -52,6 +56,25 @@ from core.fitness import (  # noqa: PLC2701
 
 _GENOME_PATH = _PROJECT_ROOT / "data" / "genome.json"
 
+# Reject rules files larger than 1 MiB before reading/parsing.
+_MAX_RULES_FILE_BYTES = 1_048_576
+
+# Frozen project paths that --report-path must not target.
+_FORBIDDEN_REPORT_PREFIXES: frozenset[str] = frozenset([
+    "data",
+    "core",
+    ".github",
+    "scripts",
+    "docs/audit_gate",
+])
+
+_FORBIDDEN_REPORT_EXACT: frozenset[str] = frozenset([
+    "README.md",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "docs/PROJECT_STATE.md",
+])
+
 
 def _load_genome(genome_path: Path) -> dict:
     """Load genome.json strictly. Raises OSError or json.JSONDecodeError on failure.
@@ -62,6 +85,79 @@ def _load_genome(genome_path: Path) -> dict:
     """
     raw = genome_path.read_text(encoding="utf-8")
     return json.loads(raw)
+
+
+def _reject_duplicate_keys(pairs: list) -> dict:
+    """object_pairs_hook that raises ValueError on duplicate keys in a JSON object."""
+    seen: set = set()
+    result: dict = {}
+    for k, v in pairs:
+        if k in seen:
+            raise ValueError(f"duplicate key {k!r} in JSON object")
+        seen.add(k)
+        result[k] = v
+    return result
+
+
+def _validate_genome_thresholds(genome: dict) -> str | None:
+    """Validate genome threshold fields. Return error string if invalid, else None.
+
+    Rejects bool, non-number, and non-finite values.
+    Rate fields must be in [0.0, 1.0]. max_avg_latency_ms must be > 0.
+    """
+    _rate_fields = (
+        "max_fp_rate",
+        "min_regression_pass_rate",
+        "min_holdout_pass_rate",
+        "min_counterfactual_pass_rate",
+        "min_drift_pass_rate",
+    )
+    for field in _rate_fields:
+        if field not in genome:
+            continue
+        val = genome[field]
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            return f"genome threshold {field!r} is not a number: {val!r}"
+        if not math.isfinite(float(val)):
+            return f"genome threshold {field!r} is non-finite: {val!r}"
+        if not (0.0 <= float(val) <= 1.0):
+            return f"genome threshold {field!r} out of range [0.0, 1.0]: {val}"
+
+    if "max_avg_latency_ms" in genome:
+        val = genome["max_avg_latency_ms"]
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            return f"genome threshold 'max_avg_latency_ms' is not a number: {val!r}"
+        fval = float(val)
+        if not math.isfinite(fval) or fval <= 0:
+            return f"genome threshold 'max_avg_latency_ms' must be finite and > 0: {val!r}"
+
+    if "best_score" in genome:
+        val = genome["best_score"]
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            return f"genome threshold 'best_score' is not a number: {val!r}"
+        if not math.isfinite(float(val)):
+            return f"genome threshold 'best_score' is non-finite: {val!r}"
+
+    return None
+
+
+def _is_forbidden_report_path(report_path: Path) -> bool:
+    """Return True if report_path resolves inside a frozen project path."""
+    try:
+        resolved = report_path.resolve()
+        root = _PROJECT_ROOT.resolve()
+        relative = resolved.relative_to(root)
+    except (OSError, ValueError):
+        return False  # Outside project root or unresolvable — allowed
+
+    rel = relative.as_posix()
+
+    if rel in _FORBIDDEN_REPORT_EXACT:
+        return True
+    for prefix in _FORBIDDEN_REPORT_PREFIXES:
+        if rel == prefix or rel.startswith(prefix + "/"):
+            return True
+    return False
 
 
 def _make_detector_callable(rules_doc: dict):
@@ -96,23 +192,38 @@ def evaluate_structured_rules(
 ) -> tuple[dict, bool]:
     """Evaluate a structured rules document and return (report, is_tool_failure).
 
-    Tool failures (unreadable file, malformed JSON, genome load failure, test-case load failure):
+    Tool failures (unreadable/oversized file, malformed/duplicate-key JSON, genome load
+    failure, invalid genome thresholds, test-case load failure):
         success=False, evaluation_completed=False, is_tool_failure=True
 
-    Candidate rejections (invalid schema, gate failed):
+    Candidate rejections (invalid schema, gate failed, parity guard):
         success=False, evaluation_completed=True, is_tool_failure=False
 
     Returns a JSON-serializable report dict.
     """
-    # Load and parse the rules file strictly.
+    # Bound file size before reading to prevent memory pressure from huge inputs.
+    try:
+        file_size = rules_path.stat().st_size
+    except OSError as exc:
+        return _tool_failure(f"failed to stat rules file: {exc}", rules_path)
+    if file_size > _MAX_RULES_FILE_BYTES:
+        return _tool_failure(
+            f"rules file exceeds size limit: {file_size} bytes > {_MAX_RULES_FILE_BYTES} bytes",
+            rules_path,
+        )
+
+    # Read rules file.
     try:
         raw_text = rules_path.read_text(encoding="utf-8")
     except OSError as exc:
         return _tool_failure(f"failed to read rules file: {exc}", rules_path)
 
+    # Parse JSON with duplicate-key rejection. Duplicate keys are a tool failure
+    # because canonical static validation rejects them; the evaluator must not accept
+    # artifacts that static validation would reject.
     try:
-        rules_doc = json.loads(raw_text)
-    except json.JSONDecodeError as exc:
+        rules_doc = json.loads(raw_text, object_pairs_hook=_reject_duplicate_keys)
+    except (json.JSONDecodeError, ValueError) as exc:
         return _tool_failure(f"malformed JSON in rules file: {exc}", rules_path)
 
     # Schema validation — failure is candidate rejection, not a tool failure.
@@ -142,6 +253,7 @@ def evaluate_structured_rules(
             "holdout_pass_rate": 0.0,
             "counterfactual_pass_rate": 0.0,
             "drift_pass_rate": 0.0,
+            "score_comparison_mode": "structured_rules_parity_guard",
             "mode": "structured_rules",
             "rules_path": str(rules_path),
         }, False
@@ -154,6 +266,12 @@ def evaluate_structured_rules(
         genome = _load_genome(genome_path)
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         return _tool_failure(f"failed to load genome: {exc}", rules_path)
+
+    # Validate genome thresholds before use. Non-finite or wrong-type values
+    # silently break comparisons (e.g. score <= NaN is always False).
+    threshold_error = _validate_genome_thresholds(genome)
+    if threshold_error:
+        return _tool_failure(f"invalid genome threshold — {threshold_error}", rules_path)
 
     max_fp_rate: float = float(genome.get("max_fp_rate", 0.05))
     min_regression_pass_rate: float = float(genome.get("min_regression_pass_rate", 1.0))
@@ -249,8 +367,29 @@ def evaluate_structured_rules(
         max_avg_latency_ms=max_avg_latency_ms,
     )
 
-    all_reasons = gate_reasons + floor_reasons
-    overall_passed = gate_passed and floor_passed
+    # Parity guard: structured rules that produce identical per-case outcomes to the
+    # current legacy detector cannot represent a behavioral improvement. Reject in
+    # non-baseline mode so a behavior-equivalent candidate cannot pass the adoption gate
+    # merely by having a lower code_chars count than the live Python detector.
+    parity_reasons: list[str] = []
+    parity_rejected = False
+    if not baseline_mode:
+        legacy_results_raw = evaluate_detector(_legacy_inspect_request, cases)
+        legacy_outcomes = {
+            r["id"]: r["actual_blocked"]
+            for r in legacy_results_raw
+            if r.get("kind") in _MAIN_EVAL_KINDS
+        }
+        structured_outcomes = {r["id"]: r["actual_blocked"] for r in main_results}
+        if legacy_outcomes == structured_outcomes:
+            parity_rejected = True
+            parity_reasons.append(
+                "no_behavior_improvement_against_current_detector: "
+                "structured rules produce identical per-case outcomes to the legacy detector"
+            )
+
+    all_reasons = gate_reasons + floor_reasons + parity_reasons
+    overall_passed = gate_passed and floor_passed and not parity_rejected
 
     report = {
         "success": overall_passed,          # matches passed_adoption_gate
@@ -274,6 +413,7 @@ def evaluate_structured_rules(
         "holdout_pass_rate": holdout_rate if holdout_rate is not None else 1.0,
         "counterfactual_pass_rate": cf_rate if cf_rate is not None else 1.0,
         "drift_pass_rate": drift_rate if drift_rate is not None else 1.0,
+        "score_comparison_mode": "structured_rules_parity_guard",
         "mode": "structured_rules",
         "rules_path": str(rules_path),
     }
@@ -312,7 +452,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--baseline",
         action="store_true",
-        help="Optional. Bypass score-improvement requirement (baseline mode).",
+        help="Optional. Bypass score-improvement and parity-guard requirements (baseline mode).",
     )
     parser.add_argument(
         "--report-path",
@@ -325,6 +465,22 @@ def main(argv: list[str] | None = None) -> int:
 
     rules_path = Path(args.rules)
     genome_path = Path(args.genome) if args.genome else _GENOME_PATH
+
+    # Reject --report-path targets inside frozen project paths before evaluating.
+    if args.report_path and _is_forbidden_report_path(Path(args.report_path)):
+        error_msg = f"--report-path target is in a frozen project path: {args.report_path}"
+        if args.json:
+            print(json.dumps({
+                "success": False,
+                "evaluation_completed": False,
+                "passed_adoption_gate": False,
+                "error": error_msg,
+                "rejection_reasons": [error_msg],
+                "mode": "structured_rules",
+            }, indent=2))
+        else:
+            print(f"ERROR: {error_msg}")
+        return 1
 
     report, is_tool_failure = evaluate_structured_rules(
         rules_path,
