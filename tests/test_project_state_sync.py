@@ -71,6 +71,8 @@ _HISTORICAL_STATE_DOCS = [
 
 _HISTORICAL_LABEL = "HISTORICAL DOCUMENT"
 
+_EXPECTED_PRIMARY_MODEL_PAID_CREDIT_SUCCESS_RECORDS = 14
+
 _REQUIRED_TOP_LEVEL_FIELDS = [
     "schema_version",
     "state_id",
@@ -151,7 +153,9 @@ def test_project_state_matches_ledger_success_count() -> None:
         f"data/project_state.json declares {declared} success records "
         f"but ledger has {actual}"
     )
-    assert actual == 13, "ledger must contain exactly 13 primary-model paid-credit success records"
+    assert actual == _EXPECTED_PRIMARY_MODEL_PAID_CREDIT_SUCCESS_RECORDS, (
+        f"ledger must contain exactly {_EXPECTED_PRIMARY_MODEL_PAID_CREDIT_SUCCESS_RECORDS} primary-model paid-credit success records"
+    )
 
 
 # 5.
@@ -323,10 +327,10 @@ def test_project_state_doc_no_stale_3_calls_claim() -> None:
 
 
 # 19.
-def test_project_state_doc_shows_13_success_records() -> None:
+def test_project_state_doc_shows_14_success_records() -> None:
     text = _PROJECT_STATE_DOC.read_text(encoding="utf-8")
-    assert "**13**" in text, (
-        "docs/PROJECT_STATE.md must show 13 primary-model paid-credit success records"
+    assert "**14**" in text, (
+        "docs/PROJECT_STATE.md must show 14 primary-model paid-credit success records"
     )
 
 
