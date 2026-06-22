@@ -78,4 +78,24 @@ python3 -m pytest -q
 
 ## Layer 宣言
 
-- [x] None（ドキュメント・テスト整備のみ — SSOT drift 防止）
+このタスクが進めたレイヤー：
+
+- [ ] Layer 1 — Research Foundation
+- [ ] Layer 2 — Value Validation
+- [x] Layer 3 — AI Operation Control
+- [ ] None
+
+If docs/state-only, classify:
+
+- [ ] Owner Intent / Claim Record
+- [ ] Safety Boundary
+- [x] Current-State SSOT
+- [x] Audit Evidence
+- [ ] User-facing Manual for existing executable feature
+- [x] Minimal Task Report
+- [ ] Redundant — should not have been added
+
+理由:
+- `data/project_state.json` / `docs/PROJECT_STATE.md` / test drift-prevention を同期した current-state SSOT maintenance。
+- Layer 2 value validation は主張しない。
+- runtime behavior / detector / workflow / ledger history は変更していない。

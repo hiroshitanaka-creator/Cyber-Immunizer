@@ -150,10 +150,7 @@ via owner-audited recovery on 2026-06-18: hash verified against run 8 job-log fi
 `promote_candidate.py` re-executed, generation 3 written. Recovery was completed via
 owner-audited PR #117 (merged 2026-06-18). That recovery is historical; generation 4 is now active on main after run #59 promotion.
 
-A 10th primary-model `success=true` ledger record is present (2026-06-19T14:43:51+00:00,
-`model=gemini-3-flash-preview`). This records API/token success only. No artifact or job-log
-triage is available; it must not be treated as evidence that apply, evaluate, or promote were
-reached.
+The ledger now contains **14** primary-model `success=true` records. Some records, including run 10 (2026-06-19T14:43:51+00:00) and run 14 (2026-06-22T02:32:07+00:00), are API/token success only unless separately triaged from job logs/artifacts. They must not be treated as evidence that apply, evaluate, or promote were reached.
 
 ---
 
