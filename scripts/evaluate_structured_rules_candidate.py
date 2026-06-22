@@ -66,6 +66,8 @@ _MAX_GENOME_FILE_BYTES = 1_048_576
 # Frozen project paths that --report-path must not target.
 _FORBIDDEN_REPORT_PREFIXES: frozenset[str] = frozenset([
     ".cyber_immunizer",
+    ".git",
+    ".grok",
     "data",
     "core",
     ".github",

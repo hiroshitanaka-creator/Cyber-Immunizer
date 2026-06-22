@@ -9,6 +9,12 @@
 - Does not change default detector behavior (`core/detector.py` unchanged).
 - Does not promote, dispatch workflows, call APIs, or edit data.
 
+## Codex Review P2 Findings (PR #166, seventh pass) — All Fixed
+
+One additional report-path hardening fix:
+
+1. **Block `.git/**` and `.grok/**` report paths**: Added `.git` and `.grok` to `_FORBIDDEN_REPORT_PREFIXES` so `--report-path` cannot target repository-control metadata (`.git/config`, `.git/HEAD`) or retired-agent output trees (`.grok/report.json`, `.grok/nested/report.json`). Added six regression tests in `TestForbiddenReportPathGitGrok`: `.git/config`, `.git/HEAD`, `.grok/report.json`, `.grok/nested/report.json`, and `--soft-reject` variants for both `.git` and `.grok`. Rejection occurs before evaluation/report write; returns `success=false`, `evaluation_completed=false`, `passed_adoption_gate=false`, exit 1 even with `--soft-reject`.
+
 ## Codex Review P2 Findings (PR #166, sixth pass) — All Fixed
 
 One additional fail-closed hardening fix:
@@ -101,7 +107,7 @@ This approval does **not** authorize changes to:
 ## Changed Files
 
 - `scripts/evaluate_structured_rules_candidate.py` — evaluation script (initial + P2 hardening)
-- `tests/test_evaluate_structured_rules_candidate.py` — 101 tests (initial 28 + 10 first-pass P2 + 18 second-pass P2 + 10 third-pass P2 + 12 fourth-pass P2 + 21 fifth-pass P2 + 2 sixth-pass P2)
+- `tests/test_evaluate_structured_rules_candidate.py` — 107 tests (initial 28 + 10 first-pass P2 + 18 second-pass P2 + 10 third-pass P2 + 12 fourth-pass P2 + 21 fifth-pass P2 + 2 sixth-pass P2 + 6 seventh-pass P2)
 - `docs/task_reports/TASK_REPORT_PR_E1_STRUCTURED_RULES_EVALUATION.md` — this report
 
 ## Verification
@@ -110,13 +116,13 @@ All commands passed:
 
 ```
 python -m pytest tests/test_evaluate_structured_rules_candidate.py -q
-# → 101 passed
+# → 107 passed
 
 python -m pytest tests/test_runtime_selector.py tests/test_structured_detector_integration.py tests/test_structured_detector_equivalence.py -q
 # → 49 passed
 
 python -m pytest tests/ -q
-# → 2932 passed
+# → 2938 passed
 
 git diff --check
 # → PASS (no whitespace errors)

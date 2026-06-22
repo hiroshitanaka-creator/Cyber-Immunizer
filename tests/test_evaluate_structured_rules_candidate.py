@@ -1637,3 +1637,93 @@ class TestMonkeypatchedRecursionErrors:
         rules_path = write_rules(tmp_path, equivalent_rules_doc())
         exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject"])
         assert exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# 31. Forbidden --report-path .git/** and .grok/** (seventh-pass Fix 1)
+# ---------------------------------------------------------------------------
+
+class TestForbiddenReportPathGitGrok:
+    def test_report_path_git_config_rejects(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """--report-path targeting .git/config must exit 1 as a tool failure."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        forbidden = str(mod._PROJECT_ROOT / ".git" / "config")
+        exit_code = main(["--rules", str(rules_path), "--json",
+                          "--report-path", forbidden])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_report_path_git_head_rejects(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """--report-path targeting .git/HEAD must exit 1 as a tool failure."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        forbidden = str(mod._PROJECT_ROOT / ".git" / "HEAD")
+        exit_code = main(["--rules", str(rules_path), "--json",
+                          "--report-path", forbidden])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_report_path_grok_report_rejects(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """--report-path targeting .grok/report.json must exit 1 as a tool failure."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        forbidden = str(mod._PROJECT_ROOT / ".grok" / "report.json")
+        exit_code = main(["--rules", str(rules_path), "--json",
+                          "--report-path", forbidden])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_report_path_grok_nested_report_rejects(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """--report-path targeting .grok/nested/report.json must exit 1 as a tool failure."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        forbidden = str(mod._PROJECT_ROOT / ".grok" / "nested" / "report.json")
+        exit_code = main(["--rules", str(rules_path), "--json",
+                          "--report-path", forbidden])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_report_path_git_soft_reject_still_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Forbidden .git/** report-path is a tool failure; --soft-reject does not suppress it."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        forbidden = str(mod._PROJECT_ROOT / ".git" / "config")
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject",
+                          "--report-path", forbidden])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_report_path_grok_soft_reject_still_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Forbidden .grok/** report-path is a tool failure; --soft-reject does not suppress it."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        forbidden = str(mod._PROJECT_ROOT / ".grok" / "report.json")
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject",
+                          "--report-path", forbidden])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
