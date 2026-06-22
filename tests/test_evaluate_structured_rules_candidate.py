@@ -1375,6 +1375,31 @@ class TestGenomeFileGuard:
                           "--genome", str(genome_path)])
         assert exit_code == 1
 
+    def test_non_utf8_genome_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A non-UTF-8 binary genome file must be a structured tool failure (UnicodeDecodeError)."""
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_bytes(b"\xff\xfe binary content")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--genome", str(genome_path)])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_non_utf8_genome_soft_reject_still_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Non-UTF-8 genome is a tool failure; --soft-reject does not suppress it."""
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_bytes(b"\xff\xfe binary content")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject",
+                          "--genome", str(genome_path)])
+        assert exit_code == 1
+
 
 # ---------------------------------------------------------------------------
 # 27. Schema validation exceptions are structured tool failures (fifth-pass Fix 2)

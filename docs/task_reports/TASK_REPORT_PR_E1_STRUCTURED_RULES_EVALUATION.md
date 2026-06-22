@@ -9,6 +9,12 @@
 - Does not change default detector behavior (`core/detector.py` unchanged).
 - Does not promote, dispatch workflows, call APIs, or edit data.
 
+## Codex Review P2 Findings (PR #166, sixth pass) — All Fixed
+
+One additional fail-closed hardening fix:
+
+1. **`UnicodeDecodeError` in genome load call site**: `evaluate_structured_rules()` call site for `_load_genome()` previously caught `(OSError, json.JSONDecodeError, ValueError, RecursionError)` but NOT `UnicodeDecodeError`. When `_load_genome()` calls `read_text(encoding="utf-8")` on a non-UTF-8 binary genome file, the exception propagated as an unhandled traceback. Fixed by adding `UnicodeDecodeError` to the except tuple. Two new tests added to `TestGenomeFileGuard`: `test_non_utf8_genome_is_tool_failure` and `test_non_utf8_genome_soft_reject_still_exits_1`.
+
 ## Codex Review P2 Findings (PR #166, fifth pass) — All Fixed
 
 Five additional fail-closed hardening fixes:
@@ -95,7 +101,7 @@ This approval does **not** authorize changes to:
 ## Changed Files
 
 - `scripts/evaluate_structured_rules_candidate.py` — evaluation script (initial + P2 hardening)
-- `tests/test_evaluate_structured_rules_candidate.py` — 99 tests (initial 28 + 10 first-pass P2 + 18 second-pass P2 + 10 third-pass P2 + 12 fourth-pass P2 + 21 fifth-pass P2)
+- `tests/test_evaluate_structured_rules_candidate.py` — 101 tests (initial 28 + 10 first-pass P2 + 18 second-pass P2 + 10 third-pass P2 + 12 fourth-pass P2 + 21 fifth-pass P2 + 2 sixth-pass P2)
 - `docs/task_reports/TASK_REPORT_PR_E1_STRUCTURED_RULES_EVALUATION.md` — this report
 
 ## Verification
@@ -104,13 +110,13 @@ All commands passed:
 
 ```
 python -m pytest tests/test_evaluate_structured_rules_candidate.py -q
-# → 99 passed
+# → 101 passed
 
 python -m pytest tests/test_runtime_selector.py tests/test_structured_detector_integration.py tests/test_structured_detector_equivalence.py -q
 # → 49 passed
 
 python -m pytest tests/ -q
-# → 2930 passed
+# → 2932 passed
 
 git diff --check
 # → PASS (no whitespace errors)

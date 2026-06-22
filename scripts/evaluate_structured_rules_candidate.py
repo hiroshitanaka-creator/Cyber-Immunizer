@@ -317,7 +317,7 @@ def evaluate_structured_rules(
     # candidate to pass the adoption gate.
     try:
         genome = _load_genome(genome_path)
-    except (OSError, json.JSONDecodeError, ValueError, RecursionError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
         return _tool_failure(f"failed to load genome: {exc}", rules_path)
 
     # Validate genome thresholds before use. Non-finite or wrong-type values
