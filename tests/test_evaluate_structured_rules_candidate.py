@@ -5,12 +5,13 @@ Tests cover:
 2. Equivalent structured rules evaluate successfully
 3. Runtime selector is actually called with mode="structured_rules" and explicit doc
 4. Malformed JSON is a tool failure (exit 1, success=False)
-5. Invalid schema is candidate rejection, not crash
+5. Invalid schema is candidate rejection (success=False, evaluation_completed=True)
 6. No default report file written (no .cyber_immunizer/** output)
 7. Explicit --report-path writes report
 8. No forbidden side effects (no sockets, no subprocess)
 9. core/detector.py has no runtime_selector/structured references
-10. Forbidden-path awareness recorded in task report
+10. Genome load failure is a tool failure (fail-closed)
+11. code_chars uses JSON doc character count (not 0)
 """
 from __future__ import annotations
 
@@ -174,6 +175,55 @@ class TestEquivalentRulesEvaluate:
         assert report["passed_adoption_gate"] is True
         assert exit_code == 0
 
+    def test_code_chars_is_nonzero(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+        """code_chars must equal the JSON doc character count (never 0)."""
+        rules_doc = equivalent_rules_doc()
+        rules_path = write_rules(tmp_path, rules_doc)
+        main(["--rules", str(rules_path), "--json", "--baseline"])
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert "code_chars" in report, "report must include code_chars"
+        expected_chars = len(json.dumps(rules_doc))
+        assert report["code_chars"] == expected_chars
+        assert report["code_chars"] > 0
+
+    def test_equivalent_rules_do_not_pass_gate_without_baseline_when_best_score_high(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Equivalent rules must not pass the adoption gate when previous_best_score > possible score.
+
+        With code_chars=len(raw_text) the score is:
+            1000 * tp_rate - 0.02 * code_chars  (perfect tp/fp/fn/exception)
+        For any non-trivial JSON doc, 0.02 * code_chars > 0.
+        A genome with best_score=999.0 ensures even a perfect run cannot pass without --baseline.
+        This proves code_chars=0 is NOT used (which would yield score=1000.0 and pass the gate).
+        """
+        genome = {
+            "best_score": 999.0,
+            "max_fp_rate": 0.05,
+            "min_regression_pass_rate": 1.0,
+            "max_avg_latency_ms": 100.0,
+            "min_holdout_pass_rate": 0.0,
+            "min_counterfactual_pass_rate": 0.0,
+            "min_drift_pass_rate": 0.0,
+        }
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(genome), encoding="utf-8")
+
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--genome", str(genome_path)])
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+
+        assert report["code_chars"] > 0, "code_chars must be > 0"
+        # score = 1000 - 0.02 * code_chars < 1000 < 999 is impossible —
+        # but 1000 - 0.02 * code_chars < 999.0 when code_chars > 50.
+        # Any realistic JSON doc is >> 50 chars, so the gate must fail.
+        assert report["passed_adoption_gate"] is False
+        assert exit_code == 1
+        # Confirm the score is below the high previous_best.
+        assert report["score"] < 999.0
+
 
 # ---------------------------------------------------------------------------
 # 3. Runtime selector is actually used
@@ -287,16 +337,27 @@ class TestInvalidSchemaIsRejection:
         exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject"])
         assert exit_code == 0
 
-    def test_invalid_schema_success_true_evaluation_completed(
+    def test_invalid_schema_success_false(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
-        """Invalid schema: success=True (evaluation ran to completion)."""
+        """Invalid schema: success=False (matches passed_adoption_gate)."""
         bad_doc = {"schema_version": 99, "rules": []}
         rules_path = write_rules(tmp_path, bad_doc)
         main(["--rules", str(rules_path), "--json"])
         captured = capsys.readouterr()
         report = json.loads(captured.out)
-        assert report["success"] is True
+        assert report["success"] is False
+
+    def test_invalid_schema_evaluation_completed_true(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Invalid schema: evaluation_completed=True (ran to completion, not a tool failure)."""
+        bad_doc = {"schema_version": 99, "rules": []}
+        rules_path = write_rules(tmp_path, bad_doc)
+        main(["--rules", str(rules_path), "--json"])
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["evaluation_completed"] is True
 
     def test_invalid_schema_schema_valid_false(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
         """Invalid schema: schema_valid=False."""
@@ -383,10 +444,10 @@ class TestExplicitReportPath:
         main(["--rules", str(rules_path), "--json", "--soft-reject", "--report-path", str(report_path)])
         written = json.loads(report_path.read_text(encoding="utf-8"))
         required_fields = [
-            "success", "schema_valid", "passed_adoption_gate",
+            "success", "evaluation_completed", "schema_valid", "passed_adoption_gate",
             "true_positive", "false_positive", "true_negative", "false_negative",
             "exception_count", "total_cases", "tp_rate", "fp_rate", "fn_rate",
-            "avg_latency_ms", "score", "rejection_reasons",
+            "avg_latency_ms", "score", "code_chars", "rejection_reasons",
             "adaptive_floor_passed", "holdout_pass_rate", "counterfactual_pass_rate",
             "drift_pass_rate", "mode", "rules_path",
         ]
@@ -484,3 +545,98 @@ class TestNoDefaultDetectorIntegration:
                 f"core/detector.py must not reference {term!r} — "
                 "structured rules must not be wired into the default detector"
             )
+
+
+# ---------------------------------------------------------------------------
+# 10. Genome load failure is a tool failure (fail-closed)
+# ---------------------------------------------------------------------------
+
+class TestGenomeLoadFailure:
+    def test_malformed_genome_is_tool_failure(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+        """Malformed genome.json must be treated as a tool failure (exit 1, success=False)."""
+        bad_genome = tmp_path / "genome.json"
+        bad_genome.write_text("{not valid json", encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--genome", str(bad_genome)])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["passed_adoption_gate"] is False
+
+    def test_malformed_genome_soft_reject_still_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Genome load failure is a tool failure; --soft-reject does not suppress it."""
+        bad_genome = tmp_path / "genome.json"
+        bad_genome.write_text("{bad genome}", encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject",
+                          "--genome", str(bad_genome)])
+        assert exit_code == 1
+
+    def test_missing_explicit_genome_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Non-existent genome path must be treated as a tool failure (exit 1)."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        missing_genome = tmp_path / "does_not_exist.json"
+        exit_code = main(["--rules", str(rules_path), "--json",
+                          "--genome", str(missing_genome)])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+
+    def test_missing_genome_soft_reject_still_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Missing genome with --soft-reject still exits 1 (tool failure)."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        missing_genome = tmp_path / "no_genome.json"
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject",
+                          "--genome", str(missing_genome)])
+        assert exit_code == 1
+
+    def test_genome_failure_error_message_mentions_genome(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Genome load failure error message must identify the genome as the source."""
+        bad_genome = tmp_path / "genome.json"
+        bad_genome.write_text("{bad}", encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        main(["--rules", str(rules_path), "--json", "--genome", str(bad_genome)])
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        error_text = (report.get("error", "") + " ".join(report.get("rejection_reasons", []))).lower()
+        assert "genome" in error_text
+
+    def test_load_test_cases_failure_is_tool_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """load_test_cases raising an exception must be treated as a tool failure."""
+        def failing_load_test_cases(**kwargs):
+            raise ValueError("simulated corpus load failure")
+
+        monkeypatch.setattr(mod, "load_test_cases", failing_load_test_cases)
+
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json"])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_load_test_cases_failure_soft_reject_exits_1(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """load_test_cases failure with --soft-reject still exits 1 (tool failure)."""
+        def failing_load_test_cases(**kwargs):
+            raise ValueError("simulated corpus failure")
+
+        monkeypatch.setattr(mod, "load_test_cases", failing_load_test_cases)
+
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject"])
+        assert exit_code == 1

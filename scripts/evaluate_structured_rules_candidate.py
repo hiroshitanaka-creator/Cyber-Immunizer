@@ -11,11 +11,11 @@ Usage:
 
 Exit codes (default mode):
     0  Candidate passed adoption gate
-    1  Tool failure (malformed JSON, unreadable file) OR adoption gate failed
+    1  Tool failure (malformed JSON, unreadable file, genome load failure) OR adoption gate failed
 
 Exit codes with --soft-reject:
     0  Evaluation completed (regardless of gate outcome)
-    1  Tool failure only (malformed JSON, unreadable file, test-case load failure)
+    1  Tool failure only (malformed JSON, unreadable file, genome load failure, test-case load failure)
 
 This script intentionally reuses current core.fitness scoring/adoption helper
 semantics to avoid creating a second score formula.
@@ -54,10 +54,14 @@ _GENOME_PATH = _PROJECT_ROOT / "data" / "genome.json"
 
 
 def _load_genome(genome_path: Path) -> dict:
-    try:
-        return json.loads(genome_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return {}
+    """Load genome.json strictly. Raises OSError or json.JSONDecodeError on failure.
+
+    Fail-closed: callers must handle the exception as a tool failure rather than
+    substituting defaults, so that a missing or malformed genome cannot silently
+    lower gate thresholds (e.g. previous_best_score=-1e9) and promote a candidate.
+    """
+    raw = genome_path.read_text(encoding="utf-8")
+    return json.loads(raw)
 
 
 def _make_detector_callable(rules_doc: dict):
@@ -74,6 +78,7 @@ def _make_detector_callable(rules_doc: dict):
 def _tool_failure(error: str, rules_path: Path) -> tuple[dict, bool]:
     return {
         "success": False,
+        "evaluation_completed": False,
         "schema_valid": False,
         "passed_adoption_gate": False,
         "error": error,
@@ -91,11 +96,11 @@ def evaluate_structured_rules(
 ) -> tuple[dict, bool]:
     """Evaluate a structured rules document and return (report, is_tool_failure).
 
-    Tool failures (unreadable file, malformed JSON, test-case load failure):
-        success=False, is_tool_failure=True
+    Tool failures (unreadable file, malformed JSON, genome load failure, test-case load failure):
+        success=False, evaluation_completed=False, is_tool_failure=True
 
     Candidate rejections (invalid schema, gate failed):
-        success=True (or False for gate), is_tool_failure=False
+        success=False, evaluation_completed=True, is_tool_failure=False
 
     Returns a JSON-serializable report dict.
     """
@@ -116,7 +121,8 @@ def evaluate_structured_rules(
         violations = validation.get("violations", [])
         rejection_reasons = [f"schema validation failed: {v}" for v in violations]
         return {
-            "success": True,
+            "success": False,           # success matches passed_adoption_gate
+            "evaluation_completed": True,  # evaluation ran; candidate was rejected
             "schema_valid": False,
             "passed_adoption_gate": False,
             "true_positive": 0,
@@ -130,6 +136,7 @@ def evaluate_structured_rules(
             "fn_rate": 0.0,
             "avg_latency_ms": 0.0,
             "score": -1e9,
+            "code_chars": len(raw_text),
             "rejection_reasons": rejection_reasons,
             "adaptive_floor_passed": False,
             "holdout_pass_rate": 0.0,
@@ -139,8 +146,15 @@ def evaluate_structured_rules(
             "rules_path": str(rules_path),
         }, False
 
-    # Load genome for gate thresholds.
-    genome = _load_genome(genome_path)
+    # Load genome for gate thresholds — fail closed on load error.
+    # A missing or malformed genome must not silently substitute defaults
+    # (e.g. previous_best_score=-1e9) and thereby allow an under-performing
+    # candidate to pass the adoption gate.
+    try:
+        genome = _load_genome(genome_path)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return _tool_failure(f"failed to load genome: {exc}", rules_path)
+
     max_fp_rate: float = float(genome.get("max_fp_rate", 0.05))
     min_regression_pass_rate: float = float(genome.get("min_regression_pass_rate", 1.0))
     previous_best_score: float = float(genome.get("best_score", -1e9))
@@ -152,10 +166,11 @@ def evaluate_structured_rules(
     # Build the detector callable via runtime selector.
     detector_fn = _make_detector_callable(rules_doc)
 
-    # Load test cases. Silently skip missing adaptive tier files (require_adaptive_tiers=False)
-    # so the script works in environments where only core tiers exist.
+    # Load test cases with fail-closed adaptive-tier behavior (require_adaptive_tiers=True,
+    # the default). Missing adaptive tier files are treated as tool failures so the floor
+    # gate cannot be silently bypassed by absent holdout/counterfactual/drift corpora.
     try:
-        cases = load_test_cases(require_adaptive_tiers=False)
+        cases = load_test_cases()
     except Exception as exc:
         return _tool_failure(f"test case load failed: {exc}", rules_path)
 
@@ -188,13 +203,17 @@ def evaluate_structured_rules(
     )
     regression_pass_rate = reg_pass / len(regression_results) if regression_results else 1.0
 
-    # Score using the same formula as core.fitness; code_chars=0 (no Python code).
+    # Score using the same formula as core.fitness.
+    # code_chars = len(raw_text): use the JSON doc character count so that
+    # structured-rules scores are directly comparable to Python-detector scores
+    # and not artificially inflated by a zero code-size penalty.
+    code_chars = len(raw_text)
     score = _compute_score(
         tp_rate=tp_rate,
         fp_rate=fp_rate,
         fn_rate=fn_rate,
         exception_count=exception_count,
-        code_chars=0,
+        code_chars=code_chars,
     )
 
     # Adaptive floor gate.
@@ -234,7 +253,8 @@ def evaluate_structured_rules(
     overall_passed = gate_passed and floor_passed
 
     report = {
-        "success": overall_passed,
+        "success": overall_passed,          # matches passed_adoption_gate
+        "evaluation_completed": True,
         "schema_valid": True,
         "passed_adoption_gate": overall_passed,
         "true_positive": tp,
@@ -248,6 +268,7 @@ def evaluate_structured_rules(
         "fn_rate": fn_rate,
         "avg_latency_ms": avg_latency_ms,
         "score": score,
+        "code_chars": code_chars,
         "rejection_reasons": all_reasons,
         "adaptive_floor_passed": floor_passed,
         "holdout_pass_rate": holdout_rate if holdout_rate is not None else 1.0,

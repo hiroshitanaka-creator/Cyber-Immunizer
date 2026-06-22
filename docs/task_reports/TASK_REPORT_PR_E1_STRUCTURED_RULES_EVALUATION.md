@@ -9,6 +9,18 @@
 - Does not change default detector behavior (`core/detector.py` unchanged).
 - Does not promote, dispatch workflows, call APIs, or edit data.
 
+## Codex Review P2 Findings (PR #166) — All Fixed
+
+Four P2 findings from the Codex Review were addressed:
+
+1. **Genome load fail-closed**: `_load_genome()` no longer silently returns `{}` on error. It raises `OSError` or `json.JSONDecodeError`, and the call site in `evaluate_structured_rules()` wraps it in try/except that returns a tool failure. A missing or malformed genome cannot silently substitute `previous_best_score=-1e9` and allow an under-performing candidate to pass the adoption gate.
+
+2. **Adaptive-tier fail-closed**: `load_test_cases()` is called without `require_adaptive_tiers=False`. The default (`require_adaptive_tiers=True`) treats missing holdout/counterfactual/drift corpus files as tool failures, preventing the adaptive floor gate from being silently bypassed.
+
+3. **Comparable scores**: `code_chars = len(raw_text)` (character count of the JSON document) is used in `_compute_score()`. Using `code_chars=0` would have inflated structured-rules scores vs Python-detector scores and could cause a candidate to falsely appear as an improvement over the current best.
+
+4. **Invalid schema reports `success=False`**: When schema validation fails, the returned report has `success=False` and `evaluation_completed=True`. Previously `success=True` could mislead consumers that checked only `success`. The fix ensures `success` always equals `passed_adoption_gate`.
+
 ## Project Owner Approval Boundary
 
 Project Owner approval is limited to:
@@ -28,8 +40,8 @@ This approval does **not** authorize changes to:
 
 ## Changed Files
 
-- `scripts/evaluate_structured_rules_candidate.py` — new evaluation script
-- `tests/test_evaluate_structured_rules_candidate.py` — new test file (28 tests)
+- `scripts/evaluate_structured_rules_candidate.py` — evaluation script (initial + P2 hardening)
+- `tests/test_evaluate_structured_rules_candidate.py` — 38 tests (initial 28 + 10 P2 additions)
 - `docs/task_reports/TASK_REPORT_PR_E1_STRUCTURED_RULES_EVALUATION.md` — this report
 
 ## Verification
@@ -38,13 +50,13 @@ All commands passed:
 
 ```
 python -m pytest tests/test_evaluate_structured_rules_candidate.py -q
-# → 28 passed
+# → 38 passed
 
 python -m pytest tests/test_runtime_selector.py tests/test_structured_detector_integration.py tests/test_structured_detector_equivalence.py -q
 # → 49 passed
 
 python -m pytest tests/ -q
-# → 2859 passed
+# → 2869 passed
 
 git diff --check
 # → PASS (no whitespace errors)
@@ -52,11 +64,8 @@ git diff --check
 git diff --name-only | grep -Ev '^(scripts/evaluate_structured_rules_candidate\.py|tests/test_evaluate_structured_rules_candidate\.py|docs/task_reports/TASK_REPORT_PR_E1_STRUCTURED_RULES_EVALUATION\.md)$'
 # → no output (forbidden-path check PASS)
 
-grep -n "runtime_selector|structured_detector|..." core/detector.py
+grep -n "runtime_selector\|structured_detector\|structured_evaluator\|inspect_request_with_structured_rules\|evaluate_structured_rules" core/detector.py
 # → no matches (default detector unchanged)
-
-git status --short
-# → only the three allowed files are untracked
 ```
 
 ## Script Behavior Summary
@@ -74,7 +83,7 @@ git status --short
 
 - Default: exit 0 = gate passed; exit 1 = tool failure or gate failed
 - `--soft-reject`: exit 0 = evaluation completed; exit 1 = tool failure only
-- Tool failures: malformed JSON, unreadable file, test-case load failure
+- Tool failures: malformed JSON, unreadable file, genome load failure, test-case load failure
 - Candidate rejections (not tool failures): invalid schema, gate failed
 
 ## Safety
