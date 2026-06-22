@@ -9,6 +9,20 @@
 - Does not change default detector behavior (`core/detector.py` unchanged).
 - Does not promote, dispatch workflows, call APIs, or edit data.
 
+## Codex Review P2 Findings (PR #166, fifth pass) — All Fixed
+
+Five additional fail-closed hardening fixes:
+
+1. **Regular-file guard for `--genome`**: `_load_genome()` now calls `stat()` before `read_text()`, checks `stat.S_ISREG()` to reject FIFOs/directories/devices, and enforces `_MAX_GENOME_FILE_BYTES = 1_048_576` before reading. All via `OSError` raises that the call site catches as tool failures.
+
+2. **Contain schema validation exceptions**: `validate_rules_schema(rules_doc)` is now wrapped in `try/except (OverflowError, RecursionError, TypeError, ValueError)`. Unexpected exceptions (e.g., `OverflowError` from extreme numeric values inside the rules doc) return `evaluation_completed=False` (tool failure), not a traceback.
+
+3. **Genome threshold validation overflow-safe**: Extracted `_to_finite_float()` helper that catches `OverflowError` from `float(val)` (huge Python integers from JSON literals can exceed float range). `_validate_genome_thresholds()` now uses this helper for all numeric fields, so a `best_score: 10**400` in a genome file is a structured tool failure rather than an unhandled exception.
+
+4. **Reject non-regular report targets before writing**: `main()` now checks `stat()` on the `--report-path` target (if it already exists) and rejects non-regular files (FIFOs, directories, devices) before evaluation begins. This prevents `write_text()` blocking indefinitely on a FIFO.
+
+5. **Deterministic recursion tests via monkeypatch**: Added monkeypatch-based tests that force `RecursionError` from the `object_pairs_hook` during rules JSON parsing and from `_load_genome`, verifying structured tool failure output. Existing deep-nesting tests are kept alongside.
+
 ## Codex Review P2 Findings (PR #166, fourth pass) — All Fixed
 
 Four additional fail-closed hardening fixes:
@@ -81,7 +95,7 @@ This approval does **not** authorize changes to:
 ## Changed Files
 
 - `scripts/evaluate_structured_rules_candidate.py` — evaluation script (initial + P2 hardening)
-- `tests/test_evaluate_structured_rules_candidate.py` — 78 tests (initial 28 + 10 first-pass P2 + 18 second-pass P2 + 10 third-pass P2 + 12 fourth-pass P2)
+- `tests/test_evaluate_structured_rules_candidate.py` — 99 tests (initial 28 + 10 first-pass P2 + 18 second-pass P2 + 10 third-pass P2 + 12 fourth-pass P2 + 21 fifth-pass P2)
 - `docs/task_reports/TASK_REPORT_PR_E1_STRUCTURED_RULES_EVALUATION.md` — this report
 
 ## Verification
@@ -90,13 +104,13 @@ All commands passed:
 
 ```
 python -m pytest tests/test_evaluate_structured_rules_candidate.py -q
-# → 78 passed
+# → 99 passed
 
 python -m pytest tests/test_runtime_selector.py tests/test_structured_detector_integration.py tests/test_structured_detector_equivalence.py -q
 # → 49 passed
 
 python -m pytest tests/ -q
-# → 2909 passed
+# → 2930 passed
 
 git diff --check
 # → PASS (no whitespace errors)

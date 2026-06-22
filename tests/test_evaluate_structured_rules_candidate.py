@@ -1304,3 +1304,311 @@ class TestReportWriteFailure:
         stdout_report = json.loads(captured.out)
         file_report = json.loads(report_path.read_text(encoding="utf-8"))
         assert stdout_report == file_report
+
+
+# ---------------------------------------------------------------------------
+# 26. Genome regular-file guard + size limit (fifth-pass Fix 1)
+# ---------------------------------------------------------------------------
+
+class TestGenomeFileGuard:
+    def test_fifo_genome_path_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A FIFO passed as --genome must be a tool failure (no blocking on read)."""
+        fifo_path = tmp_path / "genome.fifo"
+        os.mkfifo(str(fifo_path))
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--genome", str(fifo_path)])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_directory_genome_path_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A directory passed as --genome must be a tool failure."""
+        genome_dir = tmp_path / "genome_dir"
+        genome_dir.mkdir()
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--genome", str(genome_dir)])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_genome_non_regular_soft_reject_still_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Non-regular genome is a tool failure; --soft-reject does not suppress it."""
+        genome_dir = tmp_path / "genome_as_dir"
+        genome_dir.mkdir()
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject",
+                          "--genome", str(genome_dir)])
+        assert exit_code == 1
+
+    def test_oversized_genome_file_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """genome.json exceeding _MAX_GENOME_FILE_BYTES must be a tool failure."""
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_bytes(b"x" * (mod._MAX_GENOME_FILE_BYTES + 1))
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--genome", str(genome_path)])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_oversized_genome_soft_reject_still_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Oversized genome is a tool failure; --soft-reject does not suppress it."""
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_bytes(b"y" * (mod._MAX_GENOME_FILE_BYTES + 1))
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject",
+                          "--genome", str(genome_path)])
+        assert exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# 27. Schema validation exceptions are structured tool failures (fifth-pass Fix 2)
+# ---------------------------------------------------------------------------
+
+class TestSchemaValidationExceptions:
+    def test_schema_validation_overflow_error_is_tool_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """OverflowError from validate_rules_schema must be a structured tool failure."""
+        def raising_validate(doc):
+            raise OverflowError("simulated overflow in schema validation")
+
+        monkeypatch.setattr(mod, "validate_rules_schema", raising_validate)
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json"])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_schema_validation_recursion_error_is_tool_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """RecursionError from validate_rules_schema must be a structured tool failure."""
+        def raising_validate(doc):
+            raise RecursionError("simulated recursion in schema validation")
+
+        monkeypatch.setattr(mod, "validate_rules_schema", raising_validate)
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json"])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_schema_validation_type_error_is_tool_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """TypeError from validate_rules_schema must be a structured tool failure."""
+        def raising_validate(doc):
+            raise TypeError("simulated type error in schema validation")
+
+        monkeypatch.setattr(mod, "validate_rules_schema", raising_validate)
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json"])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_schema_validation_exception_soft_reject_still_exits_1(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Schema validation exception is a tool failure; --soft-reject does not suppress it."""
+        def raising_validate(doc):
+            raise OverflowError("simulated")
+
+        monkeypatch.setattr(mod, "validate_rules_schema", raising_validate)
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject"])
+        assert exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# 28. Genome threshold validation overflow-safe (fifth-pass Fix 3)
+# ---------------------------------------------------------------------------
+
+class TestGenomeThresholdOverflow:
+    def test_genome_huge_integer_best_score_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Genome best_score as a huge integer (overflows float) must be a tool failure."""
+        # Python json.loads returns arbitrary-precision ints; float(10**400) raises OverflowError
+        huge = "1" + "0" * 400
+        raw = (
+            '{"best_score": ' + huge
+            + ', "max_fp_rate": 0.05, "min_regression_pass_rate": 1.0,'
+            ' "max_avg_latency_ms": 100.0}'
+        )
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(raw, encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--genome", str(genome_path)])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_genome_huge_integer_max_fp_rate_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Genome max_fp_rate as a huge integer (overflows float) must be a tool failure."""
+        huge = "9" * 400
+        raw = (
+            '{"best_score": 948.0, "max_fp_rate": ' + huge
+            + ', "min_regression_pass_rate": 1.0, "max_avg_latency_ms": 100.0}'
+        )
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(raw, encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--genome", str(genome_path)])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_to_finite_float_rejects_overflow(self) -> None:
+        """_to_finite_float must return an error for integers that overflow float."""
+        fval, err = mod._to_finite_float(10 ** 400)
+        assert fval is None
+        assert err is not None
+        assert "overflow" in err.lower() or "too large" in err.lower()
+
+    def test_to_finite_float_accepts_normal_int(self) -> None:
+        """_to_finite_float must succeed for normal integer values."""
+        fval, err = mod._to_finite_float(42)
+        assert err is None
+        assert fval == 42.0
+
+    def test_to_finite_float_rejects_bool(self) -> None:
+        """_to_finite_float must reject bool values."""
+        fval, err = mod._to_finite_float(True)
+        assert fval is None
+        assert err is not None
+
+    def test_to_finite_float_rejects_nan(self) -> None:
+        """_to_finite_float must reject NaN."""
+        fval, err = mod._to_finite_float(float("nan"))
+        assert fval is None
+        assert err is not None
+
+
+# ---------------------------------------------------------------------------
+# 29. Non-regular existing --report-path rejected before write (fifth-pass Fix 4)
+# ---------------------------------------------------------------------------
+
+class TestNonRegularExistingReportTarget:
+    def test_fifo_report_path_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """An existing FIFO at --report-path must exit 1 before evaluation (no blocking)."""
+        fifo_path = tmp_path / "report.fifo"
+        os.mkfifo(str(fifo_path))
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject",
+                          "--report-path", str(fifo_path)])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_fifo_report_path_error_mentions_not_regular(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """FIFO report-path error message must describe the file-type problem."""
+        fifo_path = tmp_path / "report2.fifo"
+        os.mkfifo(str(fifo_path))
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        main(["--rules", str(rules_path), "--json", "--soft-reject",
+               "--report-path", str(fifo_path)])
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        error_text = (report.get("error", "") + " ".join(report.get("rejection_reasons", []))).lower()
+        assert "not a regular file" in error_text or "regular" in error_text
+
+    def test_existing_directory_report_path_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """An existing directory at --report-path (outside forbidden paths) must exit 1."""
+        report_dir = tmp_path / "output_dir"
+        report_dir.mkdir()
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject",
+                          "--report-path", str(report_dir)])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+
+# ---------------------------------------------------------------------------
+# 30. Deterministic monkeypatch-based RecursionError tests (fifth-pass Fix 5)
+# ---------------------------------------------------------------------------
+
+class TestMonkeypatchedRecursionErrors:
+    def test_rules_json_hook_recursion_error_is_tool_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """RecursionError raised by object_pairs_hook during rules JSON parsing is a structured tool failure."""
+        def raising_hook(pairs):
+            raise RecursionError("forced recursion in object_pairs_hook")
+
+        monkeypatch.setattr(mod, "_reject_duplicate_keys", raising_hook)
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json"])
+        assert exit_code == 1
+        # Must be parseable JSON from the test's own json.loads (not monkeypatched)
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_genome_load_recursion_error_is_tool_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """RecursionError from _load_genome must be a structured tool failure."""
+        def raising_load_genome(path):
+            raise RecursionError("forced recursion in _load_genome")
+
+        monkeypatch.setattr(mod, "_load_genome", raising_load_genome)
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json"])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_genome_load_recursion_error_soft_reject_still_exits_1(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """RecursionError from _load_genome is a tool failure; --soft-reject does not suppress it."""
+        def raising_load_genome(path):
+            raise RecursionError("forced recursion")
+
+        monkeypatch.setattr(mod, "_load_genome", raising_load_genome)
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject"])
+        assert exit_code == 1

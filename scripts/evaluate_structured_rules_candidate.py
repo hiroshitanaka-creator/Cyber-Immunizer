@@ -60,6 +60,9 @@ _GENOME_PATH = _PROJECT_ROOT / "data" / "genome.json"
 # Reject rules files larger than 1 MiB before reading/parsing.
 _MAX_RULES_FILE_BYTES = 1_048_576
 
+# Reject genome files larger than 1 MiB before reading/parsing.
+_MAX_GENOME_FILE_BYTES = 1_048_576
+
 # Frozen project paths that --report-path must not target.
 _FORBIDDEN_REPORT_PREFIXES: frozenset[str] = frozenset([
     ".cyber_immunizer",
@@ -85,8 +88,19 @@ def _load_genome(genome_path: Path) -> dict:
     substituting defaults, so that a missing or malformed genome cannot silently
     lower gate thresholds (e.g. previous_best_score=-1e9) and promote a candidate.
 
+    Also validates that the genome path is a regular file and within the size limit before
+    reading, to prevent blocking on FIFOs or exhausting memory on huge files.
     Uses duplicate-key rejecting parser and validates that the top-level value is a dict.
     """
+    gst = genome_path.stat()  # raises OSError if missing
+    if not stat.S_ISREG(gst.st_mode):
+        raise OSError(
+            f"genome path is not a regular file (mode={stat.filemode(gst.st_mode)!r})"
+        )
+    if gst.st_size > _MAX_GENOME_FILE_BYTES:
+        raise OSError(
+            f"genome file exceeds size limit: {gst.st_size} bytes > {_MAX_GENOME_FILE_BYTES} bytes"
+        )
     raw = genome_path.read_text(encoding="utf-8")
     data = json.loads(raw, object_pairs_hook=_reject_duplicate_keys)
     if not isinstance(data, dict):
@@ -106,10 +120,30 @@ def _reject_duplicate_keys(pairs: list) -> dict:
     return result
 
 
+def _to_finite_float(val: object) -> tuple[float | None, str | None]:
+    """Convert val to a finite float. Returns (float_val, None) on success, (None, error) on failure.
+
+    Rejects bool, non-numeric types, values that overflow float, and non-finite results.
+    Huge Python integers (from JSON integer literals) raise OverflowError in float(), which
+    this function catches and converts to an error string.
+    """
+    if isinstance(val, bool):
+        return None, f"expected a number, got bool: {val!r}"
+    if not isinstance(val, (int, float)):
+        return None, f"expected a number, got {type(val).__name__!r}: {val!r}"
+    try:
+        fval = float(val)
+    except OverflowError:
+        return None, f"value overflows float (too large): {val!r}"
+    if not math.isfinite(fval):
+        return None, f"value is non-finite: {val!r}"
+    return fval, None
+
+
 def _validate_genome_thresholds(genome: dict) -> str | None:
     """Validate genome threshold fields. Return error string if invalid, else None.
 
-    Rejects bool, non-number, and non-finite values.
+    Rejects bool, non-number, non-finite, and overflow values.
     Rate fields must be in [0.0, 1.0]. max_avg_latency_ms must be > 0.
     """
     _rate_fields = (
@@ -122,28 +156,23 @@ def _validate_genome_thresholds(genome: dict) -> str | None:
     for field in _rate_fields:
         if field not in genome:
             continue
-        val = genome[field]
-        if isinstance(val, bool) or not isinstance(val, (int, float)):
-            return f"genome threshold {field!r} is not a number: {val!r}"
-        if not math.isfinite(float(val)):
-            return f"genome threshold {field!r} is non-finite: {val!r}"
-        if not (0.0 <= float(val) <= 1.0):
-            return f"genome threshold {field!r} out of range [0.0, 1.0]: {val}"
+        fval, err = _to_finite_float(genome[field])
+        if err:
+            return f"genome threshold {field!r}: {err}"
+        if not (0.0 <= fval <= 1.0):  # type: ignore[operator]
+            return f"genome threshold {field!r} out of range [0.0, 1.0]: {genome[field]}"
 
     if "max_avg_latency_ms" in genome:
-        val = genome["max_avg_latency_ms"]
-        if isinstance(val, bool) or not isinstance(val, (int, float)):
-            return f"genome threshold 'max_avg_latency_ms' is not a number: {val!r}"
-        fval = float(val)
-        if not math.isfinite(fval) or fval <= 0:
-            return f"genome threshold 'max_avg_latency_ms' must be finite and > 0: {val!r}"
+        fval, err = _to_finite_float(genome["max_avg_latency_ms"])
+        if err:
+            return f"genome threshold 'max_avg_latency_ms': {err}"
+        if fval <= 0:  # type: ignore[operator]
+            return f"genome threshold 'max_avg_latency_ms' must be > 0: {genome['max_avg_latency_ms']!r}"
 
     if "best_score" in genome:
-        val = genome["best_score"]
-        if isinstance(val, bool) or not isinstance(val, (int, float)):
-            return f"genome threshold 'best_score' is not a number: {val!r}"
-        if not math.isfinite(float(val)):
-            return f"genome threshold 'best_score' is non-finite: {val!r}"
+        fval, err = _to_finite_float(genome["best_score"])
+        if err:
+            return f"genome threshold 'best_score': {err}"
 
     return None
 
@@ -242,7 +271,16 @@ def evaluate_structured_rules(
         return _tool_failure(f"malformed JSON in rules file: {exc}", rules_path)
 
     # Schema validation — failure is candidate rejection, not a tool failure.
-    validation = validate_rules_schema(rules_doc)
+    # Wrap in try/except so unexpected exceptions from the validator (OverflowError from
+    # extreme numeric values, RecursionError from deeply nested structures, TypeError or
+    # ValueError from unexpected input types) become structured tool failures rather than
+    # tracebacks.
+    try:
+        validation = validate_rules_schema(rules_doc)
+    except (OverflowError, RecursionError, TypeError, ValueError) as exc:
+        return _tool_failure(
+            f"schema validation raised an unexpected error: {exc}", rules_path
+        )
     if not validation.get("success"):
         violations = validation.get("violations", [])
         rejection_reasons = [f"schema validation failed: {v}" for v in violations]
@@ -492,6 +530,33 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"ERROR: {error_msg}")
         return 1
+
+    # Reject --report-path targets that exist but are not regular files (FIFOs, device
+    # nodes, etc.) BEFORE evaluation. write_text() to a FIFO blocks indefinitely;
+    # failing early provides a clear error without running any evaluation.
+    if args.report_path:
+        _rp = Path(args.report_path)
+        try:
+            _rp_st = _rp.stat()
+            if not stat.S_ISREG(_rp_st.st_mode):
+                error_msg = (
+                    f"--report-path target exists but is not a regular file "
+                    f"(mode={stat.filemode(_rp_st.st_mode)!r}): {args.report_path}"
+                )
+                if args.json:
+                    print(json.dumps({
+                        "success": False,
+                        "evaluation_completed": False,
+                        "passed_adoption_gate": False,
+                        "error": error_msg,
+                        "rejection_reasons": [error_msg],
+                        "mode": "structured_rules",
+                    }, indent=2))
+                else:
+                    print(f"ERROR: {error_msg}")
+                return 1
+        except OSError:
+            pass  # Path does not exist yet — mkdir+write_text will handle creation
 
     report, is_tool_failure = evaluate_structured_rules(
         rules_path,
