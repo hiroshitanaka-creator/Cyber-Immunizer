@@ -929,3 +929,160 @@ class TestDuplicateKeyRejection:
         rules_path.write_text(raw, encoding="utf-8")
         exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject"])
         assert exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# 17. .cyber_immunizer/** report-path rejection (third-pass Fix 1)
+# ---------------------------------------------------------------------------
+
+class TestCyberImmunzerReportPathRejected:
+    def test_report_path_cyber_immunizer_fitness_report_rejects(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """--report-path targeting .cyber_immunizer/fitness_report.json must exit 1."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        forbidden = str(mod._PROJECT_ROOT / ".cyber_immunizer" / "fitness_report.json")
+        exit_code = main(["--rules", str(rules_path), "--soft-reject",
+                          "--report-path", forbidden])
+        assert exit_code == 1
+
+    def test_report_path_cyber_immunizer_structured_rules_report_rejects(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """--report-path targeting .cyber_immunizer/structured_rules_fitness_report.json must exit 1."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        forbidden = str(
+            mod._PROJECT_ROOT / ".cyber_immunizer" / "structured_rules_fitness_report.json"
+        )
+        exit_code = main(["--rules", str(rules_path), "--soft-reject",
+                          "--report-path", forbidden])
+        assert exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# 18. Non-UTF-8 rules file is a tool failure (third-pass Fix 2)
+# ---------------------------------------------------------------------------
+
+class TestNonUtf8RulesFile:
+    def test_binary_rules_file_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Binary (non-UTF-8) rules file must be a tool failure (success=False, exit 1)."""
+        rules_path = tmp_path / "rules.json"
+        rules_path.write_bytes(b"\xff\xfe binary content \x00\x01")
+        exit_code = main(["--rules", str(rules_path), "--json"])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_invalid_utf8_soft_reject_still_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Non-UTF-8 rules file is a tool failure; --soft-reject does not suppress it."""
+        rules_path = tmp_path / "rules.json"
+        rules_path.write_bytes(b"\x80\x81\x82 invalid utf-8")
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject"])
+        assert exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# 19. Deeply nested JSON (RecursionError) is a tool failure (third-pass Fix 3)
+# ---------------------------------------------------------------------------
+
+class TestDeeplyNestedJson:
+    def test_deeply_nested_json_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Deeply nested JSON that causes RecursionError must return a structured tool failure."""
+        # Build JSON with nesting depth that exceeds Python's recursion limit.
+        depth = 10_000
+        raw = "[" * depth + "]" * depth
+        rules_path = tmp_path / "rules.json"
+        rules_path.write_text(raw, encoding="utf-8")
+        exit_code = main(["--rules", str(rules_path), "--json"])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        # Must produce parseable JSON output (not a traceback).
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_deeply_nested_json_soft_reject_still_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Deeply nested JSON tool failure is not suppressed by --soft-reject."""
+        depth = 10_000
+        raw = "[" * depth + "]" * depth
+        rules_path = tmp_path / "rules.json"
+        rules_path.write_text(raw, encoding="utf-8")
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject"])
+        assert exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# 20. Genome JSON must be an object, not an array or scalar (third-pass Fix 4)
+# ---------------------------------------------------------------------------
+
+class TestGenomeJsonMustBeObject:
+    def test_genome_array_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """genome.json containing a JSON array must be a tool failure (not a crash)."""
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text("[]", encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--genome", str(genome_path)])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_genome_array_soft_reject_still_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """genome.json array is a tool failure; --soft-reject does not suppress it."""
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text("[1, 2, 3]", encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject",
+                          "--genome", str(genome_path)])
+        assert exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# 21. Duplicate keys in genome JSON are rejected (third-pass Fix 5)
+# ---------------------------------------------------------------------------
+
+class TestGenomeDuplicateKeyRejection:
+    def test_genome_duplicate_best_score_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """genome.json with duplicate best_score key must be a tool failure."""
+        raw = '{"best_score": 948.0, "best_score": 999.0, "max_fp_rate": 0.05}'
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(raw, encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--genome", str(genome_path)])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_genome_duplicate_max_fp_rate_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """genome.json with duplicate max_fp_rate key must be a tool failure."""
+        raw = '{"best_score": 948.0, "max_fp_rate": 0.05, "max_fp_rate": 1.0}'
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(raw, encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--genome", str(genome_path)])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False

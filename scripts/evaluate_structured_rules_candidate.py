@@ -61,6 +61,7 @@ _MAX_RULES_FILE_BYTES = 1_048_576
 
 # Frozen project paths that --report-path must not target.
 _FORBIDDEN_REPORT_PREFIXES: frozenset[str] = frozenset([
+    ".cyber_immunizer",
     "data",
     "core",
     ".github",
@@ -77,14 +78,19 @@ _FORBIDDEN_REPORT_EXACT: frozenset[str] = frozenset([
 
 
 def _load_genome(genome_path: Path) -> dict:
-    """Load genome.json strictly. Raises OSError or json.JSONDecodeError on failure.
+    """Load genome.json strictly. Raises OSError, json.JSONDecodeError, or ValueError on failure.
 
     Fail-closed: callers must handle the exception as a tool failure rather than
     substituting defaults, so that a missing or malformed genome cannot silently
     lower gate thresholds (e.g. previous_best_score=-1e9) and promote a candidate.
+
+    Uses duplicate-key rejecting parser and validates that the top-level value is a dict.
     """
     raw = genome_path.read_text(encoding="utf-8")
-    return json.loads(raw)
+    data = json.loads(raw, object_pairs_hook=_reject_duplicate_keys)
+    if not isinstance(data, dict):
+        raise ValueError(f"genome JSON must be an object, got {type(data).__name__!r}")
+    return data
 
 
 def _reject_duplicate_keys(pairs: list) -> dict:
@@ -212,10 +218,10 @@ def evaluate_structured_rules(
             rules_path,
         )
 
-    # Read rules file.
+    # Read rules file. Non-UTF-8 content is a tool failure (not a candidate rejection).
     try:
         raw_text = rules_path.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         return _tool_failure(f"failed to read rules file: {exc}", rules_path)
 
     # Parse JSON with duplicate-key rejection. Duplicate keys are a tool failure
@@ -223,7 +229,7 @@ def evaluate_structured_rules(
     # artifacts that static validation would reject.
     try:
         rules_doc = json.loads(raw_text, object_pairs_hook=_reject_duplicate_keys)
-    except (json.JSONDecodeError, ValueError) as exc:
+    except (json.JSONDecodeError, ValueError, RecursionError) as exc:
         return _tool_failure(f"malformed JSON in rules file: {exc}", rules_path)
 
     # Schema validation — failure is candidate rejection, not a tool failure.

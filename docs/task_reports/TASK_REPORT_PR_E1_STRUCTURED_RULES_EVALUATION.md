@@ -9,6 +9,20 @@
 - Does not change default detector behavior (`core/detector.py` unchanged).
 - Does not promote, dispatch workflows, call APIs, or edit data.
 
+## Codex Review P2 Findings (PR #166, third pass) — All Fixed
+
+Five additional fail-closed hardening fixes:
+
+1. **`.cyber_immunizer/**` report-path blocked**: Added `".cyber_immunizer"` to `_FORBIDDEN_REPORT_PREFIXES` so `--report-path .cyber_immunizer/fitness_report.json` and similar default report paths are rejected.
+
+2. **Non-UTF-8 rules file**: `read_text(encoding="utf-8")` exception handler expanded to `except (OSError, UnicodeDecodeError)` — binary or invalid-encoding files are a tool failure, not a crash.
+
+3. **Deeply nested JSON (RecursionError)**: `json.loads` exception handler expanded to `except (json.JSONDecodeError, ValueError, RecursionError)` — maliciously deep nesting returns a structured tool failure instead of a traceback.
+
+4. **Genome JSON must be an object**: `_load_genome()` now uses `_reject_duplicate_keys` as `object_pairs_hook` and raises `ValueError` if the top-level parsed value is not a `dict`, preventing `.get()` crashes on `[]` or scalar genome files.
+
+5. **Duplicate keys in genome JSON**: `_load_genome()` uses `object_pairs_hook=_reject_duplicate_keys`, so duplicate threshold keys (e.g. two `best_score` keys) are rejected as tool failures.
+
 ## Codex Review P2 Findings (PR #166, second pass) — All Fixed
 
 Five additional P2 findings from the second Codex Review pass were addressed:
@@ -55,7 +69,7 @@ This approval does **not** authorize changes to:
 ## Changed Files
 
 - `scripts/evaluate_structured_rules_candidate.py` — evaluation script (initial + P2 hardening)
-- `tests/test_evaluate_structured_rules_candidate.py` — 56 tests (initial 28 + 10 first-pass P2 + 18 second-pass P2)
+- `tests/test_evaluate_structured_rules_candidate.py` — 66 tests (initial 28 + 10 first-pass P2 + 18 second-pass P2 + 10 third-pass P2)
 - `docs/task_reports/TASK_REPORT_PR_E1_STRUCTURED_RULES_EVALUATION.md` — this report
 
 ## Verification
@@ -64,13 +78,13 @@ All commands passed:
 
 ```
 python -m pytest tests/test_evaluate_structured_rules_candidate.py -q
-# → 56 passed
+# → 66 passed
 
 python -m pytest tests/test_runtime_selector.py tests/test_structured_detector_integration.py tests/test_structured_detector_equivalence.py -q
 # → 49 passed
 
 python -m pytest tests/ -q
-# → 2887 passed
+# → 2897 passed
 
 git diff --check
 # → PASS (no whitespace errors)
