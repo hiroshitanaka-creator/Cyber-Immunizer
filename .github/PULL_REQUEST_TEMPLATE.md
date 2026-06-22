@@ -51,13 +51,40 @@ Before review, attach or link the evidence required by `docs/review/MICROPR_ENFO
 ## GPT Audit Gate
 
 > **手順**: このセクションに GPT Audit Gate のレポートを貼り付けてください。  
-> フォーマットは `docs/AUDIT_CHARTER.md` の「4. GPT Audit Gate の出力フォーマット」を参照。
+> GPT Audit Gate receipt is machine-validated by `scripts/validate_gpt_gate_output.py --kind pr_body`.
+> Placeholder-only receipts, missing receipts, invalid JSON, and unfilled receipt placeholders are invalid.
 
-```
+
+````markdown
 ## GPT Audit Gate レポート
 
-（ここに GPT のレポートを貼り付ける）
+Code Audit:        APPROVE / REQUEST CHANGES / BLOCK
+CI Verification:   VERIFIED / FAILED / NOT VERIFIED
+Codex Verification: VERIFIED / FAILED / NOT VERIFIED / VERIFIED BY REACTION ONLY / UNRESOLVED THREAD PRESENT
+Merge Recommendation: APPROVE / HOLD / BLOCK
+
+<!-- AUDIT_GATE_RECEIPT_START -->
+```json
+{
+  "kind": "pr_audit",
+  "protocol_version": 1,
+  "repo": "hiroshitanaka-creator/Cyber-Immunizer",
+  "head_sha": "<40-hex-sha>",
+  "ci_classification": "SUCCESS",
+  "codex_verification": "VERIFIED",
+  "docs_history_gate_checked": true,
+  "source_evidence_present": true,
+  "scope_checked": true,
+  "changed_files_checked": true,
+  "current_diff_checked": true,
+  "current_head_checked": true,
+  "codex_threads_checked": true,
+  "merge_recommendation": "APPROVE",
+  "validator_expectation": "PASS"
+}
 ```
+<!-- AUDIT_GATE_RECEIPT_END -->
+````
 
 **GPT Audit Gate 決定**:
 

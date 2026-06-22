@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cyber-Immunizer PR audit audit gate receipt",
+  "description": "Documentation schema for the stdlib validator; the validator is scripts/validate_gpt_gate_output.py.",
+  "type": "object",
+  "required": [
+    "kind",
+    "protocol_version",
+    "repo",
+    "head_sha",
+    "validator_expectation",
+    "ci_classification",
+    "codex_verification",
+    "docs_history_gate_checked",
+    "scope_checked",
+    "changed_files_checked",
+    "current_diff_checked",
+    "current_head_checked",
+    "codex_threads_checked",
+    "merge_recommendation"
+  ],
+  "properties": {
+    "kind": {"enum": ["pr_audit", "pr_body"]},
+    "protocol_version": {"const": 1},
+    "repo": {"const": "hiroshitanaka-creator/Cyber-Immunizer"},
+    "head_sha": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"},
+    "validator_expectation": {"const": "PASS"},
+    "ci_classification": {"enum": ["NOT TRIGGERED", "WORKFLOW PARSE FAILURE", "RUNNER START FAILURE", "CHECKOUT FAILURE", "SETUP FAILURE", "INSTALL FAILURE", "TEST FAILURE", "DOMAIN FAILURE", "SUCCESS"]},
+    "codex_verification": {"enum": ["VERIFIED", "FAILED", "NOT VERIFIED", "VERIFIED BY REACTION ONLY", "UNRESOLVED THREAD PRESENT"]},
+    "docs_history_gate_checked": {"const": true},
+    "scope_checked": {"const": true},
+    "changed_files_checked": {"const": true},
+    "current_diff_checked": {"const": true},
+    "current_head_checked": {"const": true},
+    "codex_threads_checked": {"const": true},
+    "merge_recommendation": {"enum": ["APPROVE", "HOLD", "BLOCK"]}
+  }
+}

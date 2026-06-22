@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cyber-Immunizer task prompt audit gate receipt",
+  "description": "Documentation schema for the stdlib validator; the validator is scripts/validate_gpt_gate_output.py.",
+  "type": "object",
+  "required": [
+    "kind",
+    "protocol_version",
+    "repo",
+    "head_sha",
+    "validator_expectation",
+    "self_score",
+    "source_evidence_present",
+    "pre_prompt_investigation_complete",
+    "allowed_files_declared",
+    "impact_declared",
+    "change_request_complete",
+    "docs_history_gate_checked",
+    "adversarial_matrix_present"
+  ],
+  "properties": {
+    "kind": {"const": "task_prompt"},
+    "protocol_version": {"const": 1},
+    "repo": {"const": "hiroshitanaka-creator/Cyber-Immunizer"},
+    "head_sha": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"},
+    "validator_expectation": {"const": "PASS"},
+    "self_score": {"type": "integer", "minimum": 98},
+    "source_evidence_present": {"const": true},
+    "pre_prompt_investigation_complete": {"const": true},
+    "allowed_files_declared": {"const": true},
+    "impact_declared": {"const": true},
+    "change_request_complete": {"const": true},
+    "docs_history_gate_checked": {"const": true},
+    "adversarial_matrix_present": {"const": true}
+  }
+}

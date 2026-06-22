@@ -7,6 +7,17 @@ This is not a project status document. Keep entries focused on protocol lessons.
 
 ---
 
+## GPT Output Quality Gate — GPT output is machine-gated, not trusted by narrative
+
+Lesson driven by the need to reject plausible-looking but under-specified GPT output before it is treated as merge-ready:
+
+- **GPT self-score is gameable**: A high self-score is not evidence that the output actually satisfies the protocol. The validator checks receipt fields and required Markdown structure instead of trusting narrative confidence.
+- **Natural-language protocol compliance is insufficient**: Task prompts, PR audits, and PR bodies now need a deterministic JSON receipt and minimum structural checks.
+- **Low-quality GPT outputs must fail machine validation**: Missing receipts, malformed JSON, placeholder receipts, assertion-only evidence, unsafe APPROVE claims, and invalid enum values are rejected by `scripts/validate_gpt_gate_output.py`.
+- **Repeated valid Codex findings feed the registry**: Valid repeated findings should be recorded in `docs/audit_gate/GPT_FAILURE_REGISTRY.md` and, when repeatable, converted into invalid fixtures for the quality gate.
+
+---
+
 ## Prompt Reception Gate — receiving AI scores incoming prompts; GPT self-score is ignored
 
 Lesson driven by the gap between GPT's self-scoring and actual prompt quality:
