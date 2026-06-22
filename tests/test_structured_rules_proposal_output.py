@@ -336,3 +336,163 @@ class TestValidatorAndEvaluatorCompatibility:
         result = inspect_request_with_structured_rules(sample_request, rules_doc)
         assert result is not None
         assert hasattr(result, "blocked")
+
+
+# ---------------------------------------------------------------------------
+# P2 Fix 1: Rule signals must equal detector literals
+# ---------------------------------------------------------------------------
+
+class TestRuleSignalsEqualDetectorLiterals:
+    """Verify that every rule's signal equals its literal (P2 Fix 1)."""
+
+    _EXPECTED_SIGNAL_SET = {
+        "path_traversal_indicator",
+        "script_injection_indicator",
+        "sqli_indicator",
+        "command_delimiter_indicator",
+        "encoded_traversal_indicator",
+    }
+
+    def test_signal_equals_literal_for_each_rule(self) -> None:
+        """Each rule's signal must equal its literal."""
+        rules = build_offline_sample_structured_rules()["rules"]
+        for rule in rules:
+            assert rule["signal"] == rule["literal"], (
+                f"Rule {rule['id']!r}: signal={rule['signal']!r} != literal={rule['literal']!r}"
+            )
+
+    def test_exact_signal_set(self) -> None:
+        """The complete set of signals matches the expected detector indicator names."""
+        rules = build_offline_sample_structured_rules()["rules"]
+        actual_signals = {r["signal"] for r in rules}
+        assert actual_signals == self._EXPECTED_SIGNAL_SET
+
+
+# ---------------------------------------------------------------------------
+# P2 Fix 1: Matched-signals equivalence with legacy detector
+# ---------------------------------------------------------------------------
+
+class TestMatchedSignalsEquivalenceWithLegacyDetector:
+    """Prove that offline sample structured rules return the same matched_signals
+    as core.detector.inspect_request() (P2 Fix 1).
+    """
+
+    def _make_request(self, **kwargs):
+        from core.types import Request
+
+        defaults = {
+            "method": "GET",
+            "path": "/api/data",
+            "query": {},
+            "headers": {"content-type": "text/plain"},
+            "body": "",
+            "source_ip": "127.0.0.1",
+        }
+        defaults.update(kwargs)
+        return Request(**defaults)
+
+    def _compare(self, req) -> None:
+        from core.detector import inspect_request
+        from core.structured_detector import inspect_request_with_structured_rules
+
+        rules_doc = build_offline_sample_structured_rules()
+        legacy = inspect_request(req)
+        structured = inspect_request_with_structured_rules(req, rules_doc)
+
+        assert structured.blocked is legacy.blocked
+        assert structured.confidence == legacy.confidence
+        assert structured.matched_signals == legacy.matched_signals
+        # reason is stable: both paths use the same string literals
+        assert structured.reason == legacy.reason
+
+    def test_single_indicator_request(self) -> None:
+        """Single-indicator request: matched_signals equivalent to legacy detector."""
+        req = self._make_request(body="path_traversal_indicator")
+        self._compare(req)
+
+    def test_multi_indicator_request(self) -> None:
+        """Multi-indicator request: matched_signals equivalent to legacy detector."""
+        req = self._make_request(body="path_traversal_indicator script_injection_indicator")
+        self._compare(req)
+
+    def test_benign_request(self) -> None:
+        """Benign request: matched_signals equivalent to legacy detector (both empty)."""
+        req = self._make_request(body="ordinary benign request")
+        self._compare(req)
+
+
+# ---------------------------------------------------------------------------
+# P2 Fix 2: Reject --structured-rules + --gemini-paid-credit-preflight
+# ---------------------------------------------------------------------------
+
+class TestStructuredRulesRejectsPaidCreditPreflight:
+    """Verify that --structured-rules --gemini-paid-credit-preflight is rejected (P2 Fix 2)."""
+
+    def test_rejects_gemini_paid_credit_preflight(
+        self,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """--structured-rules --offline-sample --gemini-paid-credit-preflight fails."""
+        rc = main([
+            "--structured-rules",
+            "--offline-sample",
+            "--gemini-paid-credit-preflight",
+            "--json",
+        ])
+        assert rc == 1
+
+    def test_rejects_preflight_json_success_false(
+        self,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """JSON output has success=False when preflight flag combined with structured-rules."""
+        main([
+            "--structured-rules",
+            "--offline-sample",
+            "--gemini-paid-credit-preflight",
+            "--json",
+        ])
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert output.get("success") is False
+
+    def test_rejects_preflight_error_message(
+        self,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """Error message mentions unsupported mode / offline-sample-only."""
+        main([
+            "--structured-rules",
+            "--offline-sample",
+            "--gemini-paid-credit-preflight",
+            "--json",
+        ])
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        error = output.get("error", "")
+        assert "does not support" in error or "offline-sample" in error
+
+    def test_no_rules_file_written_on_preflight_rejection(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """No structured_rules.json is written when preflight flag causes rejection."""
+        out_dir = tmp_path / ".cyber_immunizer"
+        out_dir.mkdir()
+        rules_path = out_dir / "structured_rules.json"
+        patch_path = out_dir / "mutation_patch.json"
+        monkeypatch.setattr("scripts.propose_mutation._OUT_DIR", out_dir)
+        monkeypatch.setattr("scripts.propose_mutation._OUT_STRUCTURED_RULES", rules_path)
+        monkeypatch.setattr("scripts.propose_mutation._OUT_PATCH", patch_path)
+
+        rc = main([
+            "--structured-rules",
+            "--offline-sample",
+            "--gemini-paid-credit-preflight",
+            "--json",
+        ])
+        assert rc == 1
+        assert not rules_path.exists(), "structured_rules.json must not be written on rejection"
+        assert not patch_path.exists(), "mutation_patch.json must not be written on rejection"
