@@ -27,3 +27,18 @@ runtime integration (PR-E) は意図的にこの PR に含めない。
 - 生成アーティファクトのコミット: なし
 - デフォルトランタイム動作の変更: なし
 - `core/detector.py` の変更: なし
+
+## Layer 宣言
+
+このタスクが進めたレイヤー：
+
+- [x] Layer 1 — Research Foundation
+- [ ] Layer 2 — Value Validation
+- [x] Layer 3 — AI Operation Control
+- [ ] None
+
+理由:
+- Layer 1: structured rules offline sample の matched_signals equivalence を回復し、PR-E runtime gate の前提条件を修正した。
+- Layer 3: PR #160 Codex P2 review hygiene を解消し、runtime integration 前の運用境界を明確化した。
+- Layer 2 value validation は主張しない。
+- runtime behavior / core.detector.inspect_request() default behavior / workflow / ledger / genome / promotion state は変更していない。
