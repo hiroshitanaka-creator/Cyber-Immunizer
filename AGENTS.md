@@ -50,6 +50,11 @@ Before editing, inspect:
 Identify the current `state_id`, current `next_action`, allowed files,
 forbidden files, and task-required test commands before making changes.
 
+If the task is long-running, multi-step, or may be handed between Codex and
+Claude, also inspect `docs/audit_gate/LONG_RUNNING_AGENT_WORKFLOW.md` before
+editing. Split the task into bounded work packets and emit the required
+checkpoint block before stopping or handing off.
+
 ## Hard prohibitions
 
 Unless the Project Owner explicitly approves the specific task, do not:
@@ -68,6 +73,10 @@ Unless the Project Owner explicitly approves the specific task, do not:
 
 If a task appears to require any prohibited action, stop and report instead of
 implementing.
+
+Do not let Codex and Claude push to the same branch concurrently. Use a serial
+baton. If parallel work is explicitly required, use separate branches / PRs for
+separate work packets.
 
 ## PR scope rule
 
@@ -112,6 +121,9 @@ Every Codex PR must include:
 
 When relevant, also include forbidden files not changed, residual risk, and the
 next recommended action.
+
+For long-running tasks, also include the latest checkpoint block or a link to
+the task report produced under `docs/audit_gate/LONG_RUNNING_AGENT_WORKFLOW.md`.
 
 ## Codex Review
 
