@@ -2041,7 +2041,7 @@ def build_offline_sample_structured_rules() -> dict:
                 "field": "surface",
                 "operator": "contains_literal",
                 "literal": "path_traversal_indicator",
-                "signal": "symbolic_path_traversal",
+                "signal": "path_traversal_indicator",
                 "confidence": 0.86,
             },
             {
@@ -2049,7 +2049,7 @@ def build_offline_sample_structured_rules() -> dict:
                 "field": "surface",
                 "operator": "contains_literal",
                 "literal": "script_injection_indicator",
-                "signal": "symbolic_script_injection",
+                "signal": "script_injection_indicator",
                 "confidence": 0.86,
             },
             {
@@ -2057,7 +2057,7 @@ def build_offline_sample_structured_rules() -> dict:
                 "field": "surface",
                 "operator": "contains_literal",
                 "literal": "sqli_indicator",
-                "signal": "symbolic_sqli",
+                "signal": "sqli_indicator",
                 "confidence": 0.86,
             },
             {
@@ -2065,7 +2065,7 @@ def build_offline_sample_structured_rules() -> dict:
                 "field": "surface",
                 "operator": "contains_literal",
                 "literal": "command_delimiter_indicator",
-                "signal": "symbolic_cmdi",
+                "signal": "command_delimiter_indicator",
                 "confidence": 0.86,
             },
             {
@@ -2073,7 +2073,7 @@ def build_offline_sample_structured_rules() -> dict:
                 "field": "surface",
                 "operator": "contains_literal",
                 "literal": "encoded_traversal_indicator",
-                "signal": "symbolic_encoded_traversal",
+                "signal": "encoded_traversal_indicator",
                 "confidence": 0.86,
             },
         ],
@@ -2768,10 +2768,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"ERROR: {err}", file=sys.stderr)
             return 1
 
-        # Structured-rules rejects live-model and paid-credit flags
-        if args.live_model or args.gemini_paid_credit:
+        # Structured-rules rejects live-model, paid-credit, and paid-credit-preflight flags
+        if args.live_model or args.gemini_paid_credit or args.gemini_paid_credit_preflight:
             err = (
-                "--structured-rules does not support live model or paid-credit modes. "
+                "--structured-rules does not support live model, paid-credit, or "
+                "paid-credit-preflight modes. "
                 "Use --structured-rules --offline-sample only."
             )
             output = {"success": False, "error": err, "patch_path": None}
