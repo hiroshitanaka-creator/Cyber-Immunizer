@@ -21,6 +21,7 @@ Tests cover:
 from __future__ import annotations
 
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -1086,3 +1087,220 @@ class TestGenomeDuplicateKeyRejection:
         report = json.loads(captured.out)
         assert report["success"] is False
         assert report["evaluation_completed"] is False
+
+
+# ---------------------------------------------------------------------------
+# 22. Non-regular --rules path is a tool failure (fourth-pass Fix 1)
+# ---------------------------------------------------------------------------
+
+class TestNonRegularRulesPath:
+    def test_directory_rules_path_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A directory passed as --rules must be a tool failure (exit 1, evaluation_completed=False)."""
+        rules_dir = tmp_path / "rules_dir"
+        rules_dir.mkdir()
+        exit_code = main(["--rules", str(rules_dir), "--json"])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_directory_rules_path_error_mentions_not_regular(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Tool failure for a directory rules path must describe the file-type problem."""
+        rules_dir = tmp_path / "not_a_file"
+        rules_dir.mkdir()
+        main(["--rules", str(rules_dir), "--json"])
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        error_text = (report.get("error", "") + " ".join(report.get("rejection_reasons", []))).lower()
+        assert any(kw in error_text for kw in ("not a regular", "regular file", "stat")), (
+            f"Expected file-type error, got: {error_text!r}"
+        )
+
+    def test_directory_rules_path_soft_reject_still_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Non-regular file is a tool failure; --soft-reject does not suppress it."""
+        rules_dir = tmp_path / "dir_as_rules"
+        rules_dir.mkdir()
+        exit_code = main(["--rules", str(rules_dir), "--json", "--soft-reject"])
+        assert exit_code == 1
+
+    def test_fifo_rules_path_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A FIFO passed as --rules must be a tool failure (no blocking on read)."""
+        fifo_path = tmp_path / "rules.fifo"
+        os.mkfifo(str(fifo_path))
+        exit_code = main(["--rules", str(fifo_path), "--json"])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+
+# ---------------------------------------------------------------------------
+# 23. Deeply nested genome JSON raises RecursionError → tool failure (fourth-pass Fix 2)
+# ---------------------------------------------------------------------------
+
+class TestDeeplyNestedGenome:
+    def test_deeply_nested_genome_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """genome.json with deep nesting that raises RecursionError must be a tool failure."""
+        depth = 10_000
+        nested = "[" * depth + "]" * depth
+        raw = '{"best_score": ' + nested + "}"
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(raw, encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--genome", str(genome_path)])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)  # Must be parseable JSON, not a traceback
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_deeply_nested_genome_soft_reject_still_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Deeply nested genome is a tool failure; --soft-reject does not suppress it."""
+        depth = 10_000
+        nested = "[" * depth + "]" * depth
+        raw = '{"best_score": ' + nested + "}"
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(raw, encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject",
+                          "--genome", str(genome_path)])
+        assert exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# 24. All-tiers parity guard: adaptive-tier improvement is not rejected (fourth-pass Fix 3)
+# ---------------------------------------------------------------------------
+
+class TestParityGuardAllTiers:
+    def test_adaptive_tier_only_difference_not_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Parity guard must NOT reject when structured rules differ from legacy on adaptive tiers.
+
+        The monkeypatched legacy detector returns blocked=False for any request
+        whose path contains 'holdout' or 'drift' (simulating a legacy detector blind
+        to adaptive-tier threats). Structured rules still catch them. Since all-case
+        outcomes differ, parity guard allows the candidate through.
+        """
+        from core.types import DetectionResult
+
+        original_legacy = mod._legacy_inspect_request
+
+        def adaptive_blind_legacy(request):
+            path = request.path or ""
+            if "holdout" in path or "drift" in path:
+                return DetectionResult(
+                    blocked=False, reason="legacy blind", confidence=0.0, matched_signals=()
+                )
+            return original_legacy(request)
+
+        monkeypatch.setattr(mod, "_legacy_inspect_request", adaptive_blind_legacy)
+
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(permissive_genome()), encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject",
+                          "--genome", str(genome_path)])
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+
+        reasons_text = " ".join(report.get("rejection_reasons", []))
+        assert "no_behavior_improvement" not in reasons_text, (
+            "Parity guard must not reject when structured rules improve on adaptive tiers"
+        )
+        assert exit_code == 0
+
+    def test_fully_equivalent_all_tiers_still_rejected(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Parity guard still rejects when structured rules are identical to legacy on all tiers."""
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(permissive_genome()), encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--json", "--genome", str(genome_path)])
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        assert report["passed_adoption_gate"] is False
+        reasons_text = " ".join(report.get("rejection_reasons", []))
+        assert "no_behavior_improvement" in reasons_text
+        assert exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# 25. Report write OSError is a structured tool failure (fourth-pass Fix 4)
+# ---------------------------------------------------------------------------
+
+class TestReportWriteFailure:
+    def test_mkdir_oserror_is_structured_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """If report-path parent mkdir fails (parent is a file), emit structured failure JSON."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        # Create a regular file at the location that mkdir would try to use as a directory.
+        parent_blocker = tmp_path / "not_a_dir"
+        parent_blocker.write_text("blocker", encoding="utf-8")
+        bad_report = str(parent_blocker / "report.json")
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject",
+                          "--report-path", bad_report])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)  # Must be parseable JSON (not a traceback)
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_report_write_failure_error_mentions_write(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Report write failure error must identify the write as the source of the problem."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        parent_blocker = tmp_path / "not_a_dir2"
+        parent_blocker.write_text("blocker", encoding="utf-8")
+        bad_report = str(parent_blocker / "report.json")
+        main(["--rules", str(rules_path), "--json", "--soft-reject",
+               "--report-path", bad_report])
+        captured = capsys.readouterr()
+        report = json.loads(captured.out)
+        error_text = (report.get("error", "") + " ".join(report.get("rejection_reasons", []))).lower()
+        assert any(kw in error_text for kw in ("write", "report", "failed")), (
+            f"Expected write-related error, got: {error_text!r}"
+        )
+
+    def test_report_write_failure_soft_reject_still_exits_1(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Report write failure is a tool failure; --soft-reject does not suppress it."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        parent_blocker = tmp_path / "not_a_dir3"
+        parent_blocker.write_text("blocker", encoding="utf-8")
+        bad_report = str(parent_blocker / "report.json")
+        exit_code = main(["--rules", str(rules_path), "--json", "--soft-reject",
+                          "--report-path", bad_report])
+        assert exit_code == 1
+
+    def test_successful_report_write_file_before_stdout(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """When report-path write succeeds, file and stdout JSON are identical (write-first ordering)."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        report_path = tmp_path / "subdir" / "report.json"
+        main(["--rules", str(rules_path), "--json", "--baseline",
+               "--report-path", str(report_path)])
+        captured = capsys.readouterr()
+        assert report_path.exists()
+        stdout_report = json.loads(captured.out)
+        file_report = json.loads(report_path.read_text(encoding="utf-8"))
+        assert stdout_report == file_report

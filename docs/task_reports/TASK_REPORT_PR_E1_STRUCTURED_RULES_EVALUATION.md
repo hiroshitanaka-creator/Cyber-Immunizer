@@ -9,6 +9,18 @@
 - Does not change default detector behavior (`core/detector.py` unchanged).
 - Does not promote, dispatch workflows, call APIs, or edit data.
 
+## Codex Review P2 Findings (PR #166, fourth pass) — All Fixed
+
+Four additional fail-closed hardening fixes:
+
+1. **Non-regular `--rules` path blocked**: Added `import stat`; after `rules_path.stat()`, check `stat.S_ISREG(st.st_mode)`. FIFOs, directories, and device nodes are rejected as tool failures before any read attempt, preventing indefinite blocking.
+
+2. **Recursive genome JSON as tool failure**: Genome load call site exception handler expanded to `except (OSError, json.JSONDecodeError, ValueError, RecursionError)` — deeply nested genome JSON that causes RecursionError now returns a structured tool failure instead of an uncaught exception.
+
+3. **All-tiers parity guard**: Parity guard now compares ALL evaluated case outcomes (main + holdout + counterfactual + drift). Previously only main-tier outcomes were compared, which would reject a candidate that improves only on adaptive tiers. Now: if structured rules differ from legacy on any tier, parity guard allows the candidate through.
+
+4. **Report write failures as structured tool failures**: `main()` now writes the report file BEFORE emitting stdout JSON. `mkdir` and `write_text` are wrapped in `try/except OSError`. On failure, a consistent structured failure JSON is emitted to stdout (not a traceback) and the script exits 1. This applies even with `--soft-reject`.
+
 ## Codex Review P2 Findings (PR #166, third pass) — All Fixed
 
 Five additional fail-closed hardening fixes:
@@ -69,7 +81,7 @@ This approval does **not** authorize changes to:
 ## Changed Files
 
 - `scripts/evaluate_structured_rules_candidate.py` — evaluation script (initial + P2 hardening)
-- `tests/test_evaluate_structured_rules_candidate.py` — 66 tests (initial 28 + 10 first-pass P2 + 18 second-pass P2 + 10 third-pass P2)
+- `tests/test_evaluate_structured_rules_candidate.py` — 78 tests (initial 28 + 10 first-pass P2 + 18 second-pass P2 + 10 third-pass P2 + 12 fourth-pass P2)
 - `docs/task_reports/TASK_REPORT_PR_E1_STRUCTURED_RULES_EVALUATION.md` — this report
 
 ## Verification
@@ -78,13 +90,13 @@ All commands passed:
 
 ```
 python -m pytest tests/test_evaluate_structured_rules_candidate.py -q
-# → 66 passed
+# → 78 passed
 
 python -m pytest tests/test_runtime_selector.py tests/test_structured_detector_integration.py tests/test_structured_detector_equivalence.py -q
 # → 49 passed
 
 python -m pytest tests/ -q
-# → 2897 passed
+# → 2909 passed
 
 git diff --check
 # → PASS (no whitespace errors)

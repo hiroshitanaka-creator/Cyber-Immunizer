@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import stat
 import sys
 from pathlib import Path
 
@@ -208,10 +209,18 @@ def evaluate_structured_rules(
     Returns a JSON-serializable report dict.
     """
     # Bound file size before reading to prevent memory pressure from huge inputs.
+    # Also reject non-regular files (FIFOs, directories, device nodes) before any
+    # read attempt, as those can block indefinitely or behave unexpectedly.
     try:
-        file_size = rules_path.stat().st_size
+        st = rules_path.stat()
     except OSError as exc:
         return _tool_failure(f"failed to stat rules file: {exc}", rules_path)
+    if not stat.S_ISREG(st.st_mode):
+        return _tool_failure(
+            f"rules path is not a regular file (mode={stat.filemode(st.st_mode)!r})",
+            rules_path,
+        )
+    file_size = st.st_size
     if file_size > _MAX_RULES_FILE_BYTES:
         return _tool_failure(
             f"rules file exceeds size limit: {file_size} bytes > {_MAX_RULES_FILE_BYTES} bytes",
@@ -270,7 +279,7 @@ def evaluate_structured_rules(
     # candidate to pass the adoption gate.
     try:
         genome = _load_genome(genome_path)
-    except (OSError, json.JSONDecodeError, ValueError) as exc:
+    except (OSError, json.JSONDecodeError, ValueError, RecursionError) as exc:
         return _tool_failure(f"failed to load genome: {exc}", rules_path)
 
     # Validate genome thresholds before use. Non-finite or wrong-type values
@@ -381,12 +390,8 @@ def evaluate_structured_rules(
     parity_rejected = False
     if not baseline_mode:
         legacy_results_raw = evaluate_detector(_legacy_inspect_request, cases)
-        legacy_outcomes = {
-            r["id"]: r["actual_blocked"]
-            for r in legacy_results_raw
-            if r.get("kind") in _MAIN_EVAL_KINDS
-        }
-        structured_outcomes = {r["id"]: r["actual_blocked"] for r in main_results}
+        legacy_outcomes = {r["id"]: r["actual_blocked"] for r in legacy_results_raw}
+        structured_outcomes = {r["id"]: r["actual_blocked"] for r in results}
         if legacy_outcomes == structured_outcomes:
             parity_rejected = True
             parity_reasons.append(
@@ -494,6 +499,27 @@ def main(argv: list[str] | None = None) -> int:
         baseline_mode=args.baseline,
     )
 
+    if args.report_path:
+        report_file = Path(args.report_path)
+        try:
+            report_file.parent.mkdir(parents=True, exist_ok=True)
+            report_file.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        except OSError as exc:
+            write_error = f"failed to write report file: {exc}"
+            if args.json:
+                print(json.dumps({
+                    "success": False,
+                    "evaluation_completed": False,
+                    "passed_adoption_gate": False,
+                    "error": write_error,
+                    "rejection_reasons": [write_error],
+                    "mode": "structured_rules",
+                    "rules_path": str(rules_path),
+                }, indent=2))
+            else:
+                print(f"ERROR: {write_error}")
+            return 1
+
     if args.json:
         print(json.dumps(report, indent=2))
     else:
@@ -505,11 +531,6 @@ def main(argv: list[str] | None = None) -> int:
             print(f"RESULT: {error}")
             for r in reasons:
                 print(f"  reason: {r}")
-
-    if args.report_path:
-        report_file = Path(args.report_path)
-        report_file.parent.mkdir(parents=True, exist_ok=True)
-        report_file.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     if args.soft_reject:
         return 1 if is_tool_failure else 0
