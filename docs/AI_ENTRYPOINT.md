@@ -69,13 +69,14 @@ table below directly. Do not force-read value documents as a process tax before 
 | Completion / DoD / layer judgment / "which layer does this advance" | docs/DEFINITION_OF_DONE.md | docs/VALUE_DELIVERY_BLUEPRINT.md, docs/PROJECT_STATE.md |
 | PR audit / merge decision | docs/audit_gate/PR_AUDIT_PROTOCOL.md | docs/AUDIT_CHARTER.md, docs/audit_gate/CHANGELOG.md |
 | Implementation task prompt / Claude Code prompt / Codex task prompt | docs/audit_gate/TASK_PROMPT_PROTOCOL.md | docs/audit_gate/PR_AUDIT_PROTOCOL.md, docs/audit_gate/CHANGELOG.md, relevant canonical implementation/tests/docs for the target scope |
+| Long-running Codex / Claude task / multi-session implementation / active PR baton handoff | docs/audit_gate/LONG_RUNNING_AGENT_WORKFLOW.md | docs/audit_gate/TASK_PROMPT_PROTOCOL.md, docs/audit_gate/THREAD_HANDOFF_PROTOCOL.md, docs/audit_gate/PR_AUDIT_PROTOCOL.md, docs/audit_gate/CHANGELOG.md |
 | GPT drift / pullback prompt | docs/audit_gate/PULLBACK_PROMPT.md | docs/audit_gate/CHANGELOG.md |
 | Thread handoff / 新スレッド引き継ぎ / session continuation | docs/audit_gate/THREAD_HANDOFF_PROTOCOL.md | CLAUDE.md, docs/audit_gate/CHANGELOG.md |
 | Tool blocked / fallback / low-level GitHub operation | docs/audit_gate/TOOL_EXECUTION_ANOMALY_PROTOCOL.md | docs/audit_gate/PR_AUDIT_PROTOCOL.md |
 | Phase status check | docs/PHASE_2_5_CLOSEOUT_AUDIT.md | docs/PHASE_2_COMPLETION_CHECKPOINT.md, docs/PHASE_2_PLAN.md |
 | Phase 2.5 closeout / post-hardening audit | docs/PHASE_2_5_CLOSEOUT_AUDIT.md | docs/PHASE_3_GO_NO_GO_CHECKLIST.md |
 | Project Owner roadmap / Phase 3–7 planning | docs/human用roadmap/phase3_to_phase7_roadmap.md | docs/PHASE_3_GO_NO_GO_CHECKLIST.md |
-| Phase 3 readiness / Go-No-Go decision / activation decision | docs/PHASE_3_GO_NO_GO_CHECKLIST.md | docs/PHASE_2_5_CLOSEOUT_AUDIT.md, docs/API_ACTIVATION_CHECKLIST.md |
+| Phase 3 readiness / Go-No-Go decision / activation decision | docs/PHASE_3_GO_NO_GO_CHECKLIST.md | docs/PHASE_2_5_CLOSEOUT_AUDIT.md |
 | Phase 3 paid-credit 現在地 / Gemini 3 runbook | docs/API_ACTIVATION_CHECKLIST.md | docs/API_ACTIVATION_RUNBOOK.md |
 | Phase 3 paid-credit run 実行手順 / 初回 run 前確認 | docs/API_ACTIVATION_RUNBOOK.md | docs/API_ACTIVATION_CHECKLIST.md |
 | Phase 3 activation PR #60–#62 内容確認 | docs/PHASE_3_GO_NO_GO_CHECKLIST.md | docs/API_ACTIVATION_RUNBOOK.md |
@@ -97,19 +98,20 @@ table below directly. Do not force-read value documents as a process tax before 
    - Do not write a task prompt from diff-only inspection.
    - Do not rely on Codex Review to discover predictable edge cases.
    - If the self-score is below 98/100, stop and report the missing investigation instead of writing the prompt.
-5. When receiving any task prompt, thread handoff prompt, or PR audit report from GPT
+5. For long-running Codex / Claude work, apply `docs/audit_gate/LONG_RUNNING_AGENT_WORKFLOW.md` before editing, split the task into bounded work packets, and emit a checkpoint block before handoff or stopping.
+6. When receiving any task prompt, thread handoff prompt, or PR audit report from GPT
    or another agent, apply the corresponding reception gate in `CLAUDE.md` before
    starting work. Each gate requires a scoring receipt and, for task prompts, an intent
    confirmation before proceeding.
-6. Do not propose work outside the stated scope.
-7. If a tool operation is blocked or falls back, follow
+7. Do not propose work outside the stated scope.
+8. If a tool operation is blocked or falls back, follow
    `docs/audit_gate/TOOL_EXECUTION_ANOMALY_PROTOCOL.md` and log it in the
    audit trail.
-8. Claude Code reports and PR bodies are self-reports. Verify against GitHub
+9. Claude Code reports and PR bodies are self-reports. Verify against GitHub
    state, current head SHA, diff, CI, and real files.
-9. **Source Evidence intake check**: If the task prompt contains a `Source Evidence` block,
-   verify each `file_path:start_line-end_line` citation against the actual file before
-   starting any implementation. If a citation does not match — wrong lines, wrong content,
-   or file does not exist — stop immediately, report the specific mismatch, and ask GPT to
-   correct the task prompt. Do not proceed with implementation on an unchecked or
-   mismatched citation.
+10. **Source Evidence intake check**: If the task prompt contains a `Source Evidence` block,
+    verify each `file_path:start_line-end_line` citation against the actual file before
+    starting any implementation. If a citation does not match — wrong lines, wrong content,
+    or file does not exist — stop immediately, report the specific mismatch, and ask GPT to
+    correct the task prompt. Do not proceed with implementation on an unchecked or
+    mismatched citation.
