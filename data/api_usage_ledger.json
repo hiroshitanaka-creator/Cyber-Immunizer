@@ -370,5 +370,25 @@
     "request_count": 1,
     "success": true,
     "error": ""
+  },
+  {
+    "timestamp": "2026-06-23T23:22:15.972003+00:00",
+    "provider": "gemini",
+    "api_mode": "gemini_paid_credit",
+    "model": "gemini-3-flash-preview",
+    "estimated_input_chars": 11789,
+    "estimated_output_chars": 12288,
+    "estimated_input_tokens": 23578,
+    "estimated_output_tokens": 3072,
+    "actual_input_tokens": 3162,
+    "actual_output_tokens": 643,
+    "actual_thinking_tokens": null,
+    "actual_billable_response_tokens": 643,
+    "estimated_cost_usd": 0.038938,
+    "budget_month": "2026-06",
+    "budget_day": "2026-06-23",
+    "request_count": 1,
+    "success": true,
+    "error": ""
   }
 ]
