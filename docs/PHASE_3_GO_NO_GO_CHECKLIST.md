@@ -1,15 +1,16 @@
 <!--
 AI_DOC_META
 status: CANONICAL
-scope: Phase 3 Go/No-Go readiness audit and Phase 3 activation record (PR #58-#62 merged; gemini-3-flash-preview / gemini_paid_credit API call success records exist in data/api_usage_ledger.json; promote_approved=false; post-run result review pending).
+scope: Phase 3 Go/No-Go readiness audit (historical — pre-activation checklist as of PR #53) and Phase 3 activation record (PR #58-#62 merged). Current state: promote_approved=true, generation 4 active, 14 primary-model success records — see docs/PROJECT_STATE.md / data/project_state.json.
 use_for:
-  - reviewing Phase 3 activation PR history and current paid-credit state
-  - deciding whether a Phase 3 promote or next-run PR may be opened
-  - separating repository-verifiable checks from Project Owner external checks
-  - identifying No-Go conditions before API activation or promotion
+  - reviewing historical Phase 3 Go/No-Go readiness criteria (pre-activation era)
+  - reviewing Phase 3 activation PR history (#58–#62) as audit evidence
+  - understanding repository-verifiable checks vs Project Owner external checks (as defined at pre-activation time)
+  - reviewing safety boundaries and No-Go conditions as recorded before Phase 3 activation
 do_not_use_for:
+  - determining current paid-credit run count or promote_approved status (use docs/PROJECT_STATE.md or data/project_state.json — promote_approved=true, generation 4 active, 14 primary-model success records)
+  - deciding whether a Phase 3 promote or next-run PR may be opened (current-state decision — see data/project_state.json next_action field)
   - executing paid-credit runs (Project Owner triggers these manually)
-  - setting promote_approved=true before reviewing first run results
   - registering or modifying GitHub Secrets
   - calling Gemini API
 related:
@@ -99,7 +100,7 @@ This document is a Go/No-Go readiness checklist that must be reviewed before any
 | Fallback model | `gemini-3.1-flash-lite` (PR #62) |
 | paid-credit API call records | Exist — `data/api_usage_ledger.json` に `gemini-3-flash-preview` / `gemini_paid_credit` success × 3（2026-06-03 / 2026-06-04）、`gemini-3.1-flash-lite` success × 1 等を含む |
 | Gemini 3 Flash Preview paid-credit run | **Success records exist** — `gemini-3-flash-preview` / `gemini_paid_credit` の success 記録が `data/api_usage_ledger.json` に存在。次ステップは新規 run ではなく既存 run 結果のレビュー / inventory |
-| `promote_approved` | `false` — promotion not approved（API call が未実行という意味ではない）。post-run result review まで昇格禁止 |
+| `promote_approved` | `false` **[HISTORICAL — PR #60–#62 merge 直後の記録。現在は promote_approved=true（run #59 generation 4 昇格済み）— 詳細は data/project_state.json]** |
 | Apply / Evaluate / Promote 自動昇格 | **Prohibited** — 既存 run 結果のレビュー完了まで自動昇格しない |
 
 ### Activation PR サマリー
@@ -264,4 +265,4 @@ Without an explicit Project Owner "GO", Phase 3 activation must not proceed.
 
 *This document is the Phase 3 Go/No-Go readiness audit for Project Cyber-Immunizer.*
 *Created: 2026-05-31*
-*Current state (2026-06-08): Phase 3 activation merged (PR #58–#62) / live_model_enabled=true / gemini-3-flash-preview paid-credit API call success records exist in data/api_usage_ledger.json / promote_approved=false / post-run result review pending.*
+*[HISTORICAL — 2026-06-08 時点の記録] Phase 3 activation merged (PR #58–#62) / live_model_enabled=true / gemini-3-flash-preview paid-credit API call success records exist in data/api_usage_ledger.json / promote_approved=false (at time of writing) / post-run result review pending (at time of writing). 現在の状態: promote_approved=true, generation 4 active, primary-model success records 14 — see docs/PROJECT_STATE.md / data/project_state.json.*

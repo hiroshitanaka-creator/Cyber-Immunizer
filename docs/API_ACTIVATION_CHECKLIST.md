@@ -5,7 +5,7 @@ scope: GEMINI_API_KEY terminology and secret-scoping definitions (canonical, not
 use_for:
   - understanding raw GEMINI_API_KEY vs GEMINI_API_KEY_PRESENT (canonical terminology — not time-bound)
   - verifying secret-scoping terminology and naming conventions
-  - reviewing Phase 3 activation readiness boundaries and Go/No-Go safety conditions
+  - reviewing historical Phase 3 activation readiness boundaries and Go/No-Go safety conditions (PR #58–#62 pre-activation era — see [HISTORICAL] banners in document)
   - audit evidence for safety boundaries applied during initial Phase 3 activation
 do_not_use_for:
   - determining current paid-credit run count (use docs/PROJECT_STATE.md or data/project_state.json — success records: 14, generation 4 active)
@@ -26,7 +26,7 @@ AI_DOC_META_END
 -->
 # Cyber-Immunizer API Activation Checklist
 
-> **[HISTORICAL — 2026-06-03 更新 / PR #60–#62 merge 直後の記録]** このヘッダーは controlled paid-credit run 実行前の状態の歴史的記録です。現在の状態は `docs/PROJECT_STATE.md` を参照してください（paid-credit success 14 件、generation 4 昇格済み、promote_approved=true）。
+> **[HISTORICAL — 2026-06-03 更新 / PR #60–#62 merge 直後の記録]** 「Canonical GEMINI_API_KEY terminology」セクションを除く本文書の全セクションは、Phase 3 activation（PR #58–#62）実行前に記録された歴史的証拠です。現在の状態は `docs/PROJECT_STATE.md` を参照してください（primary-model paid-credit success 14 件、generation 4 昇格済み、promote_approved=true）。
 
 > **⚠️ 2026-06-03 更新: Phase 3 activation PR #58–#62 が main に merge 済み。**  
 > **paid-credit path は準備完了。gemini-3-flash-preview での controlled run は未実行（次のステップ）。**  
@@ -75,6 +75,10 @@ confirm the key is configured in GitHub Secrets without exposing the actual valu
 **Minimum-privilege rule**: raw `GEMINI_API_KEY` must only be injected at
 step-level env, in mode-specific steps (`live-model`, `gemini-paid-credit`) that
 are gated by a mode-matching `if:` condition.
+
+---
+
+> **[HISTORICAL — 以下の全セクションは Phase 2.5 / pre-Phase 3 activation 時点の記録]** この「Canonical GEMINI_API_KEY terminology」セクション以降の全内容は Phase 3 activation（PR #58–#62）実行前に記録された歴史的証拠です。Phase 3 は既に activation 済み（live_model_enabled=true、primary-model paid-credit success 14 件、generation 4 昇格済み、promote_approved=true）。現在の状態は `docs/PROJECT_STATE.md` / `data/project_state.json` を参照してください。
 
 ---
 
