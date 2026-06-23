@@ -2289,3 +2289,53 @@ class TestEvaluationPromotionAttestationGate:
         assert 'DIGEST" != "$APPROVED_REPO_DIGEST"' in evaluate_section
         assert 'Resolved Docker digest $DIGEST does not match approved digest $APPROVED_REPO_DIGEST' in evaluate_section
         assert '--docker-image "${{ steps.docker_image.outputs.image }}"' in evaluate_section
+
+
+# ---------------------------------------------------------------------------
+# Structured-rules autonomous-loop modes (M1 wiring)
+# ---------------------------------------------------------------------------
+
+import re as _re_structured
+
+
+def _structured_step(workflow_content: str, name_suffix: str) -> str:
+    m = _re_structured.search(
+        r"- name: Propose structured rules — " + _re_structured.escape(name_suffix)
+        + r"\b(.*?)(?=\n      - name:|\Z)",
+        workflow_content, _re_structured.DOTALL,
+    )
+    assert m is not None, f"structured step not found: {name_suffix}"
+    return m.group(1)
+
+
+class TestStructuredLoopModes:
+    def test_dispatch_offers_structured_modes(self, workflow_content: str) -> None:
+        assert "structured-offline-sample" in workflow_content
+        assert "structured-gemini-paid-credit" in workflow_content
+
+    def test_structured_offline_step_has_no_api_key(self, workflow_content: str) -> None:
+        step = _structured_step(workflow_content, "offline-sample")
+        assert "--structured-rules --offline-sample" in step
+        assert "secrets.GEMINI_API_KEY" not in step, (
+            "offline structured proposal must not receive the API key"
+        )
+
+    def test_structured_paid_step_has_api_key(self, workflow_content: str) -> None:
+        step = _structured_step(workflow_content, "gemini-paid-credit")
+        assert "secrets.GEMINI_API_KEY" in step
+        assert "--structured-rules --gemini-paid-credit --allow-live-model" in step
+
+    def test_structured_paid_is_main_only(self, workflow_content: str) -> None:
+        # The paid-credit main-only guard must also cover the structured paid mode.
+        guard = _re_structured.search(
+            r"Refuse paid-credit mode outside main(.*?)exit 1",
+            workflow_content, _re_structured.DOTALL,
+        )
+        assert guard is not None
+        assert "structured-gemini-paid-credit" in guard.group(1), (
+            "structured-gemini-paid-credit writes the ledger and must be main-only"
+        )
+
+    def test_structured_rules_artifact_uploaded(self, workflow_content: str) -> None:
+        assert "name: structured-rules" in workflow_content
+        assert "structured_rules.json" in workflow_content
