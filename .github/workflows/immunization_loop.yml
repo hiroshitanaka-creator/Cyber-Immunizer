@@ -852,6 +852,31 @@ jobs:
             --corpus-dir fixtures/realistic_corpus \
             $BASELINE_FLAG --owner-approved --json
 
+      # --- Self-healing: validate the live active detector BEFORE publishing ---
+      # Validate-then-publish. The promote step above wrote data/genome.json and
+      # data/active_structured_rules.json to the LOCAL working tree only — nothing
+      # has been pushed yet. Confirm inspect_active (the runtime entry point)
+      # actually uses the newly-promoted structured rules and is effective on the
+      # SAME per-tier corpus the promotion graded against (--corpus-dir, not a
+      # separately maintained combined file). If the promotion silently fell back
+      # to legacy or is ineffective, revert the LOCAL genome to legacy and ABORT
+      # without publishing, so main never receives an unhealthy detector.
+      - name: Pre-publish health check (validate before pushing to main)
+        run: |
+          set +e
+          python scripts/post_promote_healthcheck.py \
+            --corpus-dir fixtures/realistic_corpus --json
+          HC_EXIT=$?
+          set -e
+          if [ "$HC_EXIT" = "0" ]; then
+            echo "Pre-publish health check passed; structured detector is live and effective."
+            exit 0
+          fi
+          echo "::warning::Pre-publish health check failed — reverting local genome to legacy; nothing will be published to main."
+          python scripts/rollback_to_legacy_detector.py --json
+          echo "::error::Structured promotion failed the pre-publish health check and was rolled back locally. Main was not modified."
+          exit 1
+
       - name: Update README status block
         run: python scripts/update_readme.py
 
