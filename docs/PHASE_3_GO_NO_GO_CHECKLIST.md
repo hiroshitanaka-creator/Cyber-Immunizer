@@ -88,8 +88,9 @@ This document is a Go/No-Go readiness checklist that must be reviewed before any
 
 ## 2a. Phase 3 Activation Record（PR #58–#62）
 
-> **Phase 3 activation PR は main に merge 済み。`live_model_enabled=true`。**  
-> **paid-credit path で接続済み。`gemini-3-flash-preview` / `gemini_paid_credit` の paid-credit API call **success** 記録が `data/api_usage_ledger.json` に存在する（2026-06-03 / 2026-06-04）。`promote_approved=false`。未着手は post-run result review（candidate / apply / evaluate / promotion decision）。**
+> **[HISTORICAL — このセクション（2a）全体は Phase 3 activation PR #58–#62 merge 直後の記録。現在の状態: promote_approved=true、generation 4 active、primary-model success records 14件。以下の Project Owner 手順・`promote_approved=false` 維持指示はすべて歴史的記録であり、現在の promotion ゲートには適用しない。現在の状態は `docs/PROJECT_STATE.md` / `data/project_state.json` を参照。]**
+
+> **[HISTORICAL] Phase 3 activation PR は main に merge 済み。`live_model_enabled=true`。paid-credit path で接続済み。`gemini-3-flash-preview` / `gemini_paid_credit` の paid-credit API call success 記録が `data/api_usage_ledger.json` に存在する（2026-06-03 / 2026-06-04）。`promote_approved=false`（記録時点 — 現在は promote_approved=true）。未着手は post-run result review（candidate / apply / evaluate / promotion decision）（記録時点）。**
 
 | Field | Value |
 |---|---|
@@ -113,15 +114,17 @@ This document is a Go/No-Go readiness checklist that must be reviewed before any
 | **PR #61** | `replacement_code` の Python 構文検証を Propose 段階に追加（`ast.parse()` のみ） |
 | **PR #62** | Primary model を `gemini-3-flash-preview` に変更、`ThinkingConfig(thinking_level="low")`、actual thinking tokens の ledger 反映 |
 
-### 次の Project Owner 手順
+### 次の Project Owner 手順（HISTORICAL — 記録時点の手順）
 
-> **注: 次のアクションは新規 paid-credit run の実行ではない。`gemini-3-flash-preview` / `gemini_paid_credit` の success 記録は既に `data/api_usage_ledger.json` に存在するため、次ステップは既存 run 結果のレビュー / inventory。**
+> **[HISTORICAL]** 以下の手順は Phase 3 activation PR #58–#62 merge 直後に記録された歴史的手順である。Phase 3 activation は既に完了しており、run #59 で generation 4 が昇格済み（promote_approved=true）。現在の次ステップは `data/project_state.json` の `next_action` フィールドを参照。`promote_approved=false` 維持指示は歴史的記録であり現在は適用しない。
+
+> **注（記録時点）: 次のアクションは新規 paid-credit run の実行ではない。`gemini-3-flash-preview` / `gemini_paid_credit` の success 記録は既に `data/api_usage_ledger.json` に存在するため、次ステップは既存 run 結果のレビュー / inventory。**
 
 1. **ledger success 記録の確認** — `data/api_usage_ledger.json` の `gemini-3-flash-preview` / `gemini_paid_credit` success 記録を確認する
 2. **candidate patch / artifacts の特定・検証** — 利用可能であれば candidate patch / run artifacts を確認する
 3. **apply / evaluate 結果状態のレビュー** — apply 結果・evaluate 結果の状態を確認する
 4. **promote / fix / halt 判断** — 結果に基づいて昇格・修正・停止を判断する
-5. **`promote_approved=false` を維持** — Project Owner が後で明示承認しない限り `false` のまま維持する
+5. **`promote_approved=false` を維持** [HISTORICAL — 現在は promote_approved=true] — Project Owner が後で明示承認しない限り `false` のまま維持する（記録時点の指示）
 
 ---
 

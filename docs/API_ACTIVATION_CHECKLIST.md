@@ -268,8 +268,7 @@ Phase 3 Go/No-Go 準備中は以下を実施しません。これらは Phase 3 
 
 > **[HISTORICAL — PR #60–#62 merge 直後の記録]** このセクションは gemini-3-flash-preview の初回 paid-credit run 実行前の状態を記録した歴史的証拠です。現在の paid-credit 件数・promote 状態は `docs/PROJECT_STATE.md` / `data/project_state.json` を参照してください（success 14 件、generation 4 昇格済み、promote_approved=true）。
 
-> **このセクションは Phase 3 activation PR merge 後の正確な現在地を記録する。**  
-> 過去の paid-credit API call 記録は存在する（`data/api_usage_ledger.json` 参照）。gemini-3-flash-preview での controlled paid-credit run は未実行。paid-credit path の準備は完了。
+> **[HISTORICAL] このセクションは PR #60–#62 merge 直後、初回 primary-model paid-credit run 実行前の歴史的現在地を記録する（現在の状態: promote_approved=true、primary-model success 14件、generation 4 昇格済み — `docs/PROJECT_STATE.md` / `data/project_state.json` 参照）。** 記録時点の状態: 過去の paid-credit API call 記録が存在した（`data/api_usage_ledger.json` 参照）。gemini-3-flash-preview での controlled paid-credit run は記録時点で未実行。paid-credit path の準備は完了していた。
 
 ### Phase 3 Activation PR サマリー
 
@@ -281,20 +280,24 @@ Phase 3 Go/No-Go 準備中は以下を実施しません。これらは Phase 3 
 | **PR #61** | `replacement_code` の Python 構文検証を Propose 段階に追加（`ast.parse()` のみ、実行なし） |
 | **PR #62** | Primary model を `gemini-3-flash-preview` に変更。`ThinkingConfig(thinking_level="low")`、actual thinking tokens の ledger 反映 |
 
-### 現在の Phase 3 状態
+### Phase 3 状態（記録時点 — HISTORICAL）
 
-| 項目 | 状態 |
+> **[HISTORICAL]** 以下の表は PR #60–#62 merge 直後の記録時点の状態を示す。現在の状態は `docs/PROJECT_STATE.md` / `data/project_state.json` を参照（promote_approved=true、generation 4 active、primary-model success 14件）。
+
+| 項目 | 状態（記録時点） |
 |---|---|
 | Phase 3 activation PR | ✅ PR #58–#62 merge 済み |
 | `live_model_enabled` | `true` |
 | Primary model | `gemini-3-flash-preview` |
 | Fallback model | `gemini-3.1-flash-lite` |
 | 過去の paid-credit API call 記録 | 存在する（gemini-3.1-flash-lite 成功 × 1 など — `data/api_usage_ledger.json` 参照） |
-| Gemini 3 Flash Preview controlled run | **未実行** — gemini-3-flash-preview 構成での初回確認 run が次ステップ |
-| `promote_approved` | `false` — 最初の run 結果確認前は禁止 |
-| Apply / Evaluate / Promote 自動昇格 | **禁止** — run 結果確認後に判断 |
+| Gemini 3 Flash Preview controlled run | **未実行** [HISTORICAL: 記録時点 — 現在は primary-model success 14件] |
+| `promote_approved` | `false` [HISTORICAL: 記録時点 — 現在は promote_approved=true（run #59 generation 4 昇格済み）] |
+| Apply / Evaluate / Promote 自動昇格 | **禁止**（記録時点）— run 結果確認後に判断 |
 
-### 次の Project Owner 手順
+### 次の Project Owner 手順（HISTORICAL — 記録時点の手順）
+
+> **[HISTORICAL]** 以下の手順は PR #60–#62 merge 直後に記録された歴史的手順である。Phase 3 は activation 済み（run #59、generation 4 昇格済み、promote_approved=true）。現在の次ステップは `data/project_state.json` の `next_action` フィールドを参照。
 
 1. PR #62 が main に merge 済みであることを確認（`data/genome.json` が `gemini-3-flash-preview`）
 2. この docs PR を merge する
@@ -302,7 +305,7 @@ Phase 3 Go/No-Go 準備中は以下を実施しません。これらは Phase 3 
 4. ledger artifact / candidate patch / apply / evaluate 結果を確認
 5. 結果に基づいて次 PR を判断（promote / fix / halt）
 
-### 禁止事項（Phase 3 paid-credit 実行前）
+### 禁止事項（Phase 3 paid-credit 実行前 — HISTORICAL）
 
 - `promote_approved=true` にしない（最初の run 結果確認前）
 - paid-credit run を連続実行しない
