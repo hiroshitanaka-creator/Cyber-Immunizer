@@ -1,17 +1,24 @@
 {
   "schema_version": 1,
-  "consecutive_failures": 1,
+  "consecutive_failures": 2,
   "failure_threshold": 3,
   "tripped": false,
   "last_outcome": "failure",
   "last_reason": "structured candidate did not pass the adoption gate",
-  "last_updated": "2026-06-23T23:32:41.226901+00:00",
+  "last_updated": "2026-06-23T23:40:19.913365+00:00",
   "history": [
     {
       "timestamp": "2026-06-23T23:32:41.226901+00:00",
       "outcome": "failure",
       "reason": "structured candidate did not pass the adoption gate",
       "consecutive_failures_after": 1,
+      "tripped_after": false
+    },
+    {
+      "timestamp": "2026-06-23T23:40:19.913365+00:00",
+      "outcome": "failure",
+      "reason": "structured candidate did not pass the adoption gate",
+      "consecutive_failures_after": 2,
       "tripped_after": false
     }
   ]
