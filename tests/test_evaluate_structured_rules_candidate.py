@@ -1727,3 +1727,193 @@ class TestForbiddenReportPathGitGrok:
         report = json.loads(captured.out)
         assert report["success"] is False
         assert report["evaluation_completed"] is False
+
+
+# ---------------------------------------------------------------------------
+# 17. Corpus selection: --corpus-dir and per-tier overrides
+#     (Owner-supplied external neutralized corpus through the real gate path)
+# ---------------------------------------------------------------------------
+
+def _attack_entry(i: int) -> dict:
+    return {
+        "id": f"ext-attack-{i}",
+        "kind": "attack",
+        "expected_blocked": True,
+        "tags": ["attack", "path-traversal"],
+        "request": {
+            "method": "GET",
+            "path": f"/ext/a{i}/PATH_TRAVERSAL_INDICATOR",
+            "query": {},
+            "headers": {},
+            "body": "",
+        },
+    }
+
+
+def _benign_entry(i: int) -> dict:
+    return {
+        "id": f"ext-benign-{i}",
+        "kind": "benign",
+        "expected_blocked": False,
+        "tags": ["benign"],
+        "request": {"method": "GET", "path": f"/ext/b{i}", "query": {}, "headers": {}, "body": ""},
+    }
+
+
+def _regression_entry(i: int) -> dict:
+    return {
+        "id": f"ext-reg-{i}",
+        "kind": "regression",
+        "expected_blocked": False,
+        "tags": ["regression"],
+        "request": {"method": "GET", "path": f"/ext/r{i}", "query": {}, "headers": {}, "body": ""},
+    }
+
+
+def _blocking_tier_entry(kind: str) -> dict:
+    return {
+        "id": f"ext-{kind}-0",
+        "kind": kind,
+        "expected_blocked": True,
+        "tags": [kind, "path-traversal"],
+        "request": {
+            "method": "GET",
+            "path": f"/ext/{kind}/PATH_TRAVERSAL_INDICATOR",
+            "query": {},
+            "headers": {},
+            "body": "",
+        },
+    }
+
+
+def write_corpus_dir(base: Path, *, n_benign: int, n_attack: int, n_reg: int) -> Path:
+    """Write a complete, neutralized external corpus directory and return its path."""
+    d = base / "ext_corpus"
+    d.mkdir()
+    (d / "benign_requests.json").write_text(
+        json.dumps([_benign_entry(i) for i in range(n_benign)]), encoding="utf-8"
+    )
+    (d / "attack_requests.json").write_text(
+        json.dumps([_attack_entry(i) for i in range(n_attack)]), encoding="utf-8"
+    )
+    (d / "regression_cases.json").write_text(
+        json.dumps([_regression_entry(i) for i in range(n_reg)]), encoding="utf-8"
+    )
+    (d / "holdout_requests.json").write_text(
+        json.dumps([_blocking_tier_entry("holdout")]), encoding="utf-8"
+    )
+    (d / "counterfactual_requests.json").write_text(
+        json.dumps([{
+            "id": "ext-cf-0",
+            "kind": "counterfactual",
+            "expected_blocked": False,
+            "tags": ["counterfactual"],
+            "request": {"method": "GET", "path": "/ext/cf-benign", "query": {}, "headers": {}, "body": ""},
+        }]),
+        encoding="utf-8",
+    )
+    (d / "drift_requests.json").write_text(
+        json.dumps([_blocking_tier_entry("drift")]), encoding="utf-8"
+    )
+    return d
+
+
+class TestResolveCorpusPaths:
+    def test_returns_none_when_no_dir_and_no_overrides(self) -> None:
+        overrides = {tier: None for tier in mod._CORPUS_TIER_FILENAMES}
+        assert mod._resolve_corpus_paths(None, overrides) is None
+
+    def test_corpus_dir_populates_all_tiers(self, tmp_path: Path) -> None:
+        overrides = {tier: None for tier in mod._CORPUS_TIER_FILENAMES}
+        res = mod._resolve_corpus_paths(tmp_path, overrides)
+        assert res is not None
+        assert set(res) == set(mod._CORPUS_TIER_FILENAMES)
+        assert res["attack"] == tmp_path / "attack_requests.json"
+        assert res["counterfactual"] == tmp_path / "counterfactual_requests.json"
+
+    def test_override_wins_over_dir(self, tmp_path: Path) -> None:
+        custom = tmp_path / "custom_attack.json"
+        overrides = {tier: None for tier in mod._CORPUS_TIER_FILENAMES}
+        overrides["attack"] = custom
+        res = mod._resolve_corpus_paths(tmp_path, overrides)
+        assert res is not None
+        assert res["attack"] == custom
+        assert res["benign"] == tmp_path / "benign_requests.json"
+
+    def test_override_only_no_dir(self, tmp_path: Path) -> None:
+        custom = tmp_path / "custom_attack.json"
+        overrides = {tier: None for tier in mod._CORPUS_TIER_FILENAMES}
+        overrides["attack"] = custom
+        res = mod._resolve_corpus_paths(None, overrides)
+        assert res == {"attack": custom}
+
+    def test_load_test_cases_kwargs_filters_none(self) -> None:
+        assert mod._load_test_cases_kwargs(None) == {}
+        assert mod._load_test_cases_kwargs({}) == {}
+        p = Path("/tmp/a.json")
+        assert mod._load_test_cases_kwargs({"attack": p, "benign": None}) == {"attack_path": p}
+
+
+class TestCorpusDirIntegration:
+    def test_corpus_dir_used_for_evaluation(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """--corpus-dir routes the supplied external corpus through the full gate path."""
+        corpus_dir = write_corpus_dir(tmp_path, n_benign=3, n_attack=2, n_reg=2)
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(
+            ["--rules", str(rules_path), "--corpus-dir", str(corpus_dir), "--baseline", "--json"]
+        )
+        report = json.loads(capsys.readouterr().out)
+        assert exit_code == 0
+        # main tiers = benign + attack + regression = 3 + 2 + 2
+        assert report["total_cases"] == 7
+        assert report["passed_adoption_gate"] is True
+        assert report["true_positive"] == 2  # 2 attack cases blocked by the equivalent rules
+        assert report["false_positive"] == 0
+
+    def test_attack_path_override_changes_total(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A per-tier override replaces only that tier; the rest fall back to data/."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        main(["--rules", str(rules_path), "--baseline", "--json"])
+        default_total = json.loads(capsys.readouterr().out)["total_cases"]
+
+        data_attack_count = len(
+            json.loads((mod._PROJECT_ROOT / "data" / "attack_requests.json").read_text(encoding="utf-8"))
+        )
+        one_attack = tmp_path / "one_attack.json"
+        one_attack.write_text(json.dumps([_attack_entry(0)]), encoding="utf-8")
+        main(["--rules", str(rules_path), "--attack-path", str(one_attack), "--baseline", "--json"])
+        override_total = json.loads(capsys.readouterr().out)["total_cases"]
+
+        assert override_total == default_total - data_attack_count + 1
+
+    def test_missing_corpus_dir_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(
+            ["--rules", str(rules_path), "--corpus-dir", str(tmp_path / "does_not_exist"),
+             "--baseline", "--json"]
+        )
+        report = json.loads(capsys.readouterr().out)
+        assert exit_code == 1
+        assert report["success"] is False
+        assert report["evaluation_completed"] is False
+
+    def test_default_still_uses_data_corpus(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """No corpus args => data/ corpus (backward compatible)."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        exit_code = main(["--rules", str(rules_path), "--baseline", "--json"])
+        report = json.loads(capsys.readouterr().out)
+        assert exit_code == 0
+        expected_total = (
+            len(json.loads((mod._PROJECT_ROOT / "data" / "benign_requests.json").read_text(encoding="utf-8")))
+            + len(json.loads((mod._PROJECT_ROOT / "data" / "attack_requests.json").read_text(encoding="utf-8")))
+            + len(json.loads((mod._PROJECT_ROOT / "data" / "regression_cases.json").read_text(encoding="utf-8")))
+        )
+        assert report["total_cases"] == expected_total

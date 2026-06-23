@@ -100,6 +100,31 @@ python -m cli.structured_eval \
 The tool validates the rules document schema, runs evaluation, and outputs
 per-category TP/FP/FN statistics.
 
+### Gate-grade evaluation against an Owner-supplied corpus
+
+`cli/structured_eval` is a read-only report. To grade a structured-rules
+candidate through the **same promotion-grade path** the autonomous loop uses
+(score + adoption gate + adaptive floor + parity guard), use
+`scripts/evaluate_structured_rules_candidate.py` with `--corpus-dir` pointing at
+an Owner-supplied corpus directory **outside the repository**:
+
+```bash
+python scripts/evaluate_structured_rules_candidate.py \
+  --rules /path/to/owner/realistic_rules.json \
+  --corpus-dir /path/to/owner/realistic_corpus_dir \
+  --json
+```
+
+The corpus directory must contain the six standard corpus files
+(`benign_requests.json`, `attack_requests.json`, `regression_cases.json`,
+`holdout_requests.json`, `counterfactual_requests.json`, `drift_requests.json`).
+Individual tiers can be overridden with `--benign-path`, `--attack-path`,
+`--regression-path`, `--holdout-path`, `--counterfactual-path`, and
+`--drift-path`. When no corpus option is given, the repository `data/` symbolic
+corpus is used (unchanged default). Supplied corpus files are read-only inputs;
+the script never writes to them and never commits their contents. Use realistic
+but safely neutralized, defensive-only data only.
+
 ## Rules document schema
 
 Rules documents must validate against `core.structured_validator.validate_rules_schema`.
