@@ -23,6 +23,14 @@ on:
         options:
           - "false"
           - "true"
+      structured_baseline:
+        description: "Structured promote in baseline mode (first activation, bypasses score/parity vs the active structured baseline). Use 'false' once a structured ruleset is active."
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
   schedule:
     # Scheduled runs always use noop to avoid unintended API calls.
     # Trigger a manual workflow_dispatch with mode=offline-sample or
@@ -62,6 +70,7 @@ jobs:
       contents: read
     outputs:
       patch_exists: ${{ steps.propose.outputs.patch_exists }}
+      structured_rules_exists: ${{ steps.propose.outputs.structured_rules_exists }}
       ledger_changed: ${{ steps.propose.outputs.ledger_changed }}
       propose_exit_code: ${{ steps.propose.outputs.propose_exit_code }}
       propose_failed: ${{ steps.propose.outputs.propose_failed }}
@@ -210,6 +219,13 @@ jobs:
             echo "patch_exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "patch_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # structured_rules_exists — gates the structured evaluate/promote jobs.
+          if [ -f ".cyber_immunizer/structured_rules.json" ]; then
+            echo "structured_rules_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "structured_rules_exists=false" >> "$GITHUB_OUTPUT"
           fi
 
           # ledger_changed — ALWAYS computed regardless of PROPOSE_EXIT.
@@ -682,4 +698,180 @@ jobs:
           fi
           echo "::error::Promote push failed because main moved after promotion was prepared. Refusing to rebase an already-evaluated candidate."
           echo "::error::Run a fresh owner-approved workflow_dispatch so the candidate is evaluated against current main."
+          exit 1
+
+  # -----------------------------------------------------------------------
+  # Job 6: STRUCTURED EVALUATE
+  # Grades an LLM-authored structured rules document against the committed
+  # realistic corpus. Read-only, NO secrets, NO Docker: the candidate is DATA
+  # (a schema-validated rules JSON) interpreted by a fixed evaluator — not
+  # untrusted code execution — so the Docker sandbox used for the Python path
+  # is unnecessary. Uses --soft-reject so an adoption-gate rejection is not a
+  # CI error (only tool failures fail the job).
+  # -----------------------------------------------------------------------
+  structured-evaluate:
+    name: Evaluate Structured Rules Candidate
+    needs: propose
+    if: needs.propose.outputs.structured_rules_exists == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # NOTE: no secrets — this job never receives GEMINI_API_KEY.
+    outputs:
+      passed_adoption_gate: ${{ steps.seval.outputs.passed_adoption_gate }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install base dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Create working directory
+        run: mkdir -p .cyber_immunizer
+
+      - name: Download structured rules
+        uses: actions/download-artifact@v8
+        with:
+          name: structured-rules
+          path: .cyber_immunizer/
+
+      - name: Evaluate structured rules candidate
+        id: seval
+        run: |
+          set +e
+          BASELINE_FLAG=""
+          if [ "${{ github.event.inputs.structured_baseline }}" = "true" ]; then
+            BASELINE_FLAG="--baseline"
+          fi
+          python scripts/evaluate_structured_rules_candidate.py \
+            --rules .cyber_immunizer/structured_rules.json \
+            --corpus-dir fixtures/realistic_corpus \
+            $BASELINE_FLAG --soft-reject --json \
+            --report-path structured_fitness_report.json
+          EVAL_EXIT=$?
+          if [ "$EVAL_EXIT" != "0" ]; then
+            echo "::error::structured rules evaluation tool failure (exit ${EVAL_EXIT})."
+            echo "passed_adoption_gate=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          PASSED=$(python -c 'import json; print(str(json.load(open("structured_fitness_report.json")).get("passed_adoption_gate")).lower())')
+          echo "passed_adoption_gate=${PASSED}" >> "$GITHUB_OUTPUT"
+          echo "Structured adoption gate passed_adoption_gate=${PASSED}"
+
+      - name: Upload structured fitness report artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: structured-fitness-report
+          path: structured_fitness_report.json
+          retention-days: 1
+          if-no-files-found: warn
+
+  # -----------------------------------------------------------------------
+  # Job 7: STRUCTURED PROMOTE
+  # Promotes an LLM-authored structured ruleset to the ACTIVE detector by
+  # flipping genome.detector_mode to structured_rules and recording the
+  # active_structured_rules_* fields (decoupled-lineage model — the legacy
+  # generation/best_score/current_detector_hash are left unchanged). Write
+  # permissions, NO secrets, runs only on main with explicit Owner approval.
+  # promote_structured_candidate.py re-evaluates the ruleset live (self-contained
+  # gate), so no separately-trusted fitness report is consumed.
+  # -----------------------------------------------------------------------
+  structured-promote:
+    name: Promote Structured Rules
+    needs: [propose, persist-ledger, structured-evaluate]
+    if: >
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.promote_approved == 'true' &&
+      needs.structured-evaluate.outputs.passed_adoption_gate == 'true' &&
+      needs.propose.outputs.propose_failed != 'true' &&
+      (needs['persist-ledger'].result == 'success' || needs['persist-ledger'].result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # NOTE: no GEMINI_API_KEY here — write permissions and model secrets are
+    # intentionally kept in separate jobs.
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install base dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Create working directory
+        run: mkdir -p .cyber_immunizer
+
+      - name: Download structured rules
+        uses: actions/download-artifact@v8
+        with:
+          name: structured-rules
+          path: .cyber_immunizer/
+
+      - name: Verify main drift since evaluation
+        run: |
+          EVALUATED_SHA="${{ github.sha }}"
+          if ! git merge-base --is-ancestor "$EVALUATED_SHA" HEAD; then
+            echo "::error::Current main is not a descendant of evaluated SHA ${EVALUATED_SHA}. Refusing to promote."
+            exit 1
+          fi
+          changed_since_eval="$(git diff --name-only "${EVALUATED_SHA}..HEAD" || true)"
+          disallowed_changed="$(printf '%s\n' "$changed_since_eval" | grep -v '^data/api_usage_ledger\.json$' || true)"
+          if [ -n "$disallowed_changed" ]; then
+            echo "::error::Main changed in non-ledger paths after evaluation. Refusing to promote a stale candidate."
+            printf '%s\n' "$disallowed_changed"
+            exit 1
+          fi
+          echo "Main drift check passed."
+
+      - name: Promote structured rules candidate
+        run: |
+          BASELINE_FLAG=""
+          if [ "${{ github.event.inputs.structured_baseline }}" = "true" ]; then
+            BASELINE_FLAG="--baseline"
+          fi
+          python scripts/promote_structured_candidate.py \
+            --rules .cyber_immunizer/structured_rules.json \
+            --corpus-dir fixtures/realistic_corpus \
+            $BASELINE_FLAG --owner-approved --json
+
+      - name: Update README status block
+        run: python scripts/update_readme.py
+
+      - name: Commit promoted structured rules
+        run: |
+          git config user.name "Cyber-Immunizer Bot"
+          git config user.email "cyber-immunizer-bot@noreply.github.com"
+
+          git add data/genome.json data/active_structured_rules.json README.md
+
+          if git diff --cached --quiet; then
+            echo "No promoted changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore(immunizer): promote structured rules to active detector"
+
+          if git push origin HEAD:main; then
+            echo "Structured promote push succeeded."
+            exit 0
+          fi
+          echo "::error::Structured promote push failed because main moved. Re-run a fresh owner-approved dispatch."
           exit 1
