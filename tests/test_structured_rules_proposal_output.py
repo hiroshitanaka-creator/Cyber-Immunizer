@@ -133,10 +133,10 @@ class TestProposeStructuredRules:
         assert isinstance(rules_doc, dict)
 
     def test_offline_sample_false_returns_none(self) -> None:
-        """propose_structured_rules(offline_sample=False) returns (None, error)."""
+        """With no mode selected, propose_structured_rules returns (None, error)."""
         rules_doc, err = propose_structured_rules(offline_sample=False)
         assert rules_doc is None
-        assert "offline-sample only" in err
+        assert "--offline-sample" in err and "--gemini-paid-credit" in err
 
     def test_returned_doc_passes_validation(self) -> None:
         """Returned document from offline_sample=True passes schema validation."""
@@ -219,10 +219,10 @@ class TestCLIStructuredRulesMode:
         assert output.get("success") is False
         assert "does not support" in output.get("error", "")
 
-    def test_structured_rules_rejects_gemini_paid_credit(
+    def test_structured_rules_rejects_offline_and_paid_together(
         self, capsys: pytest.CaptureFixture,
     ) -> None:
-        """--structured-rules --gemini-paid-credit fails."""
+        """--structured-rules with both --offline-sample and --gemini-paid-credit is ambiguous."""
         rc = main(
             [
                 "--structured-rules",
@@ -236,7 +236,7 @@ class TestCLIStructuredRulesMode:
         captured = capsys.readouterr()
         output = json.loads(captured.out)
         assert output.get("success") is False
-        assert "does not support" in output.get("error", "")
+        assert "not both" in output.get("error", "")
 
 
 class TestStaleMutationPatchCleanup:

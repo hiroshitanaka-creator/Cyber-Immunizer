@@ -3,6 +3,7 @@
 Usage:
     python scripts/propose_mutation.py [--noop] [--offline-sample]
                                        [--structured-rules --offline-sample]
+                                       [--structured-rules --gemini-paid-credit --allow-live-model]
                                        [--live-model --allow-live-model]
                                        [--gemini-paid-credit --allow-live-model]
                                        [--gemini-paid-credit-preflight]
@@ -20,6 +21,13 @@ Modes:
     --structured-rules --offline-sample
         Generate a structured detector rules JSON document offline, without
         any API call. Writes .cyber_immunizer/structured_rules.json.
+
+    --structured-rules --gemini-paid-credit --allow-live-model
+        Ask Gemini (paid-credit, budget-enforced, ledger-tracked) to propose a
+        structured detector rules JSON document. The model output is validated
+        against the strict structured-rules schema before it is written. Same
+        genome safety gates as the raw-Python paid-credit path. Writes
+        .cyber_immunizer/structured_rules.json.
         No raw mutation patch is written. Removes any stale mutation_patch.json.
 
     --live-model --allow-live-model
@@ -1512,6 +1520,8 @@ def _call_gemini_api(
     temperature: float,
     *,
     max_attempts: int = _GEMINI_API_MAX_ATTEMPTS,
+    response_schema: object = _PATCH_SCHEMA_FOR_GEMINI,
+    system_instruction: str = _LLM_SYSTEM_PROMPT,
     _sleep_fn=None,
 ) -> tuple[str | None, int | None, int | None, int | None, str]:
     """Issue a Gemini API call with explicit timeout and bounded transient retry.
@@ -1587,12 +1597,13 @@ def _call_gemini_api(
     # accept thinking_level.  Fail closed with a controlled error rather than
     # raising an unhandled exception before generate_content is even called.
     _generate_config_kwargs: dict = dict(
-        system_instruction=_LLM_SYSTEM_PROMPT,
+        system_instruction=system_instruction,
         response_mime_type="application/json",
-        response_schema=_PATCH_SCHEMA_FOR_GEMINI,
         max_output_tokens=max_output_tokens,
         temperature=temperature,
     )
+    if response_schema is not None:
+        _generate_config_kwargs["response_schema"] = response_schema
     if model_name.startswith("gemini-3"):
         try:
             _generate_config_kwargs["thinking_config"] = genai_types.ThinkingConfig(
@@ -1633,7 +1644,7 @@ def _call_gemini_api(
             last_exc_type_name = type(exc).__name__
             last_exc_detail = _format_gemini_error_detail(
                 exc,
-                forbidden_substrings=(user_prompt, _LLM_SYSTEM_PROMPT),
+                forbidden_substrings=(user_prompt, system_instruction),
             )
             last_is_transient = _is_transient_gemini_error(exc)
 
@@ -2098,7 +2109,10 @@ def build_offline_sample_structured_rules() -> dict:
 
 
 def propose_structured_rules(
-    *, offline_sample: bool = False
+    *,
+    offline_sample: bool = False,
+    gemini_paid_credit: bool = False,
+    allow_live_model: bool = False,
 ) -> tuple[dict | None, str]:
     """Propose a structured detector rules document. Returns (rules_doc, error).
 
@@ -2117,10 +2131,34 @@ def propose_structured_rules(
       - Fails closed if validation fails
       - Does not mutate ledger, genome, or promotion state
     """
+    # ---- Paid-credit live structured-rules proposal ----
+    if gemini_paid_credit:
+        try:
+            genome = json.loads(_GENOME_PATH.read_text(encoding="utf-8"))
+        except Exception as exc:
+            return None, f"could not read genome.json: {exc}"
+        if not allow_live_model:
+            return None, (
+                "--structured-rules --gemini-paid-credit requires --allow-live-model. "
+                "Pass both flags together to explicitly opt in to paid API calls."
+            )
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        if not api_key:
+            return None, (
+                "GEMINI_API_KEY environment variable is not set. "
+                "Set GEMINI_API_KEY or use --offline-sample."
+            )
+        gate_err = _check_paid_credit_genome_gates(genome)
+        if gate_err:
+            return None, gate_err
+        return _propose_structured_rules_via_gemini_paid_credit(
+            genome, api_key, _LEDGER_PATH
+        )
+
     if not offline_sample:
         return None, (
-            "Structured-rules proposal currently supports --offline-sample only. "
-            "Live model and paid-credit modes are not yet integrated."
+            "Structured-rules proposal requires --offline-sample or "
+            "--gemini-paid-credit --allow-live-model."
         )
 
     # Build offline sample rules
@@ -2455,6 +2493,267 @@ def run_gemini_paid_credit_preflight() -> tuple[dict, str]:
 # ---------------------------------------------------------------------------
 
 
+def _check_paid_credit_genome_gates(genome: dict) -> str:
+    """Return the first paid-credit genome safety-gate error, or "" if all pass.
+
+    Shared by the raw-Python and structured-rules paid-credit paths so both
+    enforce the identical genome safety posture. Does NOT check the
+    --allow-live-model flag or GEMINI_API_KEY env (callers check those first).
+    """
+    if not genome.get("live_model_enabled", False):
+        return (
+            "genome.live_model_enabled is false. "
+            "Set live_model_enabled=true in data/genome.json to enable "
+            "live API calls."
+        )
+    if not genome.get("require_paid_tier", False):
+        return (
+            "genome.require_paid_tier is false. "
+            "Set require_paid_tier=true in data/genome.json to confirm "
+            "you are using paid API quota."
+        )
+    if genome.get("free_tier_only", True):
+        return (
+            "genome.free_tier_only is true. "
+            "Set free_tier_only=false in data/genome.json to enable "
+            "paid-credit mode (requires billing-linked project)."
+        )
+    if float(genome.get("monthly_api_budget_usd", 0.0)) <= 0:
+        return (
+            "genome.monthly_api_budget_usd is 0 or negative. "
+            "Set a positive monthly budget to allow paid API calls."
+        )
+    if float(genome.get("daily_api_budget_usd", 0.0)) <= 0:
+        return (
+            "genome.daily_api_budget_usd is 0 or negative. "
+            "Set a positive daily budget to allow paid API calls."
+        )
+    max_requests = int(genome.get("max_model_requests_per_run", 1))
+    if max_requests > 1:
+        return (
+            f"genome.max_model_requests_per_run is {max_requests}; "
+            "must be <= 1 for safety. Reduce it in data/genome.json."
+        )
+    if genome.get("allow_google_search_grounding", False):
+        return (
+            "genome.allow_google_search_grounding is true. "
+            "Grounding is disabled for safety; set it to false."
+        )
+    if genome.get("allow_code_execution_tool", False):
+        return (
+            "genome.allow_code_execution_tool is true. "
+            "Code execution tool is disabled for safety; set it to false."
+        )
+    if genome.get("allow_url_context", False):
+        return (
+            "genome.allow_url_context is true. "
+            "URL context is disabled for safety; set it to false."
+        )
+    if genome.get("send_repository_full_text", False):
+        return (
+            "genome.send_repository_full_text is true. "
+            "Full repository text must never be sent to Gemini."
+        )
+    if genome.get("send_raw_payloads", False):
+        return (
+            "genome.send_raw_payloads is true. "
+            "Raw payloads must never be sent to Gemini."
+        )
+    if genome.get("send_secrets", False):
+        return (
+            "genome.send_secrets is true. "
+            "Secrets must never be sent to Gemini."
+        )
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Structured-rules live (paid-credit) proposal
+# ---------------------------------------------------------------------------
+
+_STRUCTURED_SYSTEM_PROMPT = (
+    "You are a defensive web-application-firewall rule author for a local "
+    "research simulator. You produce a STRUCTURED DETECTION RULES JSON document "
+    "that a fixed, sandboxed evaluator uses to decide whether a simulated HTTP "
+    "request is suspicious. You only author defensive detection signatures. You "
+    "never produce exploit code, attack payloads, bypass techniques, or any "
+    "instructions for carrying out an attack. Output JSON only — no prose, no "
+    "markdown fences."
+)
+
+
+def _build_structured_rules_prompt(genome: dict) -> str:
+    """Build the user prompt that asks Gemini for a structured rules document.
+
+    The prompt describes the schema and asks for defensive detection rules
+    across the standard threat categories. It never requests or contains exploit
+    payloads — rule literals are detection signatures (substrings to match).
+    """
+    example = json.dumps(build_offline_sample_structured_rules(), indent=2)
+    return (
+        "Produce a structured detection rules JSON document for a defensive "
+        "request inspector. The document MUST conform to this schema "
+        "(validated by a strict static validator):\n"
+        "- schema_version: integer 1\n"
+        "- features.surface.fields: list of inspected fields (e.g. method, path, "
+        "query.keys, query.values, headers.keys, headers.values, body)\n"
+        "- features.surface.normalization: e.g. [\"lowercase\"]\n"
+        "- features.surface.max_collection_entries / max_scalar_bytes / body_scan: "
+        "keep the same bounds as the example below\n"
+        "- rules: list of {id, field:\"surface\", operator: one of "
+        "contains_literal|equals_literal|starts_with_literal|ends_with_literal, "
+        "literal: a lowercase detection signature substring, signal, confidence: "
+        "float in [0,1]}\n"
+        "- decision: {block_when: any_rule_matches|all_rules_match|minimum_match_count, "
+        "reason, confidence_strategy, matched_signals: \"matched_rule_signals\"}\n"
+        "- fallback: {blocked:false, reason, confidence:0.0, matched_signals:[]}\n\n"
+        "Author defensive detection rules covering these categories: path "
+        "traversal, cross-site scripting (XSS), SQL injection, and command "
+        "injection. Each literal is a short, well-known DETECTION SIGNATURE "
+        "(a substring the inspector looks for), not an exploit payload. Keep the "
+        "non-blocking fallback. Output ONLY the JSON document.\n\n"
+        "Shape example (replace the symbolic literals with real defensive "
+        "detection signatures; keep the structure):\n"
+        f"{example}\n"
+    )
+
+
+def _propose_structured_rules_via_gemini_paid_credit(
+    genome: dict,
+    api_key: str,
+    ledger_path: Path,
+) -> tuple[dict | None, str]:
+    """Call Gemini (paid-credit) for a structured rules document.
+
+    Mirrors _propose_via_gemini_paid_credit's budget/ledger/secret-scan posture,
+    but requests a structured rules JSON and validates it with the structured
+    schema validator. Returns (rules_doc, error).
+    """
+    from scripts import api_budget as budget  # type: ignore[import]
+
+    model_name: str = genome.get("model_name", "gemini-2.0-flash")
+    max_output_tokens: int = int(genome.get("max_output_tokens", 2048))
+    temperature: float = float(genome.get("temperature", 0.2))
+    max_prompt_chars: int = int(genome.get("max_prompt_chars", 12000))
+    api_mode: str = genome.get("api_mode", "gemini_paid_credit")
+    request_attempt_budget: int = int(genome.get("max_model_requests_per_run", 1))
+
+    user_prompt = _build_structured_rules_prompt(genome)
+    full_prompt_for_scan = _STRUCTURED_SYSTEM_PROMPT + "\n" + user_prompt
+
+    if len(full_prompt_for_scan) > max_prompt_chars:
+        return None, (
+            f"Prompt too long: {len(full_prompt_for_scan)} chars "
+            f"exceeds max_prompt_chars={max_prompt_chars}. "
+            "Refusing to call Gemini."
+        )
+
+    scan_err = _preflight_secret_scan(full_prompt_for_scan)
+    if scan_err:
+        return None, scan_err
+
+    input_chars = len(full_prompt_for_scan)
+    effective_output_token_budget = max_output_tokens
+    if model_name.startswith("gemini-3"):
+        effective_output_token_budget += _GEMINI3_THINKING_ESTIMATE_LOW_TOKENS
+    estimated_output_chars = effective_output_token_budget * 4
+    est_input_tokens = budget.estimate_tokens_from_chars(input_chars)
+    est_output_tokens = effective_output_token_budget
+    est_cost = budget.estimate_cost_usd(est_input_tokens, est_output_tokens, model_name)
+
+    try:
+        ledger = budget.strict_load_ledger(ledger_path)
+    except ValueError as exc:
+        return None, f"API usage ledger is not usable; refusing call: {exc}"
+
+    budget_ok, budget_err = budget.assert_budget_available(genome, ledger, est_cost)
+    if not budget_ok:
+        return None, budget_err
+
+    # Structured rules are too variable for a Gemini response_schema; request
+    # free JSON (response_schema=None) and gate strictly with the static
+    # structured validator after the call.
+    raw_text, actual_input_tokens, actual_output_tokens, actual_thinking_tokens, api_err = (
+        _call_gemini_api(
+            api_key, model_name, user_prompt, max_output_tokens, temperature,
+            max_attempts=request_attempt_budget,
+            response_schema=None,
+            system_instruction=_STRUCTURED_SYSTEM_PROMPT,
+        )
+    )
+
+    actual_billable_response_tokens: int | None = None
+    if actual_output_tokens is not None and actual_thinking_tokens is not None:
+        actual_billable_response_tokens = actual_output_tokens + actual_thinking_tokens
+    elif actual_output_tokens is not None:
+        actual_billable_response_tokens = actual_output_tokens
+
+    overrun_err = ""
+    if (
+        api_err == ""
+        and actual_billable_response_tokens is not None
+        and actual_billable_response_tokens > est_output_tokens
+    ):
+        overrun_err = (
+            "actual billable response tokens exceeded pre-call estimate; "
+            "refusing to return rules after recording usage."
+        )
+
+    effective_error = api_err or overrun_err
+    try:
+        budget.append_usage_record(
+            ledger_path,
+            provider="gemini",
+            api_mode=api_mode,
+            model=model_name,
+            estimated_input_chars=input_chars,
+            estimated_output_chars=estimated_output_chars,
+            estimated_input_tokens=est_input_tokens,
+            estimated_output_tokens=est_output_tokens,
+            actual_input_tokens=actual_input_tokens,
+            actual_output_tokens=actual_output_tokens,
+            actual_thinking_tokens=actual_thinking_tokens,
+            actual_billable_response_tokens=actual_billable_response_tokens,
+            success=(effective_error == ""),
+            error=effective_error,
+        )
+    except (ValueError, OSError) as ledger_exc:
+        ledger_err = (
+            f"API usage ledger write failed: {ledger_exc}. "
+            "Cannot confirm budget was recorded; refusing to return rules."
+        )
+        if effective_error:
+            return None, f"{effective_error} — additionally, {ledger_err}"
+        return None, ledger_err
+
+    if effective_error:
+        return None, effective_error
+
+    # Output-contract gate: parse + validate against the structured schema.
+    try:
+        rules_doc = json.loads(raw_text)  # type: ignore[arg-type]
+    except (json.JSONDecodeError, TypeError) as exc:
+        return None, (
+            f"Gemini structured-rules response is not valid JSON "
+            f"({_OUTPUT_CONTRACT_STAGE}): {exc}"
+        )
+    try:
+        from core.structured_validator import validate_rules_schema
+    except ImportError as exc:
+        return None, (
+            f"Structured rules validation module unavailable: {exc}."
+        )
+    validation = validate_rules_schema(rules_doc)
+    if not validation.get("success", False):
+        violations = validation.get("violations", [])
+        violations_str = "; ".join(violations) if violations else "(no detail)"
+        return None, (
+            f"Gemini structured-rules response failed schema validation "
+            f"({_OUTPUT_CONTRACT_STAGE}): {violations_str}"
+        )
+    return rules_doc, ""
+
+
 def propose_mutation(
     *,
     offline_sample: bool = False,
@@ -2503,93 +2802,10 @@ def propose_mutation(
                 "Set GEMINI_API_KEY or use --offline-sample."
             )
 
-        # Gate: live_model_enabled
-        if not genome.get("live_model_enabled", False):
-            return None, (
-                "genome.live_model_enabled is false. "
-                "Set live_model_enabled=true in data/genome.json to enable "
-                "live API calls."
-            )
-
-        # Gate: require_paid_tier
-        if not genome.get("require_paid_tier", False):
-            return None, (
-                "genome.require_paid_tier is false. "
-                "Set require_paid_tier=true in data/genome.json to confirm "
-                "you are using paid API quota."
-            )
-
-        # Gate: free_tier_only must be false
-        if genome.get("free_tier_only", True):
-            return None, (
-                "genome.free_tier_only is true. "
-                "Set free_tier_only=false in data/genome.json to enable "
-                "paid-credit mode (requires billing-linked project)."
-            )
-
-        # Gate: monthly budget must be > 0
-        if float(genome.get("monthly_api_budget_usd", 0.0)) <= 0:
-            return None, (
-                "genome.monthly_api_budget_usd is 0 or negative. "
-                "Set a positive monthly budget to allow paid API calls."
-            )
-
-        # Gate: daily budget must be > 0
-        if float(genome.get("daily_api_budget_usd", 0.0)) <= 0:
-            return None, (
-                "genome.daily_api_budget_usd is 0 or negative. "
-                "Set a positive daily budget to allow paid API calls."
-            )
-
-        # Gate: max_model_requests_per_run
-        max_requests = int(genome.get("max_model_requests_per_run", 1))
-        if max_requests > 1:
-            return None, (
-                f"genome.max_model_requests_per_run is {max_requests}; "
-                "must be <= 1 for safety. Reduce it in data/genome.json."
-            )
-
-        # Gate: no Google Search grounding
-        if genome.get("allow_google_search_grounding", False):
-            return None, (
-                "genome.allow_google_search_grounding is true. "
-                "Grounding is disabled for safety; set it to false."
-            )
-
-        # Gate: no code execution tool
-        if genome.get("allow_code_execution_tool", False):
-            return None, (
-                "genome.allow_code_execution_tool is true. "
-                "Code execution tool is disabled for safety; set it to false."
-            )
-
-        # Gate: no URL context
-        if genome.get("allow_url_context", False):
-            return None, (
-                "genome.allow_url_context is true. "
-                "URL context is disabled for safety; set it to false."
-            )
-
-        # Gate: must not send full repository
-        if genome.get("send_repository_full_text", False):
-            return None, (
-                "genome.send_repository_full_text is true. "
-                "Full repository text must never be sent to Gemini."
-            )
-
-        # Gate: must not send raw payloads
-        if genome.get("send_raw_payloads", False):
-            return None, (
-                "genome.send_raw_payloads is true. "
-                "Raw payloads must never be sent to Gemini."
-            )
-
-        # Gate: must not send secrets
-        if genome.get("send_secrets", False):
-            return None, (
-                "genome.send_secrets is true. "
-                "Secrets must never be sent to Gemini."
-            )
+        # Genome safety gates (shared with the structured-rules paid path)
+        gate_err = _check_paid_credit_genome_gates(genome)
+        if gate_err:
+            return None, gate_err
 
         return _propose_via_gemini_paid_credit(
             genome, detector_source, api_key, _LEDGER_PATH
@@ -2753,37 +2969,49 @@ def main(argv: list[str] | None = None) -> int:
             print("Mode: noop — no patch produced.")
         return 0
 
-    # ---- Structured-rules offline mode ----
+    # ---- Structured-rules mode (offline sample or paid-credit live) ----
     if args.structured_rules:
-        # Structured-rules requires --offline-sample
-        if not args.offline_sample:
+        # Reject unsupported combinations.
+        if args.gemini_paid_credit_preflight:
+            err = "--structured-rules does not support --gemini-paid-credit-preflight."
+            output = {"success": False, "error": err, "patch_path": None}
+            print(json.dumps(output, indent=2) if args.json else f"ERROR: {err}",
+                  file=None if args.json else sys.stderr)
+            return 1
+        if args.live_model:
             err = (
-                "--structured-rules requires --offline-sample. "
-                "Structured-rules output currently supports offline-sample only."
+                "--structured-rules does not support --live-model (free-tier). "
+                "Use --offline-sample or --gemini-paid-credit --allow-live-model."
             )
             output = {"success": False, "error": err, "patch_path": None}
-            if args.json:
-                print(json.dumps(output, indent=2))
-            else:
-                print(f"ERROR: {err}", file=sys.stderr)
+            print(json.dumps(output, indent=2) if args.json else f"ERROR: {err}",
+                  file=None if args.json else sys.stderr)
             return 1
-
-        # Structured-rules rejects live-model, paid-credit, and paid-credit-preflight flags
-        if args.live_model or args.gemini_paid_credit or args.gemini_paid_credit_preflight:
+        if args.offline_sample and args.gemini_paid_credit:
             err = (
-                "--structured-rules does not support live model, paid-credit, or "
-                "paid-credit-preflight modes. "
-                "Use --structured-rules --offline-sample only."
+                "--structured-rules: choose either --offline-sample or "
+                "--gemini-paid-credit, not both."
             )
             output = {"success": False, "error": err, "patch_path": None}
-            if args.json:
-                print(json.dumps(output, indent=2))
-            else:
-                print(f"ERROR: {err}", file=sys.stderr)
+            print(json.dumps(output, indent=2) if args.json else f"ERROR: {err}",
+                  file=None if args.json else sys.stderr)
+            return 1
+        if not (args.offline_sample or args.gemini_paid_credit):
+            err = (
+                "--structured-rules requires --offline-sample or "
+                "--gemini-paid-credit --allow-live-model."
+            )
+            output = {"success": False, "error": err, "patch_path": None}
+            print(json.dumps(output, indent=2) if args.json else f"ERROR: {err}",
+                  file=None if args.json else sys.stderr)
             return 1
 
-        # Propose structured rules
-        rules_doc, err = propose_structured_rules(offline_sample=True)
+        # Propose structured rules (offline sample or paid-credit live).
+        rules_doc, err = propose_structured_rules(
+            offline_sample=args.offline_sample,
+            gemini_paid_credit=args.gemini_paid_credit,
+            allow_live_model=args.allow_live_model,
+        )
         if err:
             output = {"success": False, "error": err, "patch_path": None}
             if args.json:
@@ -2802,10 +3030,15 @@ def main(argv: list[str] | None = None) -> int:
         if _OUT_PATCH.exists():
             _OUT_PATCH.unlink()
 
+        mode = (
+            "structured-rules-gemini-paid-credit"
+            if args.gemini_paid_credit
+            else "structured-rules-offline-sample"
+        )
         rule_count = len(rules_doc.get("rules", []))
         output = {
             "success": True,
-            "mode": "structured-rules-offline-sample",
+            "mode": mode,
             "rules_path": str(_OUT_STRUCTURED_RULES),
             "patch_path": None,
             "rule_count": rule_count,
@@ -2815,7 +3048,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(output, indent=2))
         else:
             print(f"Structured rules written to: {_OUT_STRUCTURED_RULES}")
-            print(f"Mode: structured-rules-offline-sample")
+            print(f"Mode: {mode}")
             print(f"Rule count: {rule_count}")
 
         return 0
