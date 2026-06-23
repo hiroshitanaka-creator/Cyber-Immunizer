@@ -1,0 +1,240 @@
+[
+  {
+    "id": "attack-base-path-traversal",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "Path traversal category, base tier — neutralized placeholder only",
+    "tags": ["attack", "path-traversal"],
+    "request": {
+      "method": "GET",
+      "path": "/files/PATH_TRAVERSAL_INDICATOR",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "attack-base-xss",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "Script injection category, base tier — neutralized placeholder only",
+    "tags": ["attack", "xss"],
+    "request": {
+      "method": "GET",
+      "path": "/search",
+      "query": {"q": "SCRIPT_INJECTION_INDICATOR"},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "attack-base-sqli",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "SQL-like token category, base tier — neutralized placeholder only",
+    "tags": ["attack", "sqli"],
+    "request": {
+      "method": "POST",
+      "path": "/api/login",
+      "query": {},
+      "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+      "body": "username=admin&password=SQLI_INDICATOR"
+    }
+  },
+  {
+    "id": "attack-base-cmdi",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "Command delimiter category, base tier — neutralized placeholder only",
+    "tags": ["attack", "cmdi"],
+    "request": {
+      "method": "GET",
+      "path": "/api/ping",
+      "query": {"host": "localhostCOMMAND_DELIMITER_INDICATOR"},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "attack-base-encoded-traversal",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "URL-encoded traversal variant of path-traversal category, base tier — neutralized placeholder only",
+    "tags": ["attack", "path-traversal"],
+    "request": {
+      "method": "GET",
+      "path": "/files",
+      "query": {"name": "ENCODED_TRAVERSAL_INDICATOR"},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "benign-base-root",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "Root path GET request — no suspicious content",
+    "tags": ["benign", "baseline"],
+    "request": {
+      "method": "GET",
+      "path": "/",
+      "query": {},
+      "headers": {"User-Agent": "Mozilla/5.0", "Accept": "text/html"},
+      "body": ""
+    }
+  },
+  {
+    "id": "benign-base-search",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "Product search with harmless query parameter",
+    "tags": ["benign", "search"],
+    "request": {
+      "method": "GET",
+      "path": "/api/products",
+      "query": {"q": "laptop"},
+      "headers": {"Accept": "application/json"},
+      "body": ""
+    }
+  },
+  {
+    "id": "benign-base-post",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "Contact form POST with harmless JSON body",
+    "tags": ["benign", "post"],
+    "request": {
+      "method": "POST",
+      "path": "/api/contact",
+      "query": {},
+      "headers": {"Content-Type": "application/json"},
+      "body": "{\"name\": \"Alice\", \"email\": \"alice@example.com\", \"message\": \"Hello!\"}"
+    }
+  },
+  {
+    "id": "holdout-attack-path-traversal",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "Holdout tier (L2-V3): path-traversal indicator in a request shape not present in the base tier",
+    "tags": ["attack", "holdout", "path-traversal"],
+    "request": {
+      "method": "POST",
+      "path": "/api/v2/download",
+      "query": {},
+      "headers": {"X-Requested-With": "XMLHttpRequest"},
+      "body": "{\"target\": \"PATH_TRAVERSAL_INDICATOR\"}"
+    }
+  },
+  {
+    "id": "holdout-attack-sqli",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "Holdout tier (L2-V3): SQL-like token delivered via query rather than body",
+    "tags": ["attack", "holdout", "sqli"],
+    "request": {
+      "method": "GET",
+      "path": "/api/report",
+      "query": {"filter": "SQLI_INDICATOR"},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "holdout-benign-upload",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "Holdout tier (L2-V3): legitimate upload request — no indicator present",
+    "tags": ["benign", "holdout", "baseline"],
+    "request": {
+      "method": "POST",
+      "path": "/api/v2/upload",
+      "query": {},
+      "headers": {"Content-Type": "application/octet-stream"},
+      "body": "binary-asset-content"
+    }
+  },
+  {
+    "id": "drift-attack-xss",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "Drift tier (L2-V3): script injection indicator carried in a header rather than the query",
+    "tags": ["attack", "drift", "xss"],
+    "request": {
+      "method": "GET",
+      "path": "/profile",
+      "query": {},
+      "headers": {"Referer": "https://example.test/SCRIPT_INJECTION_INDICATOR"},
+      "body": ""
+    }
+  },
+  {
+    "id": "drift-attack-cmdi",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "Drift tier (L2-V3): command delimiter indicator in the path segment",
+    "tags": ["attack", "drift", "cmdi"],
+    "request": {
+      "method": "GET",
+      "path": "/exec/COMMAND_DELIMITER_INDICATOR",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "drift-benign-locale",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "Drift tier (L2-V3): localized content request with new-shape query — no indicator present",
+    "tags": ["benign", "drift", "search"],
+    "request": {
+      "method": "GET",
+      "path": "/api/articles",
+      "query": {"locale": "ja-JP", "page": "2"},
+      "headers": {"Accept-Language": "ja"},
+      "body": ""
+    }
+  },
+  {
+    "id": "counterfactual-benign-near-traversal",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "Counterfactual tier (L2-V3): benign request that superficially resembles path-traversal but contains no indicator token (overfitting probe)",
+    "tags": ["benign", "counterfactual", "path-traversal"],
+    "request": {
+      "method": "GET",
+      "path": "/files/quarterly-traversal-report.pdf",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "counterfactual-benign-near-sqli",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "Counterfactual tier (L2-V3): benign SQL-adjacent vocabulary with no indicator token (overfitting probe)",
+    "tags": ["benign", "counterfactual", "sqli"],
+    "request": {
+      "method": "POST",
+      "path": "/api/feedback",
+      "query": {},
+      "headers": {"Content-Type": "application/json"},
+      "body": "{\"comment\": \"the sql tutorial and select-a-plan page were helpful\"}"
+    }
+  },
+  {
+    "id": "counterfactual-attack-true-positive",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "Counterfactual tier (L2-V3): genuine indicator present, paired with the near-miss benign cases to confirm the rule still fires",
+    "tags": ["attack", "counterfactual", "xss"],
+    "request": {
+      "method": "GET",
+      "path": "/comment",
+      "query": {"text": "SCRIPT_INJECTION_INDICATOR"},
+      "headers": {},
+      "body": ""
+    }
+  }
+]

@@ -11,6 +11,9 @@ fixtures/
     symbolic_equivalent.json   Symbolic-corpus equivalent of the gen-4 detector
   evaluation_corpus/      Test corpus JSON files
     symbolic_corpus.json       Neutralized symbolic corpus (10 cases: 5 attack, 5 benign)
+    tiered_demo_corpus.json    Neutralized corpus (17 cases) covering all four required
+                               categories (path-traversal, xss, sqli, cmdi) plus the three
+                               L2-V3 tiers (holdout, drift, counterfactual)
 ```
 
 ## Scope of these fixtures
@@ -41,7 +44,39 @@ python -m cli.structured_eval \
   --rules fixtures/structured_rules/symbolic_equivalent.json \
   --corpus fixtures/evaluation_corpus/symbolic_corpus.json \
   --json
+
+# Tiered demonstration corpus — exercises all four categories AND the three
+# L2-V3 tiers (holdout / drift / counterfactual). Symbolic only, not Layer 2 evidence.
+python -m cli.structured_eval \
+  --rules fixtures/structured_rules/symbolic_equivalent.json \
+  --corpus fixtures/evaluation_corpus/tiered_demo_corpus.json
 ```
+
+## Tiered demonstration corpus (`tiered_demo_corpus.json`)
+
+`tiered_demo_corpus.json` is the first committed corpus that exercises the
+`cli/structured_eval` per-tier (L2-V3) aggregation path end-to-end. It contains
+17 neutralized cases:
+
+- **Base tier** — 5 attack (path-traversal, xss, sqli, cmdi, encoded-traversal)
+  and 3 benign cases.
+- **Holdout tier** — attack/benign request shapes not present in the base tier.
+- **Drift tier** — indicators carried in alternate request surfaces (header, path).
+- **Counterfactual tier** — benign requests that superficially resemble attacks
+  but contain **no** indicator token (overfitting probes), paired with a genuine
+  indicator case to confirm the rule still fires.
+
+Because every literal in this corpus is a neutralized placeholder that the rules
+document is built to match, the resulting `tp_rate=1.0 / fp_rate=0.0` reflects
+**symbolic coverage only**. This corpus demonstrates that the evaluation pipeline
+produces complete per-category and per-tier output; it is **not** Layer 2 value
+validation evidence. For Layer 2, the Owner supplies realistic (but safely
+neutralized) rules and corpus files from outside the repository, using this file
+as a structural template.
+
+A reference run of this corpus is committed under
+`docs/value_validation/STRUCTURED_EVAL_TIERED_DEMO_REPORT.md` (Markdown) and
+`docs/value_validation/STRUCTURED_EVAL_TIERED_DEMO_REPORT.json` (machine-readable).
 
 ## Layer 2 usage (Owner-supplied files, outside the repository)
 
