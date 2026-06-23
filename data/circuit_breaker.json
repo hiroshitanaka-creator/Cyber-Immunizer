@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "consecutive_failures": 0,
+  "failure_threshold": 3,
+  "tripped": false,
+  "last_outcome": null,
+  "last_reason": "",
+  "last_updated": null,
+  "history": []
+}
