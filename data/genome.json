@@ -1,6 +1,7 @@
 {
   "project": "Project Cyber-Immunizer",
   "generation": 4,
+  "detector_mode": "legacy",
   "current_detector_hash": "ebb8799db748ed3c3b38eec0c11cdc423b0e43ca04a374ba7e26a48059c30d3f",
   "best_score": 948.04,
   "last_updated": "2026-06-18T09:26:32.863685Z",

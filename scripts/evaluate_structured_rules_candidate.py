@@ -7,7 +7,18 @@ Usage:
         [--json] \\
         [--soft-reject] \\
         [--baseline] \\
-        [--report-path PATH]
+        [--report-path PATH] \\
+        [--corpus-dir DIR] \\
+        [--benign-path PATH] [--attack-path PATH] [--regression-path PATH] \\
+        [--holdout-path PATH] [--counterfactual-path PATH] [--drift-path PATH]
+
+Corpus selection:
+    By default the repository data/ corpus (symbolic indicators) is used.
+    --corpus-dir points at a directory of Owner-supplied corpus files and the
+    per-tier --*-path options override individual tier files. These let an Owner
+    grade a structured-rules candidate against a realistic but safely neutralized
+    corpus supplied from OUTSIDE the repository, through the same score / adoption
+    gate / adaptive floor / parity guard path. Supplied corpus files are read-only.
 
 Exit codes (default mode):
     0  Candidate passed adoption gate
@@ -198,6 +209,52 @@ def _is_forbidden_report_path(report_path: Path) -> bool:
     return False
 
 
+# Tier name -> standard corpus filename used inside a --corpus-dir directory.
+_CORPUS_TIER_FILENAMES: dict[str, str] = {
+    "benign": "benign_requests.json",
+    "attack": "attack_requests.json",
+    "regression": "regression_cases.json",
+    "holdout": "holdout_requests.json",
+    "counterfactual": "counterfactual_requests.json",
+    "drift": "drift_requests.json",
+}
+
+
+def _resolve_corpus_paths(
+    corpus_dir: Path | None,
+    overrides: dict[str, Path | None],
+) -> dict[str, Path] | None:
+    """Resolve per-tier corpus paths from an optional directory plus per-tier overrides.
+
+    Returns None when neither a directory nor any override is supplied, so the
+    caller falls back to the repository ``data/`` corpus (backward compatible).
+    A per-tier override always wins over the directory-derived path. Tiers that
+    are neither overridden nor present in ``corpus_dir`` are left unset so
+    ``load_test_cases`` uses its ``data/`` default for them.
+    """
+    if corpus_dir is None and not any(overrides.values()):
+        return None
+    resolved: dict[str, Path] = {}
+    for tier, filename in _CORPUS_TIER_FILENAMES.items():
+        override = overrides.get(tier)
+        if override is not None:
+            resolved[tier] = override
+        elif corpus_dir is not None:
+            resolved[tier] = corpus_dir / filename
+    return resolved
+
+
+def _load_test_cases_kwargs(corpus_paths: dict[str, Path] | None) -> dict[str, Path]:
+    """Translate a tier->Path mapping into load_test_cases keyword arguments."""
+    if not corpus_paths:
+        return {}
+    return {
+        f"{tier}_path": path
+        for tier, path in corpus_paths.items()
+        if path is not None
+    }
+
+
 def _make_detector_callable(rules_doc: dict):
     """Return a detector callable that invokes the runtime selector in structured_rules mode."""
     def _detector(request):
@@ -227,6 +284,7 @@ def evaluate_structured_rules(
     *,
     genome_path: Path,
     baseline_mode: bool = False,
+    corpus_paths: dict[str, Path] | None = None,
 ) -> tuple[dict, bool]:
     """Evaluate a structured rules document and return (report, is_tool_failure).
 
@@ -236,6 +294,18 @@ def evaluate_structured_rules(
 
     Candidate rejections (invalid schema, gate failed, parity guard):
         success=False, evaluation_completed=True, is_tool_failure=False
+
+    Args:
+        corpus_paths: Optional mapping of tier name
+            (``benign`` / ``attack`` / ``regression`` / ``holdout`` /
+            ``counterfactual`` / ``drift``) to an explicit corpus file Path. When
+            omitted (or for tiers left out), the repository ``data/`` corpus is
+            used, preserving the previous default behavior. This lets an Owner
+            evaluate a structured-rules candidate against a realistic but safely
+            neutralized corpus supplied from **outside** the repository, through
+            the same score / adoption-gate / adaptive-floor / parity-guard path.
+            Supplied corpus files are read-only inputs; this script never writes
+            to them and never commits their contents.
 
     Returns a JSON-serializable report dict.
     """
@@ -343,7 +413,7 @@ def evaluate_structured_rules(
     # the default). Missing adaptive tier files are treated as tool failures so the floor
     # gate cannot be silently bypassed by absent holdout/counterfactual/drift corpora.
     try:
-        cases = load_test_cases()
+        cases = load_test_cases(**_load_test_cases_kwargs(corpus_paths))
     except Exception as exc:
         return _tool_failure(f"test case load failed: {exc}", rules_path)
 
@@ -506,6 +576,30 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional. Bypass score-improvement and parity-guard requirements (baseline mode).",
     )
     parser.add_argument(
+        "--corpus-dir",
+        default=None,
+        dest="corpus_dir",
+        metavar="DIR",
+        help=(
+            "Optional. Directory containing Owner-supplied corpus files "
+            "(benign_requests.json, attack_requests.json, regression_cases.json, "
+            "holdout_requests.json, counterfactual_requests.json, drift_requests.json). "
+            "Read-only inputs; use realistic but safely neutralized, defensive-only "
+            "data from OUTSIDE the repository. Defaults to the repository data/ corpus."
+        ),
+    )
+    for _tier in _CORPUS_TIER_FILENAMES:
+        parser.add_argument(
+            f"--{_tier}-path",
+            default=None,
+            dest=f"{_tier}_path",
+            metavar="PATH",
+            help=(
+                f"Optional. Explicit path to the {_tier} corpus file. "
+                f"Overrides --corpus-dir for this tier."
+            ),
+        )
+    parser.add_argument(
         "--report-path",
         default=None,
         dest="report_path",
@@ -516,6 +610,13 @@ def main(argv: list[str] | None = None) -> int:
 
     rules_path = Path(args.rules)
     genome_path = Path(args.genome) if args.genome else _GENOME_PATH
+
+    corpus_dir = Path(args.corpus_dir) if args.corpus_dir else None
+    corpus_overrides: dict[str, Path | None] = {
+        tier: (Path(getattr(args, f"{tier}_path")) if getattr(args, f"{tier}_path") else None)
+        for tier in _CORPUS_TIER_FILENAMES
+    }
+    corpus_paths = _resolve_corpus_paths(corpus_dir, corpus_overrides)
 
     # Reject --report-path targets inside frozen project paths before evaluating.
     if args.report_path and _is_forbidden_report_path(Path(args.report_path)):
@@ -564,6 +665,7 @@ def main(argv: list[str] | None = None) -> int:
         rules_path,
         genome_path=genome_path,
         baseline_mode=args.baseline,
+        corpus_paths=corpus_paths,
     )
 
     if args.report_path:

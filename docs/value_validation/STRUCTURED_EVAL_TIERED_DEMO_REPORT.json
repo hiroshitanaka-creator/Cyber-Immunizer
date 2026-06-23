@@ -1,0 +1,327 @@
+{
+  "rules_path": "fixtures/structured_rules/symbolic_equivalent.json",
+  "rules_sha256": "774b7f88fd269a4d9b420fe3704642ef7903812957bf0f471aaaf5d6fc03443f",
+  "corpus_path": "fixtures/evaluation_corpus/tiered_demo_corpus.json",
+  "corpus_sha256": "f1ea441ad7f39873a65d4a0d033984b97fadc0909f8bd588deb117ea593175f9",
+  "overall": {
+    "TP": 10,
+    "FP": 0,
+    "TN": 7,
+    "FN": 0,
+    "exceptions": 0,
+    "total_corpus_entries": 17,
+    "total_cases": 17,
+    "tp_rate": 1.0,
+    "fp_rate": 0.0,
+    "fn_rate": 0.0
+  },
+  "per_category": {
+    "path-traversal": {
+      "TP": 3,
+      "FP": 0,
+      "TN": 1,
+      "FN": 0,
+      "exceptions": 0,
+      "tp_rate": 1.0,
+      "fp_rate": 0.0,
+      "fn_rate": 0.0
+    },
+    "xss": {
+      "TP": 3,
+      "FP": 0,
+      "TN": 0,
+      "FN": 0,
+      "exceptions": 0,
+      "tp_rate": 1.0,
+      "fp_rate": null,
+      "fn_rate": 0.0
+    },
+    "sqli": {
+      "TP": 2,
+      "FP": 0,
+      "TN": 1,
+      "FN": 0,
+      "exceptions": 0,
+      "tp_rate": 1.0,
+      "fp_rate": 0.0,
+      "fn_rate": 0.0
+    },
+    "cmdi": {
+      "TP": 2,
+      "FP": 0,
+      "TN": 0,
+      "FN": 0,
+      "exceptions": 0,
+      "tp_rate": 1.0,
+      "fp_rate": null,
+      "fn_rate": 0.0
+    },
+    "baseline": {
+      "TP": 0,
+      "FP": 0,
+      "TN": 2,
+      "FN": 0,
+      "exceptions": 0,
+      "tp_rate": null,
+      "fp_rate": 0.0,
+      "fn_rate": null
+    },
+    "search": {
+      "TP": 0,
+      "FP": 0,
+      "TN": 2,
+      "FN": 0,
+      "exceptions": 0,
+      "tp_rate": null,
+      "fp_rate": 0.0,
+      "fn_rate": null
+    },
+    "post": {
+      "TP": 0,
+      "FP": 0,
+      "TN": 1,
+      "FN": 0,
+      "exceptions": 0,
+      "tp_rate": null,
+      "fp_rate": 0.0,
+      "fn_rate": null
+    }
+  },
+  "per_kind": {
+    "attack": {
+      "TP": 10,
+      "FP": 0,
+      "TN": 0,
+      "FN": 0,
+      "exceptions": 0,
+      "pass_rate": 1.0
+    },
+    "benign": {
+      "TP": 0,
+      "FP": 0,
+      "TN": 7,
+      "FN": 0,
+      "exceptions": 0,
+      "pass_rate": 1.0
+    }
+  },
+  "per_tier": {
+    "holdout": {
+      "TP": 2,
+      "FP": 0,
+      "TN": 1,
+      "FN": 0,
+      "exceptions": 0,
+      "pass_rate": 1.0
+    },
+    "drift": {
+      "TP": 2,
+      "FP": 0,
+      "TN": 1,
+      "FN": 0,
+      "exceptions": 0,
+      "pass_rate": 1.0
+    },
+    "counterfactual": {
+      "TP": 1,
+      "FP": 0,
+      "TN": 2,
+      "FN": 0,
+      "exceptions": 0,
+      "pass_rate": 1.0
+    }
+  },
+  "per_case": [
+    {
+      "id": "attack-base-path-traversal",
+      "kind": "attack",
+      "category": "path-traversal",
+      "expected_blocked": true,
+      "actual_blocked": true,
+      "outcome": "TP",
+      "exception": false,
+      "matched_signals": [
+        "symbolic_path_traversal"
+      ]
+    },
+    {
+      "id": "attack-base-xss",
+      "kind": "attack",
+      "category": "xss",
+      "expected_blocked": true,
+      "actual_blocked": true,
+      "outcome": "TP",
+      "exception": false,
+      "matched_signals": [
+        "symbolic_script_injection"
+      ]
+    },
+    {
+      "id": "attack-base-sqli",
+      "kind": "attack",
+      "category": "sqli",
+      "expected_blocked": true,
+      "actual_blocked": true,
+      "outcome": "TP",
+      "exception": false,
+      "matched_signals": [
+        "symbolic_sqli"
+      ]
+    },
+    {
+      "id": "attack-base-cmdi",
+      "kind": "attack",
+      "category": "cmdi",
+      "expected_blocked": true,
+      "actual_blocked": true,
+      "outcome": "TP",
+      "exception": false,
+      "matched_signals": [
+        "symbolic_cmdi"
+      ]
+    },
+    {
+      "id": "attack-base-encoded-traversal",
+      "kind": "attack",
+      "category": "path-traversal",
+      "expected_blocked": true,
+      "actual_blocked": true,
+      "outcome": "TP",
+      "exception": false,
+      "matched_signals": [
+        "symbolic_encoded_traversal"
+      ]
+    },
+    {
+      "id": "benign-base-root",
+      "kind": "benign",
+      "category": "baseline",
+      "expected_blocked": false,
+      "actual_blocked": false,
+      "outcome": "TN",
+      "exception": false,
+      "matched_signals": []
+    },
+    {
+      "id": "benign-base-search",
+      "kind": "benign",
+      "category": "search",
+      "expected_blocked": false,
+      "actual_blocked": false,
+      "outcome": "TN",
+      "exception": false,
+      "matched_signals": []
+    },
+    {
+      "id": "benign-base-post",
+      "kind": "benign",
+      "category": "post",
+      "expected_blocked": false,
+      "actual_blocked": false,
+      "outcome": "TN",
+      "exception": false,
+      "matched_signals": []
+    },
+    {
+      "id": "holdout-attack-path-traversal",
+      "kind": "attack",
+      "category": "path-traversal",
+      "expected_blocked": true,
+      "actual_blocked": true,
+      "outcome": "TP",
+      "exception": false,
+      "matched_signals": [
+        "symbolic_path_traversal"
+      ]
+    },
+    {
+      "id": "holdout-attack-sqli",
+      "kind": "attack",
+      "category": "sqli",
+      "expected_blocked": true,
+      "actual_blocked": true,
+      "outcome": "TP",
+      "exception": false,
+      "matched_signals": [
+        "symbolic_sqli"
+      ]
+    },
+    {
+      "id": "holdout-benign-upload",
+      "kind": "benign",
+      "category": "baseline",
+      "expected_blocked": false,
+      "actual_blocked": false,
+      "outcome": "TN",
+      "exception": false,
+      "matched_signals": []
+    },
+    {
+      "id": "drift-attack-xss",
+      "kind": "attack",
+      "category": "xss",
+      "expected_blocked": true,
+      "actual_blocked": true,
+      "outcome": "TP",
+      "exception": false,
+      "matched_signals": [
+        "symbolic_script_injection"
+      ]
+    },
+    {
+      "id": "drift-attack-cmdi",
+      "kind": "attack",
+      "category": "cmdi",
+      "expected_blocked": true,
+      "actual_blocked": true,
+      "outcome": "TP",
+      "exception": false,
+      "matched_signals": [
+        "symbolic_cmdi"
+      ]
+    },
+    {
+      "id": "drift-benign-locale",
+      "kind": "benign",
+      "category": "search",
+      "expected_blocked": false,
+      "actual_blocked": false,
+      "outcome": "TN",
+      "exception": false,
+      "matched_signals": []
+    },
+    {
+      "id": "counterfactual-benign-near-traversal",
+      "kind": "benign",
+      "category": "path-traversal",
+      "expected_blocked": false,
+      "actual_blocked": false,
+      "outcome": "TN",
+      "exception": false,
+      "matched_signals": []
+    },
+    {
+      "id": "counterfactual-benign-near-sqli",
+      "kind": "benign",
+      "category": "sqli",
+      "expected_blocked": false,
+      "actual_blocked": false,
+      "outcome": "TN",
+      "exception": false,
+      "matched_signals": []
+    },
+    {
+      "id": "counterfactual-attack-true-positive",
+      "kind": "attack",
+      "category": "xss",
+      "expected_blocked": true,
+      "actual_blocked": true,
+      "outcome": "TP",
+      "exception": false,
+      "matched_signals": [
+        "symbolic_script_injection"
+      ]
+    }
+  ],
+  "latency_note": "This CLI does not capture per-request latency. L2-V2 latency evidence must be collected separately."
+}
