@@ -1,13 +1,17 @@
 <!--
 AI_DOC_META
 status: CANONICAL
-scope: API activation readiness checklist, GEMINI_API_KEY terminology, Phase 3 Go/No-Go boundaries, and Phase 3 paid-credit current state.
+scope: GEMINI_API_KEY terminology and secret-scoping definitions (canonical, not time-bound). Phase 3 API activation readiness boundaries (canonical). In-file [HISTORICAL] banners mark stale paid-credit current-state sections (PR #60–#62 era, first run pending at time of writing).
 use_for:
-  - checking API activation readiness
-  - understanding raw GEMINI_API_KEY vs GEMINI_API_KEY_PRESENT
-  - verifying secret-scoping terminology
-  - confirming Phase 3 activation PR status and paid-credit current state
+  - understanding raw GEMINI_API_KEY vs GEMINI_API_KEY_PRESENT (canonical terminology — not time-bound)
+  - verifying secret-scoping terminology and naming conventions
+  - reviewing historical Phase 3 activation readiness boundaries and Go/No-Go safety conditions (PR #58–#62 pre-activation era — see [HISTORICAL] banners in document)
+  - audit evidence for safety boundaries applied during initial Phase 3 activation
 do_not_use_for:
+  - determining current paid-credit run count (use docs/PROJECT_STATE.md or data/project_state.json — success records: 14, generation 4 active)
+  - determining current promote_approved status (use data/project_state.json — promote_approved=true as of run #59)
+  - planning next paid-credit experiments (Project Owner decision required per next_action field)
+  - checking current Phase 3 paid-credit 現在地 — sections marked [HISTORICAL] reflect PR #60–#62 era only
   - performing API activation by itself
   - bypassing Project Owner approval
   - changing workflow execution logic without a dedicated activation PR
@@ -16,10 +20,13 @@ related:
   - docs/AI_ENTRYPOINT.md
   - docs/API_ACTIVATION_RUNBOOK.md
   - docs/audit_gate/PR_AUDIT_PROTOCOL.md
-last_reviewed: 2026-06-03
+  - docs/PROJECT_STATE.md
+last_reviewed: 2026-06-23
 AI_DOC_META_END
 -->
 # Cyber-Immunizer API Activation Checklist
+
+> **[HISTORICAL — 2026-06-03 更新 / PR #60–#62 merge 直後の記録]** 「Canonical GEMINI_API_KEY terminology」セクションを除く本文書の全セクションは、Phase 3 activation（PR #58–#62）実行前に記録された歴史的証拠です。現在の状態は `docs/PROJECT_STATE.md` を参照してください（primary-model paid-credit success 14 件、generation 4 昇格済み、promote_approved=true）。
 
 > **⚠️ 2026-06-03 更新: Phase 3 activation PR #58–#62 が main に merge 済み。**  
 > **paid-credit path は準備完了。gemini-3-flash-preview での controlled run は未実行（次のステップ）。**  
@@ -68,6 +75,10 @@ confirm the key is configured in GitHub Secrets without exposing the actual valu
 **Minimum-privilege rule**: raw `GEMINI_API_KEY` must only be injected at
 step-level env, in mode-specific steps (`live-model`, `gemini-paid-credit`) that
 are gated by a mode-matching `if:` condition.
+
+---
+
+> **[HISTORICAL — 以下の全セクションは Phase 2.5 / pre-Phase 3 activation 時点の記録]** この「Canonical GEMINI_API_KEY terminology」セクション以降の全内容は Phase 3 activation（PR #58–#62）実行前に記録された歴史的証拠です。Phase 3 は既に activation 済み（live_model_enabled=true、primary-model paid-credit success 14 件、generation 4 昇格済み、promote_approved=true）。現在の状態は `docs/PROJECT_STATE.md` / `data/project_state.json` を参照してください。
 
 ---
 
@@ -255,8 +266,9 @@ Phase 3 Go/No-Go 準備中は以下を実施しません。これらは Phase 3 
 
 ## Phase 3 Paid-Credit 現在地（PR #60–#62 反映）
 
-> **このセクションは Phase 3 activation PR merge 後の正確な現在地を記録する。**  
-> 過去の paid-credit API call 記録は存在する（`data/api_usage_ledger.json` 参照）。gemini-3-flash-preview での controlled paid-credit run は未実行。paid-credit path の準備は完了。
+> **[HISTORICAL — PR #60–#62 merge 直後の記録]** このセクションは gemini-3-flash-preview の初回 paid-credit run 実行前の状態を記録した歴史的証拠です。現在の paid-credit 件数・promote 状態は `docs/PROJECT_STATE.md` / `data/project_state.json` を参照してください（success 14 件、generation 4 昇格済み、promote_approved=true）。
+
+> **[HISTORICAL] このセクションは PR #60–#62 merge 直後、初回 primary-model paid-credit run 実行前の歴史的現在地を記録する（現在の状態: promote_approved=true、primary-model success 14件、generation 4 昇格済み — `docs/PROJECT_STATE.md` / `data/project_state.json` 参照）。** 記録時点の状態: 過去の paid-credit API call 記録が存在した（`data/api_usage_ledger.json` 参照）。gemini-3-flash-preview での controlled paid-credit run は記録時点で未実行。paid-credit path の準備は完了していた。
 
 ### Phase 3 Activation PR サマリー
 
@@ -268,20 +280,24 @@ Phase 3 Go/No-Go 準備中は以下を実施しません。これらは Phase 3 
 | **PR #61** | `replacement_code` の Python 構文検証を Propose 段階に追加（`ast.parse()` のみ、実行なし） |
 | **PR #62** | Primary model を `gemini-3-flash-preview` に変更。`ThinkingConfig(thinking_level="low")`、actual thinking tokens の ledger 反映 |
 
-### 現在の Phase 3 状態
+### Phase 3 状態（記録時点 — HISTORICAL）
 
-| 項目 | 状態 |
+> **[HISTORICAL]** 以下の表は PR #60–#62 merge 直後の記録時点の状態を示す。現在の状態は `docs/PROJECT_STATE.md` / `data/project_state.json` を参照（promote_approved=true、generation 4 active、primary-model success 14件）。
+
+| 項目 | 状態（記録時点） |
 |---|---|
 | Phase 3 activation PR | ✅ PR #58–#62 merge 済み |
 | `live_model_enabled` | `true` |
 | Primary model | `gemini-3-flash-preview` |
 | Fallback model | `gemini-3.1-flash-lite` |
 | 過去の paid-credit API call 記録 | 存在する（gemini-3.1-flash-lite 成功 × 1 など — `data/api_usage_ledger.json` 参照） |
-| Gemini 3 Flash Preview controlled run | **未実行** — gemini-3-flash-preview 構成での初回確認 run が次ステップ |
-| `promote_approved` | `false` — 最初の run 結果確認前は禁止 |
-| Apply / Evaluate / Promote 自動昇格 | **禁止** — run 結果確認後に判断 |
+| Gemini 3 Flash Preview controlled run | **未実行** [HISTORICAL: 記録時点 — 現在は primary-model success 14件] |
+| `promote_approved` | `false` [HISTORICAL: 記録時点 — 現在は promote_approved=true（run #59 generation 4 昇格済み）] |
+| Apply / Evaluate / Promote 自動昇格 | **禁止**（記録時点）— run 結果確認後に判断 |
 
-### 次の Project Owner 手順
+### 次の Project Owner 手順（HISTORICAL — 記録時点の手順）
+
+> **[HISTORICAL]** 以下の手順は PR #60–#62 merge 直後に記録された歴史的手順である。Phase 3 は activation 済み（run #59、generation 4 昇格済み、promote_approved=true）。現在の次ステップは `data/project_state.json` の `next_action` フィールドを参照。
 
 1. PR #62 が main に merge 済みであることを確認（`data/genome.json` が `gemini-3-flash-preview`）
 2. この docs PR を merge する
@@ -289,7 +305,7 @@ Phase 3 Go/No-Go 準備中は以下を実施しません。これらは Phase 3 
 4. ledger artifact / candidate patch / apply / evaluate 結果を確認
 5. 結果に基づいて次 PR を判断（promote / fix / halt）
 
-### 禁止事項（Phase 3 paid-credit 実行前）
+### 禁止事項（Phase 3 paid-credit 実行前 — HISTORICAL）
 
 - `promote_approved=true` にしない（最初の run 結果確認前）
 - paid-credit run を連続実行しない

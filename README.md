@@ -819,6 +819,8 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 
 ## Phase 3: Paid-Credit API 実行待機中
 
+> **[HISTORICAL — PR #60–#73 merge 前の記録]** このセクションは gemini-3-flash-preview の初回 paid-credit run 実行前の状態を記録した歴史的証拠です。現在の状態は `docs/PROJECT_STATE.md` を参照してください（paid-credit success 14 件、generation 4 昇格済み、promote_approved=true）。
+
 > **⚠️ Phase 3 activation PR (#58–#62) は main に merge 済み。**  
 > **paid-credit path は準備完了。過去の paid-credit API call 記録は存在する（`data/api_usage_ledger.json` 参照）。**  
 > **gemini-3-flash-preview での controlled paid-credit run は未実行。次のステップ: Project Owner が 1 回だけ手動実行する。**  
@@ -889,7 +891,7 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | **v0.1** | ローカルファーストの MVP スキャフォールド |
 | **v0.2** | Gemini API 統合基盤（安全なフリーティア戦略・スキーマ拘束・プリフライトスキャン・API予算管理） |
 | **v0.2.x（Phase 2）** | API未接続運用強化（rollback設計・evolution_history監査・offline-sample dry-run分離・運用チェックリスト整備）— **完了** |
-| **v0.3（Phase 3 / 現在）** | 実 Gemini API 接続 — activation PR #58–#62 merge 済み、hardening PR #63–#68 完了、X-007 spec frozen (PR #69)、X-007 check 11 implemented (PR #73)、paid-credit API success records 5件（2026-06-03〜2026-06-15）、run 5 artifact triage pending |
+| **v0.3（Phase 3 / 現在）** | 実 Gemini API 接続 — activation PR #58–#62 merge 済み、hardening PR #63–#68 完了、X-007 spec frozen (PR #69)、X-007 check 11 implemented (PR #73)、primary-model paid-credit API success records 14件（2026-06-03〜2026-06-22）、generation 4 active baseline（score 948.04、run #59 2026-06-18 昇格済み） |
 | **v0.4** | 複数検出器の並列評価、アンサンブル昇格 |
 | **将来** | 実WAFへの統合（別途セキュリティレビュー必須） |
 
@@ -911,7 +913,7 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 |---|---|
 | Current Phase | Phase 3 — generation 4 active on main after owner-approved paid-credit run #59 promotion (score 948.04, hash ebb8799d…); generation 4 audit complete |
 | Phase 3 Activation | Complete (PR #58-#62) |
-| Phase 3 Paid-Credit API Calls | Executed (10 successful / 10 attempt(s)) |
+| Phase 3 Primary-Model Paid-Credit API Calls | Executed (14 successful / 14 primary-model attempt(s)) |
 | Gemini Primary Model | gemini-3-flash-preview |
 | Gemini Fallback Model | gemini-3.1-flash-lite |
 | promote_approved | true (generation 4 promoted via owner-approved paid-credit run #59; active on main) |
