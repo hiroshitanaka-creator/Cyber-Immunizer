@@ -324,6 +324,36 @@ def _make_detector_callable(rules_doc: dict):
     return _detector
 
 
+def _active_structured_baseline(genome: dict) -> tuple[float | None, dict | None]:
+    """Resolve the currently-active structured baseline from the genome.
+
+    Returns (active_score, active_rules_doc) when ``detector_mode`` is
+    ``structured_rules`` and the active rules document is readable + schema-valid;
+    otherwise (None, None) so callers fall back to the legacy baseline. Used so a
+    structured-to-structured candidate is graded for score-improvement and parity
+    against the active structured detector rather than the legacy lineage.
+    """
+    if genome.get("detector_mode") != "structured_rules":
+        return None, None
+    score = genome.get("active_structured_rules_score")
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        score = None
+    rules_doc: dict | None = None
+    path_str = genome.get("active_structured_rules_path")
+    if isinstance(path_str, str):
+        p = Path(path_str)
+        if not p.is_absolute():
+            p = _PROJECT_ROOT / p
+        try:
+            if p.is_file() and p.stat().st_size <= _MAX_CORPUS_FILE_BYTES:
+                doc = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(doc, dict) and validate_rules_schema(doc).get("success") is True:
+                    rules_doc = doc
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError, RecursionError):
+            rules_doc = None
+    return (float(score) if score is not None else None), rules_doc
+
+
 def _tool_failure(error: str, rules_path: Path) -> tuple[dict, bool]:
     return {
         "success": False,
@@ -458,7 +488,17 @@ def evaluate_structured_rules(
 
     max_fp_rate: float = float(genome.get("max_fp_rate", 0.05))
     min_regression_pass_rate: float = float(genome.get("min_regression_pass_rate", 1.0))
-    previous_best_score: float = float(genome.get("best_score", -1e9))
+    # When a structured ruleset is the ACTIVE detector, structured-to-structured
+    # candidates must improve on (and differ from) that active ruleset — not the
+    # legacy symbolic best_score / legacy detector. Otherwise the adoption gate
+    # compares against the wrong baseline and the autonomous loop cannot evolve
+    # past the legacy lineage. Fall back to the legacy baseline when no active
+    # structured ruleset is resolvable.
+    active_score, active_baseline_rules = _active_structured_baseline(genome)
+    if active_score is not None:
+        previous_best_score: float = active_score
+    else:
+        previous_best_score = float(genome.get("best_score", -1e9))
     max_avg_latency_ms: float = float(genome.get("max_avg_latency_ms", 100.0))
     min_holdout_pass_rate: float = float(genome.get("min_holdout_pass_rate", 1.0))
     min_cf_pass_rate: float = float(genome.get("min_counterfactual_pass_rate", 1.0))
@@ -587,14 +627,23 @@ def evaluate_structured_rules(
     parity_reasons: list[str] = []
     parity_rejected = False
     if not baseline_mode:
-        legacy_results_raw = evaluate_detector(_legacy_inspect_request, cases)
-        legacy_outcomes = {r["id"]: r["actual_blocked"] for r in legacy_results_raw}
+        # Parity baseline = the current ACTIVE detector. If a structured ruleset is
+        # active, compare against it (structured-to-structured improvement); else
+        # compare against the legacy Python detector.
+        if active_baseline_rules is not None:
+            baseline_fn = _make_detector_callable(active_baseline_rules)
+            baseline_label = "active structured ruleset"
+        else:
+            baseline_fn = _legacy_inspect_request
+            baseline_label = "legacy detector"
+        baseline_results_raw = evaluate_detector(baseline_fn, cases)
+        baseline_outcomes = {r["id"]: r["actual_blocked"] for r in baseline_results_raw}
         structured_outcomes = {r["id"]: r["actual_blocked"] for r in results}
-        if legacy_outcomes == structured_outcomes:
+        if baseline_outcomes == structured_outcomes:
             parity_rejected = True
             parity_reasons.append(
                 "no_behavior_improvement_against_current_detector: "
-                "structured rules produce identical per-case outcomes to the legacy detector"
+                f"structured rules produce identical per-case outcomes to the {baseline_label}"
             )
 
     all_reasons = gate_reasons + floor_reasons + parity_reasons
