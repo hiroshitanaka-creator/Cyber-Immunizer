@@ -1,0 +1,242 @@
+[
+  {
+    "id": "hv-pt-doubleenc",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "double-encoded traversal",
+    "tags": [
+      "attack",
+      "heldout",
+      "path-traversal",
+      "variant"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/d",
+      "query": {
+        "f": "%252e%252e%252fetc"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "hv-pt-backslash",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "backslash traversal",
+    "tags": [
+      "attack",
+      "heldout",
+      "path-traversal",
+      "variant"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/d",
+      "query": {
+        "f": "..\\..\\windows"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "hv-sqli-comment",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "comment-obfuscated SQLi",
+    "tags": [
+      "attack",
+      "heldout",
+      "sqli",
+      "variant"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/i",
+      "query": {
+        "id": "1 union/**/select pw"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "hv-cmdi-nospace",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "pipe without trailing 'sh'",
+    "tags": [
+      "attack",
+      "heldout",
+      "cmdi",
+      "variant"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/p",
+      "query": {
+        "h": "x|cat /etc/hosts"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "hn-ssrf-metadata",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "SSRF cloud metadata",
+    "tags": [
+      "attack",
+      "heldout",
+      "ssrf",
+      "newclass"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/fetch",
+      "query": {
+        "url": "http://169.254.169.254/latest/meta-data"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "hn-xxe-entity",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "XXE",
+    "tags": [
+      "attack",
+      "heldout",
+      "xxe",
+      "newclass"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/xml",
+      "query": {},
+      "headers": {
+        "Content-Type": "application/xml"
+      },
+      "body": "<!DOCTYPE x [<!ENTITY e SYSTEM 'file:///etc/passwd'>]>"
+    }
+  },
+  {
+    "id": "hn-ssti-expr",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "SSTI",
+    "tags": [
+      "attack",
+      "heldout",
+      "ssti",
+      "newclass"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/render",
+      "query": {
+        "t": "{{7*7}}"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "hn-nosql-where",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "NoSQL injection",
+    "tags": [
+      "attack",
+      "heldout",
+      "nosqli",
+      "newclass"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/find",
+      "query": {},
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"q\":{\"$where\":\"1==1\"}}"
+    }
+  },
+  {
+    "id": "hn-ldap-filter",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "LDAP injection",
+    "tags": [
+      "attack",
+      "heldout",
+      "ldapi",
+      "newclass"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/auth",
+      "query": {
+        "u": "*)(uid=*))(|(uid=*"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "hb-1",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign",
+      "heldout"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/articles/meta-data-guide",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "hb-2",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign",
+      "heldout"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/render",
+      "query": {},
+      "headers": {},
+      "body": "{\"t\":\"render the template safely\"}"
+    }
+  },
+  {
+    "id": "hb-3",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign",
+      "heldout"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/files/report.xml",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  }
+]
