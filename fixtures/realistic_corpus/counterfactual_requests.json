@@ -1,0 +1,66 @@
+[
+  {
+    "id": "c-1",
+    "kind": "counterfactual",
+    "expected_blocked": false,
+    "description": "word 'traversal' but no ../",
+    "tags": [
+      "counterfactual"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/files/quarterly-traversal-report.pdf",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "c-2",
+    "kind": "counterfactual",
+    "expected_blocked": false,
+    "description": "sql words, no injection",
+    "tags": [
+      "counterfactual"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/feedback",
+      "query": {},
+      "headers": {},
+      "body": "{\"c\":\"the sql tutorial and select-a-plan page helped\"}"
+    }
+  },
+  {
+    "id": "c-3",
+    "kind": "counterfactual",
+    "expected_blocked": false,
+    "description": "'script' word, no <script",
+    "tags": [
+      "counterfactual"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/docs/scripting-guide",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "c-4",
+    "kind": "counterfactual",
+    "expected_blocked": false,
+    "description": "'command' word, no ;rm",
+    "tags": [
+      "counterfactual"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/help/command-reference",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  }
+]

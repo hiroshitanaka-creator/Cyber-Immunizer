@@ -1,0 +1,58 @@
+[
+  {
+    "id": "d-1",
+    "kind": "drift",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "drift",
+      "xss"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/p",
+      "query": {},
+      "headers": {
+        "Referer": "https://x.test/<script>x"
+      },
+      "body": ""
+    }
+  },
+  {
+    "id": "d-2",
+    "kind": "drift",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "drift",
+      "cmdi"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/exec",
+      "query": {
+        "a": "id| sh"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "d-3",
+    "kind": "drift",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "drift"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/api/articles",
+      "query": {
+        "locale": "ja-JP"
+      },
+      "headers": {},
+      "body": ""
+    }
+  }
+]

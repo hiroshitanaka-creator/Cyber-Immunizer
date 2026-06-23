@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "features": {
+    "surface": {
+      "fields": [
+        "method",
+        "path",
+        "query.keys",
+        "query.values",
+        "headers.keys",
+        "headers.values",
+        "body"
+      ],
+      "normalization": [
+        "lowercase"
+      ],
+      "max_collection_entries": {
+        "query": 1000,
+        "headers": 1000
+      },
+      "max_scalar_bytes": {
+        "method": 4096,
+        "path": 1048576,
+        "query.item": 1048576,
+        "header.item": 1048576
+      },
+      "body_scan": {
+        "mode": "full",
+        "max_bytes": 1048576
+      }
+    }
+  },
+  "rules": [
+    {
+      "id": "path_traversal_1",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "../",
+      "signal": "path_traversal",
+      "confidence": 0.85
+    },
+    {
+      "id": "path_traversal_2",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "..%2f",
+      "signal": "path_traversal",
+      "confidence": 0.85
+    },
+    {
+      "id": "path_traversal_3",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "%2e%2e/",
+      "signal": "path_traversal",
+      "confidence": 0.85
+    },
+    {
+      "id": "path_traversal_4",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "/etc/passwd",
+      "signal": "path_traversal",
+      "confidence": 0.85
+    },
+    {
+      "id": "path_traversal_5",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "/etc/shadow",
+      "signal": "path_traversal",
+      "confidence": 0.85
+    },
+    {
+      "id": "xss_6",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "<script",
+      "signal": "xss",
+      "confidence": 0.85
+    },
+    {
+      "id": "xss_7",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "javascript:",
+      "signal": "xss",
+      "confidence": 0.85
+    },
+    {
+      "id": "xss_8",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "onerror=",
+      "signal": "xss",
+      "confidence": 0.85
+    },
+    {
+      "id": "xss_9",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "<svg/onload",
+      "signal": "xss",
+      "confidence": 0.85
+    },
+    {
+      "id": "xss_10",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "<img src=x",
+      "signal": "xss",
+      "confidence": 0.85
+    },
+    {
+      "id": "sqli_11",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "union select",
+      "signal": "sqli",
+      "confidence": 0.85
+    },
+    {
+      "id": "sqli_12",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": " or 1=1",
+      "signal": "sqli",
+      "confidence": 0.85
+    },
+    {
+      "id": "sqli_13",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "' or '1'='1",
+      "signal": "sqli",
+      "confidence": 0.85
+    },
+    {
+      "id": "sqli_14",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "'; drop table",
+      "signal": "sqli",
+      "confidence": 0.85
+    },
+    {
+      "id": "sqli_15",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": " sleep(",
+      "signal": "sqli",
+      "confidence": 0.85
+    },
+    {
+      "id": "cmdi_16",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": ";rm ",
+      "signal": "cmdi",
+      "confidence": 0.85
+    },
+    {
+      "id": "cmdi_17",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "; rm ",
+      "signal": "cmdi",
+      "confidence": 0.85
+    },
+    {
+      "id": "cmdi_18",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "&&",
+      "signal": "cmdi",
+      "confidence": 0.85
+    },
+    {
+      "id": "cmdi_19",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "| sh",
+      "signal": "cmdi",
+      "confidence": 0.85
+    },
+    {
+      "id": "cmdi_20",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "$(",
+      "signal": "cmdi",
+      "confidence": 0.85
+    },
+    {
+      "id": "cmdi_21",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "/bin/sh",
+      "signal": "cmdi",
+      "confidence": 0.85
+    }
+  ],
+  "decision": {
+    "block_when": "any_rule_matches",
+    "reason": "suspicious request pattern matched",
+    "confidence_strategy": {
+      "type": "bounded_match_count",
+      "default": 0.85,
+      "two_matches": 0.93,
+      "three_or_more_matches": 0.98
+    },
+    "matched_signals": "matched_rule_signals"
+  },
+  "fallback": {
+    "blocked": false,
+    "reason": "no suspicious pattern matched",
+    "confidence": 0.0,
+    "matched_signals": []
+  }
+}
