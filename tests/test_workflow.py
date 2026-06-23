@@ -2339,3 +2339,45 @@ class TestStructuredLoopModes:
     def test_structured_rules_artifact_uploaded(self, workflow_content: str) -> None:
         assert "name: structured-rules" in workflow_content
         assert "structured_rules.json" in workflow_content
+
+
+# ---------------------------------------------------------------------------
+# Structured evaluate/promote jobs (M1 CI loop completion)
+# ---------------------------------------------------------------------------
+
+def _job_block(workflow_content: str, job_key: str) -> str:
+    m = _re_structured.search(
+        r"\n  " + _re_structured.escape(job_key) + r":\n(.*?)(?=\n  [A-Za-z][\w-]*:\n|\Z)",
+        workflow_content, _re_structured.DOTALL,
+    )
+    assert m is not None, f"job not found: {job_key}"
+    return m.group(1)
+
+
+class TestStructuredEvaluatePromoteJobs:
+    def test_structured_evaluate_job_present_and_gated(self, workflow_content: str) -> None:
+        job = _job_block(workflow_content, "structured-evaluate")
+        assert "needs.propose.outputs.structured_rules_exists == 'true'" in job
+        assert "contents: read" in job
+        assert "evaluate_structured_rules_candidate.py" in job
+        assert "fixtures/realistic_corpus" in job
+
+    def test_structured_evaluate_has_no_api_key(self, workflow_content: str) -> None:
+        job = _job_block(workflow_content, "structured-evaluate")
+        assert "secrets.GEMINI_API_KEY" not in job, (
+            "structured-evaluate must never receive the API key"
+        )
+
+    def test_structured_promote_job_present_and_owner_gated(self, workflow_content: str) -> None:
+        job = _job_block(workflow_content, "structured-promote")
+        assert "contents: write" in job
+        assert "github.event.inputs.promote_approved == 'true'" in job
+        assert "github.ref == 'refs/heads/main'" in job
+        assert "needs.structured-evaluate.outputs.passed_adoption_gate == 'true'" in job
+        assert "promote_structured_candidate.py" in job
+
+    def test_structured_promote_has_no_api_key(self, workflow_content: str) -> None:
+        job = _job_block(workflow_content, "structured-promote")
+        assert "secrets.GEMINI_API_KEY" not in job, (
+            "structured-promote must never receive the API key (write job, no model secret)"
+        )
