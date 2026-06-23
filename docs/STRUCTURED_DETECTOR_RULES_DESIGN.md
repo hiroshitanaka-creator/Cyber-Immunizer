@@ -275,3 +275,50 @@ It must not modify:
 - promotion state
 
 It must not run paid-credit workflows, invoke `workflow_dispatch`, call the Gemini API, promote a candidate, or set `promote_approved=true`.
+
+## L1-F14 Decision Record (structured detector integration decision)
+
+**Decision (recorded 2026-06-23): Option (b) — the structured detector modules
+are an explicitly-invoked, opt-in path that is intentionally NOT auto-integrated
+into the promoted runtime detector.** This resolves the open `L1-F14` criterion
+in `docs/DEFINITION_OF_DONE.md`, which requires that `core/structured_*` be
+either (a) integrated into a single runtime call path with equivalence tests, or
+(b) explicitly documented as experimental / non-integrated with tests asserting
+the separation.
+
+### What is decided
+
+- The promoted runtime detector `core/detector.py::inspect_request` remains the
+  only automated mutation target and is **not** wired to structured rules. No
+  environment variable, file read, or implicit loader can switch it to the
+  structured path.
+- The structured path is reachable only by an explicit caller that supplies both
+  a mode and a rules document, via
+  `core/runtime_selector.py::inspect_request_with_runtime_selector(mode="structured_rules", structured_rules_doc=...)`
+  or directly via
+  `core/structured_detector.py::inspect_request_with_structured_rules`.
+- The structured evaluator is fixed, reviewed code (`core/structured_evaluator.py`)
+  validated by a strict static schema validator (`core/structured_validator.py`);
+  rule documents are treated as data, never as executable payloads.
+
+### Evidence (machine-verifiable)
+
+- **Separation asserted**: `tests/test_structured_detector_integration.py::test_default_detector_source_has_no_structured_integration_references`
+  fails if `core/detector.py` ever references `structured_detector`,
+  `structured_evaluator`, `inspect_request_with_structured_rules`, or
+  `evaluate_structured_rules`.
+- **No implicit activation**: `...::test_default_detector_still_requires_no_explicit_structured_rules`
+  asserts the default detector behaves identically with no structured rules in play.
+- **Equivalence proven on the current corpus**: `tests/test_structured_detector_equivalence.py::test_corpus_level_equivalence_for_main_and_adaptive_tiers`
+  asserts the structured path produces identical `blocked` and `matched_signals`
+  outcomes to `core/detector.py` across all six tiers (benign, attack,
+  regression, holdout, counterfactual, drift), with additional sample-level,
+  confidence, matched-signal-order, fallback, no-mutation, and large-body
+  equivalence tests.
+
+### What is explicitly NOT decided here
+
+Phases 5–7 above (migrating proposer output to structured documents, automatic
+runtime integration, and retiring the raw-Python mutation path) remain future,
+Owner-gated work. This record does not authorize them; it only fixes the current
+state as the tested, separated option (b).
