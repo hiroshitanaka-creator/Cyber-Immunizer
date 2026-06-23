@@ -1,7 +1,7 @@
 <!--
 AI_DOC_META
-status: CANONICAL
-scope: API activation readiness checklist, GEMINI_API_KEY terminology, Phase 3 Go/No-Go boundaries, and Phase 3 paid-credit current state.
+status: HISTORICAL
+scope: API activation readiness checklist, GEMINI_API_KEY terminology, Phase 3 Go/No-Go boundaries, and Phase 3 paid-credit current state as of PR #60–#62 (first controlled run pending at time of writing).
 use_for:
   - checking API activation readiness
   - understanding raw GEMINI_API_KEY vs GEMINI_API_KEY_PRESENT
@@ -20,6 +20,8 @@ last_reviewed: 2026-06-03
 AI_DOC_META_END
 -->
 # Cyber-Immunizer API Activation Checklist
+
+> **[HISTORICAL — 2026-06-03 更新 / PR #60–#62 merge 直後の記録]** このヘッダーは controlled paid-credit run 実行前の状態の歴史的記録です。現在の状態は `docs/PROJECT_STATE.md` を参照してください（paid-credit success 14 件、generation 4 昇格済み、promote_approved=true）。
 
 > **⚠️ 2026-06-03 更新: Phase 3 activation PR #58–#62 が main に merge 済み。**  
 > **paid-credit path は準備完了。gemini-3-flash-preview での controlled run は未実行（次のステップ）。**  
@@ -254,6 +256,8 @@ Phase 3 Go/No-Go 準備中は以下を実施しません。これらは Phase 3 
 ---
 
 ## Phase 3 Paid-Credit 現在地（PR #60–#62 反映）
+
+> **[HISTORICAL — PR #60–#62 merge 直後の記録]** このセクションは gemini-3-flash-preview の初回 paid-credit run 実行前の状態を記録した歴史的証拠です。現在の paid-credit 件数・promote 状態は `docs/PROJECT_STATE.md` / `data/project_state.json` を参照してください（success 14 件、generation 4 昇格済み、promote_approved=true）。
 
 > **このセクションは Phase 3 activation PR merge 後の正確な現在地を記録する。**  
 > 過去の paid-credit API call 記録は存在する（`data/api_usage_ledger.json` 参照）。gemini-3-flash-preview での controlled paid-credit run は未実行。paid-credit path の準備は完了。

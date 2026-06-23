@@ -1,15 +1,15 @@
 <!--
 AI_DOC_META
-status: RUNBOOK
-scope: Phase 3 API activation procedure, Gemini 3 Flash Preview operational runbook, and paid-credit current state (PR #60-#62).
+status: HISTORICAL
+scope: Phase 3 API activation procedure, Gemini 3 Flash Preview operational runbook, and paid-credit current state as of PR #60-#62 (first controlled run pending at time of writing).
 use_for:
-  - planning and executing the first Phase 3 paid-credit run
-  - understanding the Gemini 3 Flash Preview configuration and safe operation
-  - Project Owner guided activation procedure and next steps
-  - confirming Phase 3 activation PRs are merged and first run is pending
+  - reviewing the historical Phase 3 activation procedure (PR #60–#62 era, first run pending)
+  - audit evidence for the safety boundaries applied during initial Phase 3 activation
+  - understanding Gemini 3 Flash Preview configuration as documented before first paid-credit run
 do_not_use_for:
-  - executing multiple paid-credit runs without reviewing each result
-  - setting promote_approved=true before reviewing first run results
+  - determining current paid-credit run count (use docs/PROJECT_STATE.md or data/project_state.json — success records: 14, generation 4 active)
+  - determining current promote_approved status (use data/project_state.json — promote_approved=true as of run #59)
+  - planning next paid-credit experiments (Project Owner decision required per next_action field)
   - asserting GitHub Secrets state (Project Owner verifies out-of-band)
   - calling Gemini API directly from this document
 related:
@@ -30,6 +30,8 @@ AI_DOC_META_END
 ---
 
 ## ⚠️ 現在の状態: Phase 3 activation 完了 / 初回 paid-credit run 待機中
+
+> **[HISTORICAL — PR #60–#62 merge 直後の記録]** このセクションは gemini-3-flash-preview の初回 paid-credit run 実行前の状態を記録した歴史的証拠です。現在の状態は `docs/PROJECT_STATE.md` / `data/project_state.json` を参照してください（paid-credit success 14 件、generation 4 昇格済み、promote_approved=true）。
 
 > **Phase 3 activation PR (#58–#62) は main に merge 済み。**  
 > **paid-credit path は準備完了。過去の paid-credit API call 記録は存在する（gemini-3.1-flash-lite 成功記録あり — `data/api_usage_ledger.json` 参照）。**  
