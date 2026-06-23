@@ -184,6 +184,15 @@
     "score": 948.04,
     "detector_hash": "ebb8799db748ed3c3b38eec0c11cdc423b0e43ca04a374ba7e26a48059c30d3f"
   },
+  "layer_2_value_validation": {
+    "status": "owner_accepted_bounded",
+    "accepted_on": "2026-06-23",
+    "accepted_by": "hiroshitanaka-creator",
+    "evidence": "docs/value_validation/LAYER2_REALISTIC_EVALUATION_SUMMARY.md",
+    "meaning": "Evaluation path validated on a small canonical neutralized corpus; the gen-4 symbolic detector detected 0.0% of realistic threats and a structured ruleset detected 100.0% (FP 0.0%). Acceptance is bounded: it validates the evaluation path and quantifies the symbolic wall plus a safe route to close it.",
+    "does_not_mean": "promoted_runtime_detector_detects_realistic_threats_or_production_waf_ready",
+    "structured_rules_promotion_path": "implemented (core/active_detector.py + scripts/promote_structured_candidate.py; genome.detector_mode default legacy)"
+  },
   "next_action": "generation4_audited_baseline_owner_decide_next_phase3_step",
   "fresh_verification_policy": {
     "paid_credit_run_in_this_pr": "forbidden",

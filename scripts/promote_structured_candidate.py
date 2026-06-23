@@ -36,6 +36,7 @@ import datetime
 import hashlib
 import json
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -89,11 +90,19 @@ def _load_history_strict(path: Path) -> tuple[list | None, str]:
 
 
 def _relative_active_path(active_rules_out: Path) -> str:
-    """Record the active rules path in genome as repo-relative posix when possible."""
+    """Record the active rules path in genome.
+
+    Inside the repo: repo-relative posix (portable across clones).
+    Outside the repo: the resolved ABSOLUTE path, because core.active_detector
+    interprets non-absolute genome paths relative to the project root — a raw
+    relative spelling would make the runtime look in the wrong place and
+    silently fall back to legacy.
+    """
+    resolved = active_rules_out.resolve()
     try:
-        return active_rules_out.resolve().relative_to(_PROJECT_ROOT.resolve()).as_posix()
+        return resolved.relative_to(_PROJECT_ROOT.resolve()).as_posix()
     except ValueError:
-        return str(active_rules_out)
+        return str(resolved)
 
 
 def promote_structured_candidate(
@@ -120,6 +129,13 @@ def promote_structured_candidate(
         st = rules_path.stat()
     except OSError as exc:
         return _refuse(f"could not stat rules file: {exc}", as_json)
+    # Reject non-regular files (FIFO/device/dir) before reading: read_text() on a
+    # FIFO can block indefinitely and st_size is unreliable for such paths.
+    if not stat.S_ISREG(st.st_mode):
+        return _refuse(
+            f"rules path is not a regular file (mode={stat.filemode(st.st_mode)!r})",
+            as_json,
+        )
     if st.st_size > _MAX_RULES_FILE_BYTES:
         return _refuse(f"rules file exceeds size limit: {st.st_size} bytes", as_json)
     try:
@@ -127,7 +143,15 @@ def promote_structured_candidate(
         rules_doc = json.loads(raw_text)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         return _refuse(f"could not read/parse rules file: {exc}", as_json)
-    if not isinstance(rules_doc, dict) or validate_rules_schema(rules_doc).get("success") is not True:
+    if not isinstance(rules_doc, dict):
+        return _refuse("rules document failed schema validation", as_json)
+    # validate_rules_schema can itself raise on extreme inputs (e.g. OverflowError
+    # on a huge numeric literal); treat that as a clean fail-closed refusal.
+    try:
+        schema_ok = validate_rules_schema(rules_doc).get("success") is True
+    except (OverflowError, RecursionError, TypeError, ValueError) as exc:
+        return _refuse(f"rules document validation raised {type(exc).__name__}: {exc}", as_json)
+    if not schema_ok:
         return _refuse("rules document failed schema validation", as_json)
 
     # --- 3. Pre-load evolution_history BEFORE any writes (fail-closed) ---
@@ -158,6 +182,21 @@ def promote_structured_candidate(
     if not isinstance(candidate_score, (int, float)) or isinstance(candidate_score, bool):
         return _refuse(f"evaluation returned a non-numeric score: {candidate_score!r}", as_json)
     candidate_score = float(candidate_score)
+
+    # --- 4b. TOCTOU guard ---
+    # evaluate_structured_rules re-opened rules_path. Verify the file still holds
+    # the exact bytes we validated in step 2 (and will canonicalize and promote),
+    # so the gate cannot pass on one document while a different one is written.
+    try:
+        post_eval_text = rules_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return _refuse(f"could not re-read rules file after evaluation: {exc}", as_json)
+    if post_eval_text != raw_text:
+        return _refuse(
+            "rules file changed during evaluation; refusing to promote "
+            "(the adoption gate may have scored different bytes than would be written)",
+            as_json,
+        )
 
     # --- 5. Load genome (fail-closed) ---
     try:

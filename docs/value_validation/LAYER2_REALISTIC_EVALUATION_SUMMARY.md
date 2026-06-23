@@ -95,9 +95,9 @@ symbolic wall — without editing `core/detector.py` or committing exploit data.
 | ID | Requirement | This evaluation |
 |---|---|---|
 | L2-V1 | Realistic threat coverage (path-traversal, xss, sqli, cmdi) | Covered — all four categories evaluated against realistic (non-symbolic) requests |
-| L2-V2 | Per-category TP/FP/FN + latency | Reported above (latency from gate-grade evaluator) |
+| L2-V2 | Per-category TP/FP/FN + latency | **Partial** — per-category TP/FP/FN reported; latency is overall gate-grade average only, **not per-category**. Per-category latency is not yet measured. |
 | L2-V3 | Holdout / drift / counterfactual pass rates | Reported above for both configurations |
-| L2-V4 | Improvement explanation | symbolic capability 0.0% → realistic ruleset 100.0% on the same corpus; gap and path quantified |
+| L2-V4 | Improvement explanation | **Partial** — symbolic capability 0.0% → realistic ruleset 100.0% on the **same** corpus quantifies the wall and the path. This is a symbolic-vs-realistic comparison, **not** a generation-over-generation detector improvement. |
 | L2-V5 | No overfitting / bounded claims | Symbolic vs realistic explicitly distinguished; counterfactual tier passes; claims bounded to this small canonical corpus |
 
 ## Honest bounds
@@ -114,7 +114,7 @@ symbolic wall — without editing `core/detector.py` or committing exploit data.
 ## Owner acceptance
 
 - [x] Project Owner has reviewed this evidence and accepts it toward Layer 2.
-      **Accepted 2026-06-23** by the Project Owner (tanakantyo0229@gmail.com),
+      **Accepted 2026-06-23** by the Project Owner (hiroshitanaka-creator),
       recorded on behalf of the Owner at the Owner's explicit direction.
 
 ### Scope of this acceptance (bounded)
