@@ -13,6 +13,8 @@ on:
           - offline-sample
           - gemini-paid-credit
           - gemini-paid-credit-preflight
+          - structured-offline-sample
+          - structured-gemini-paid-credit
       promote_approved:
         description: "Project Owner explicit approval for promote job"
         required: true
@@ -90,7 +92,9 @@ jobs:
           fi
 
       - name: Install Gemini dependencies (gemini-paid-credit)
-        if: steps.mode.outputs.effective_mode == 'gemini-paid-credit'
+        if: >
+          steps.mode.outputs.effective_mode == 'gemini-paid-credit' ||
+          steps.mode.outputs.effective_mode == 'structured-gemini-paid-credit'
         run: pip install "google-genai>=1.0.0" "pydantic>=2.0"
 
       - name: Capture ledger checksum before proposal
@@ -112,10 +116,11 @@ jobs:
       #   - gemini-paid-credit-preflight does not call Gemini and does not write ledger
       - name: Refuse paid-credit mode outside main
         if: >
-          steps.mode.outputs.effective_mode == 'gemini-paid-credit' &&
+          (steps.mode.outputs.effective_mode == 'gemini-paid-credit' ||
+           steps.mode.outputs.effective_mode == 'structured-gemini-paid-credit') &&
           github.ref != 'refs/heads/main'
         run: |
-          echo "::error::gemini-paid-credit mode may only run on main because API usage ledger persistence is canonical on main."
+          echo "::error::paid-credit mode may only run on main because API usage ledger persistence is canonical on main."
           exit 1
 
       # --- Step-level secret scoping (PR-D: minimum-privilege) ---
@@ -162,6 +167,30 @@ jobs:
         run: |
           set +e
           python scripts/propose_mutation.py --gemini-paid-credit --allow-live-model --json
+          PROPOSE_EXIT=$?
+          echo "$PROPOSE_EXIT" > .cyber_immunizer/propose_exit_code
+
+      # --- Structured-rules proposal (autonomous self-evolution path) ---
+      # Emits .cyber_immunizer/structured_rules.json instead of mutation_patch.json,
+      # so the raw-Python evaluate/promote jobs (gated on patch_exists) skip; the
+      # structured rules artifact is graded/promoted via the structured tooling
+      # (evaluate_structured_rules_candidate.py / promote_structured_candidate.py).
+      - name: Propose structured rules — offline-sample
+        if: steps.mode.outputs.effective_mode == 'structured-offline-sample'
+        run: |
+          # No API key: offline structured proposal only.
+          set +e
+          python scripts/propose_mutation.py --structured-rules --offline-sample --json
+          PROPOSE_EXIT=$?
+          echo "$PROPOSE_EXIT" > .cyber_immunizer/propose_exit_code
+
+      - name: Propose structured rules — gemini-paid-credit
+        if: steps.mode.outputs.effective_mode == 'structured-gemini-paid-credit'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set +e
+          python scripts/propose_mutation.py --structured-rules --gemini-paid-credit --allow-live-model --json
           PROPOSE_EXIT=$?
           echo "$PROPOSE_EXIT" > .cyber_immunizer/propose_exit_code
 
@@ -214,6 +243,14 @@ jobs:
         with:
           name: mutation-patch
           path: .cyber_immunizer/mutation_patch.json
+          retention-days: 1
+
+      - name: Upload structured rules artifact
+        if: hashFiles('.cyber_immunizer/structured_rules.json') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: structured-rules
+          path: .cyber_immunizer/structured_rules.json
           retention-days: 1
 
       - name: Upload API usage ledger artifact (if changed)
