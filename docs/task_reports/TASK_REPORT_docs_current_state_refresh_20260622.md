@@ -3,7 +3,7 @@
 <!--
 AI_DOC_META
 status: AUDIT_EVIDENCE
-scope: Stale current-state claim inventory and fix for CLAUDE.md / README.md derived summaries; second-commit historical labeling for docs/API_ACTIVATION_CHECKLIST.md and docs/API_ACTIVATION_RUNBOOK.md (Codex Review findings addressed).
+scope: Stale current-state claim inventory and fix for CLAUDE.md / README.md derived summaries; second-commit historical labeling for docs/API_ACTIVATION_CHECKLIST.md and docs/API_ACTIVATION_RUNBOOK.md (Codex Review Thread 1/2 addressed); fourth-commit reverted API_ACTIVATION_CHECKLIST.md to CANONICAL status (canonical GEMINI_API_KEY terminology preserved) and updated AI_ENTRYPOINT.md routing to send paid-credit current-state queries to docs/PROJECT_STATE.md (Option B approved by Project Owner 2026-06-23, Codex Review Thread 3/4 addressed).
 authority: This report is audit evidence for this task only. It is not current-state authority.
 related:
   - data/project_state.json
@@ -21,6 +21,8 @@ current-state として読まれる派生サマリ文書（CLAUDE.md・README.md
 
 続いて Codex Review（PR #170）の指摘に対応するため、第 2 コミット（fb353a3）を追加した。`docs/API_ACTIVATION_RUNBOOK.md` と `docs/API_ACTIVATION_CHECKLIST.md` の `AI_DOC_META` を `RUNBOOK`/`CANONICAL` から `HISTORICAL` に変更し、stale な paid-credit / promote_approved 状態節に in-place 歴史注記を追加した。README.md Phase 3 セクションにも in-place 歴史ラベルを追加した。
 
+第 2 コミット後に Codex が追加した Thread 3・Thread 4（`docs/API_ACTIVATION_CHECKLIST.md` の `use_for` 陳腐化・HISTORICAL 過適用）により On Ambiguity 停止条件が発動。Project Owner が Option B（`docs/AI_ENTRYPOINT.md` 修正含む）を承認（2026-06-23）。第 4 コミット（b2d2b73）で `docs/API_ACTIVATION_CHECKLIST.md` の `status` を `CANONICAL` に戻し `use_for`/`do_not_use_for` を整理、`docs/AI_ENTRYPOINT.md` の L79 paid-credit 現在地ルーティングを `docs/PROJECT_STATE.md` へ転送・L80 に `[HISTORICAL]` ラベルを追加した。
+
 ---
 
 ## 変更ファイル一覧
@@ -29,8 +31,9 @@ current-state として読まれる派生サマリ文書（CLAUDE.md・README.md
 |---|---|---|
 | `CLAUDE.md` | 編集（第 1 コミット） | Phase 行・Gemini API 行の `10件` → `14件` |
 | `README.md` | 編集（第 1・第 2 コミット） | STATUS ブロック `10 successful / 10 attempt(s)` → `14 successful / 14 attempt(s)`；ロードマップ v0.3 エントリ `5件` → `14件`・旧記述を現状反映に更新；Phase 3 セクションに in-place 歴史ラベル追加 |
-| `docs/API_ACTIVATION_CHECKLIST.md` | 編集（第 2 コミット） | `AI_DOC_META status: CANONICAL → HISTORICAL`；ヘッダーと「Phase 3 Paid-Credit 現在地」セクションに `[HISTORICAL]` 歴史注記を追加 |
+| `docs/API_ACTIVATION_CHECKLIST.md` | 編集（第 2・第 4 コミット） | 第 2: `AI_DOC_META status: CANONICAL → HISTORICAL`；ヘッダーと「Phase 3 Paid-Credit 現在地」セクションに `[HISTORICAL]` 歴史注記を追加。第 4: `status: HISTORICAL → CANONICAL` に戻す；`use_for` から stale paid-credit 現在地主張を除去；`do_not_use_for` に `docs/PROJECT_STATE.md` 参照を追加（On Ambiguity / Thread 4 対応） |
 | `docs/API_ACTIVATION_RUNBOOK.md` | 編集（第 2 コミット） | `AI_DOC_META status: RUNBOOK → HISTORICAL`；`use_for`/`do_not_use_for` を歴史的参照のみに更新；ステータステーブル直前に `[HISTORICAL]` 歴史注記を追加 |
+| `docs/AI_ENTRYPOINT.md` | 編集（第 4 コミット） | L79 `Phase 3 paid-credit 現在地` ルーティングを `docs/API_ACTIVATION_CHECKLIST.md` → `docs/PROJECT_STATE.md` へ転送；L80 runbook 行に `[HISTORICAL — PR #60–#62 era]` ラベルを追加（On Ambiguity / Thread 3 対応、Project Owner が Option B を承認） |
 | `docs/task_reports/TASK_REPORT_docs_current_state_refresh_20260622.md` | 新規作成・更新 | 本タスク完了報告（このファイル） |
 
 ---
@@ -94,8 +97,9 @@ generation 4 / best_score / 10 successful / 5件
 | 13 | `README.md:346-509` | preflight/live-mode 設定説明の `live_model_enabled=false`（デフォルト値説明） | `FALSE_POSITIVE` | デフォルト値・設定説明として正しい。現在の実際の設定値とは別の文脈 |
 | 14 | `docs/PROJECT_STATE.md` 全域 | 全フィールドが権威正典と一致（14件, phase_3, generation 4, etc.） | `FALSE_POSITIVE` | 正確。変更不要 |
 | 15 | `data/project_state.json` | `gemini_3_flash_preview_success_records: 14` | `FALSE_POSITIVE` | 権威正典。FROZEN（変更禁止）、かつ正確 |
-| 16 | `docs/API_ACTIVATION_CHECKLIST.md` | `AI_DOC_META status: CANONICAL` + ヘッダー `promote_approved=true はまだ禁止` + 「Phase 3 Paid-Credit 現在地」`未実行`・`promote_approved: false` | `CURRENT_STATE_UPDATE_REQUIRED` | CANONICAL メタデータを持ちながら stale な記述。第 2 コミットで `status: HISTORICAL` に変更し in-place 歴史注記を追加 ✅ |
-| 17 | `docs/API_ACTIVATION_RUNBOOK.md` | `AI_DOC_META status: RUNBOOK` + ステータス節 `controlled paid-credit run は未実行`・`promote_approved: false` | `CURRENT_STATE_UPDATE_REQUIRED` | RUNBOOK メタデータを持ちながら stale な記述。第 2 コミットで `status: HISTORICAL` に変更し in-place 歴史注記を追加 ✅ |
+| 16 | `docs/API_ACTIVATION_CHECKLIST.md` | `AI_DOC_META status: CANONICAL` + ヘッダー `promote_approved=true はまだ禁止` + 「Phase 3 Paid-Credit 現在地」`未実行`・`promote_approved: false` | `CURRENT_STATE_UPDATE_REQUIRED` | 第 2 コミット（fb353a3）で `status: HISTORICAL` に変更し in-place 歴史注記を追加。ただし Codex Thread 4 により「GEMINI_API_KEY terminology は時間非依存の canonical 定義であり HISTORICAL は過適用」と指摘。Project Owner が Option B を承認し、第 4 コミット（b2d2b73）で `status: CANONICAL` に戻した。stale paid-credit 節の in-place バナーは維持。`use_for` から stale paid-credit 主張を除去し `do_not_use_for` に `docs/PROJECT_STATE.md` 参照を追加した ✅ |
+| 17 | `docs/API_ACTIVATION_RUNBOOK.md` | `AI_DOC_META status: RUNBOOK` + ステータス節 `controlled paid-credit run は未実行`・`promote_approved: false` | `CURRENT_STATE_UPDATE_REQUIRED` | RUNBOOK メタデータを持ちながら stale な記述。第 2 コミット（fb353a3）で `status: HISTORICAL` に変更し in-place 歴史注記を追加 ✅ |
+| 18 | `docs/AI_ENTRYPOINT.md:79` | ルーティング行 `Phase 3 paid-credit 現在地 / Gemini 3 runbook` が `docs/API_ACTIVATION_CHECKLIST.md`（HISTORICAL セクション有り）を参照先に設定。paid-credit 現在地タスクを抱えた AI agent が stale な記述に landing する | `CURRENT_STATE_UPDATE_REQUIRED` | 第 4 コミット（b2d2b73）で L79 を `docs/PROJECT_STATE.md / data/project_state.json` へ転送。L80 runbook 行に `[HISTORICAL — PR #60–#62 era]` を追加。L83 の GEMINI_API_KEY terminology 行は変更なし（checklist が canonical）✅ |
 
 ---
 
@@ -132,7 +136,7 @@ generation 4 / best_score / 10 successful / 5件
 | `docs/PHASE_2_5_CLOSEOUT_AUDIT.md` | Phase 2.5 クローズアウト監査証拠。歴史文書 |
 | `docs/PHASE_3_GO_NO_GO_CHECKLIST.md` | Phase 3 activation 前の Go/No-Go 記録。歴史文書 |
 | `docs/audit_gate/*.md` (各プロトコル) | プロトコル定義文書。current-state 主張なし。変更不要 |
-| `docs/AI_ENTRYPOINT.md` | ルーティング文書。current-state 主張なし。変更不要 |
+| `docs/AI_ENTRYPOINT.md` | 第 4 コミット（b2d2b73）でルーティングを修正済み。L79 は `docs/PROJECT_STATE.md` へ転送。L83 GEMINI_API_KEY wording 行は変更なし（CANONICAL checklist を参照し続ける） |
 | `docs/DEFINITION_OF_DONE.md` | 完成基準定義文書。current-state 主張なし。変更不要 |
 
 ---
@@ -151,26 +155,19 @@ CLAUDE.md:81: success 記録 **14件** が data/api_usage_ledger.json に存在
 README.md:892: paid-credit API success records 14件（2026-06-03〜2026-06-22）
 README.md:914: Executed (14 successful / 14 attempt(s))
 
-# スコープチェック（第 2 コミット後）
+# スコープチェック（第 4 コミット後）
 $ git diff --name-only origin/main...HEAD
 CLAUDE.md
 README.md
+docs/AI_ENTRYPOINT.md
 docs/API_ACTIVATION_CHECKLIST.md
 docs/API_ACTIVATION_RUNBOOK.md
 docs/task_reports/TASK_REPORT_docs_current_state_refresh_20260622.md
 ```
 
-### pytest 実行結果（第 2 コミット後 — 2953 passed）
+### pytest 実行結果（第 4 コミット後 — 2953 passed）
 
 ```
-python -m pytest tests/test_audit_docs.py tests/test_ai_docs_navigation.py \
-  tests/test_phase1_baseline_docs.py tests/test_phase2_plan_docs.py \
-  tests/test_phase3_go_no_go_checklist_docs.py -q
-→ 141 passed ✅
-
-python -m pytest tests/test_update_readme.py -q
-→ passed ✅
-
 python -m pytest tests/ -x -q
 → 2953 passed, 5 warnings ✅
 
@@ -178,7 +175,11 @@ git diff --check
 → (no output) ✅
 ```
 
-（第 2 コミット: `fb353a3cc1f5dea045374ea7651726088ffbc547`）
+コミット履歴:
+- 第 1 コミット: `CLAUDE.md` / `README.md` 件数修正
+- 第 2 コミット: `fb353a3` — activation docs HISTORICAL 化・README Phase 3 歴史ラベル
+- 第 3 コミット: `9e2000a` — task report 5ファイル・generator 注記・SHA 修正
+- 第 4 コミット: `b2d2b73` — checklist CANONICAL 復帰・`AI_ENTRYPOINT.md` routing 修正（On Ambiguity Option B）
 
 ---
 
@@ -194,18 +195,20 @@ git diff --check
 - base SHA: `c4ddc15cf3312cb39f14e4fc2bc1a7eb45b59da0`
 - **Audit target before this correction commit**: `fb353a3cc1f5dea045374ea7651726088ffbc547`
 - **PR head SHA**: see GitHub PR metadata after final push; このファイル自体が PR head を変更するため、確定 head SHA はこのファイル内に埋め込まない
-- changed files（5件）: `CLAUDE.md`, `README.md`, `docs/API_ACTIVATION_CHECKLIST.md`, `docs/API_ACTIVATION_RUNBOOK.md`, `docs/task_reports/TASK_REPORT_docs_current_state_refresh_20260622.md`
+- changed files（6件）: `CLAUDE.md`, `README.md`, `docs/AI_ENTRYPOINT.md`, `docs/API_ACTIVATION_CHECKLIST.md`, `docs/API_ACTIVATION_RUNBOOK.md`, `docs/task_reports/TASK_REPORT_docs_current_state_refresh_20260622.md`
 - FROZEN files changed: **no**
 - generated README risk: `scripts/update_readme.py` は paid-credit カウントをロスト元から正確に計算するが、`Status Block Updated` フィールドに実行時刻（`datetime.datetime.utcnow()`）を書き込むため、バイト完全一致の出力は保証されない。本 PR は STATUS ブロックを手動更新（paid-credit カウント値は正確）。ジェネレータースクリプト変更・決定論的出力強化は別タスク。
 - historical docs rewritten as current-state: **no**（HISTORICAL ラベル追加のみ。内容は保持）
+- On Ambiguity resolution: Codex Thread 4 が「GEMINI_API_KEY terminology は時間非依存の canonical 定義であり HISTORICAL は過適用」と指摘。Project Owner に停止報告し Option B（`docs/AI_ENTRYPOINT.md` 修正含む）承認を得て対応。
 
 ### 2. Evidence summary
 
 - authoritative files checked: `data/project_state.json`, `data/api_usage_ledger.json`, `docs/PROJECT_STATE.md`
-- stale claim inventory completed: **yes** (17件分類、うち 5件が CURRENT_STATE_UPDATE_REQUIRED → 全対応済み)
+- stale claim inventory completed: **yes** (18件分類、うち 6件が CURRENT_STATE_UPDATE_REQUIRED → 全対応済み)
 - known CLAUDE.md 10-to-14 issue fixed: **yes**
-- API activation docs historical labeling: **yes** (Codex Review 対応済み)
-- docs intentionally left historical: Phase 1/2/3 narrative sections, task reports, audit_gate/*.md, AI_ENTRYPOINT.md, DEFINITION_OF_DONE.md
+- API activation docs HISTORICAL labeling and CANONICAL restoration: **yes** (Codex Review Thread 1/2/3/4 全対応済み)
+- AI_ENTRYPOINT.md routing fixed: **yes** (第 4 コミット — paid-credit 現在地を docs/PROJECT_STATE.md へ転送)
+- docs intentionally left historical: Phase 1/2/3 narrative sections, task reports, audit_gate/*.md, DEFINITION_OF_DONE.md
 - validation commands: 全て PASS（2953 passed）
 
 ### 3. Findings
@@ -231,14 +234,16 @@ git diff --check
 
 ### 6. Codex thread response status
 
-Codex Review（PR #170 commit `83e31ef54a` に対する review）の 2 件の指摘に対応した。
+Codex Review（PR #170）に対して合計 4 件の指摘があり、全て対応済み。
 
-| Thread | パス | Codex 指摘内容 | 対応 |
-|---|---|---|---|
-| Thread 1 | `docs/task_reports/TASK_REPORT_docs_current_state_refresh_20260622.md:71` | `docs/API_ACTIVATION_RUNBOOK.md` / `docs/API_ACTIVATION_CHECKLIST.md` が RUNBOOK/CANONICAL メタデータを持ちながら stale な状態を記述。インベントリに含まれておらず不完全 | 第 2 コミット（fb353a3）で両ファイルの `AI_DOC_META` を `HISTORICAL` に変更。in-place 歴史注記を追加。本 task report インベントリにアイテム #16・#17 として記載 |
-| Thread 2 | `README.md:894` | README Phase 3 セクションに in-place 歴史ラベルがなく、`promote_approved=true はまだ禁止` 等の stale 記述が読者に誤解を与える | 第 2 コミット（fb353a3）で Phase 3 セクション先頭に `[HISTORICAL — PR #60–#73 merge 前の記録]` バナーを追加 |
+| Thread | パス | Codex 指摘内容 | 対応コミット | 返信 |
+|---|---|---|---|---|
+| Thread 1 (`PRRT_kwDOSnyUcM6LTZr0`) | `task_report:71` | activation docs が RUNBOOK/CANONICAL のまま stale な状態記述を含む。インベントリ不完全 | 第 2 コミット（fb353a3）: 両ファイルを HISTORICAL 化、インベントリに #16/#17 追加 | 返信予定（is_outdated: true のため自動解消見込み） |
+| Thread 2 (`PRRT_kwDOSnyUcM6LTZr6`) | `README.md:894` | Phase 3 セクションに歴史ラベルがなく stale 記述が誤読を招く | 第 2 コミット（fb353a3）: `[HISTORICAL — PR #60–#73]` バナーを追加 | 返信予定 |
+| Thread 3 (`PRRT_kwDOSnyUcM6LcK59`) | `API_ACTIVATION_CHECKLIST.md:4` | `use_for` に stale paid-credit 現在地主張残存。`AI_ENTRYPOINT.md` が paid-credit 現在地タスクをチェックリストへルーティング継続 | 第 4 コミット（b2d2b73）: `use_for` 修正・`AI_ENTRYPOINT.md` L79 を `docs/PROJECT_STATE.md` へ転送 | 返信予定 |
+| Thread 4 (`PRRT_kwDOSnyUcM6LcK5_`) | `API_ACTIVATION_CHECKLIST.md:3` | HISTORICAL 過適用。GEMINI_API_KEY terminology セクションは CANONICAL のまま維持すべき | 第 4 コミット（b2d2b73）: `status: CANONICAL` に復帰。scope/use_for/do_not_use_for を整理 | 返信予定 |
 
-両スレッドに返信済み。スレッド解決は Project Owner またはレビュアーによる GitHub 上での操作が必要。
+スレッド返信は GitHub MCP 経由で実施予定。解決操作（Resolve）は Project Owner またはレビュアーが行う。
 
 ---
 
@@ -248,7 +253,7 @@ Codex Review（PR #170 commit `83e31ef54a` に対する review）の 2 件の指
 2. **README.md Phase 2 セクション内の旧注記** (`Phase 3 is not started. live_model_enabled remains false.`): 歴史的 Phase 2 完了チェックポイントとして保持。テストの forbidden_phrases チェック外。
 3. **STATUS ブロックの `Last Updated` フィールド**: genome.json の値（2026-06-18T09:26:32Z）のまま。次の promotion 実行時にジェネレーターが自動更新する。
 4. **README generator 決定論的出力**: `scripts/update_readme.py` は `Status Block Updated` に wall-clock を書き込むため、手動更新と generator 出力はバイト完全一致しない。カウント値は正確。generator 決定論的強化は別タスク。
-5. **Codex thread 解決**: 両スレッドに返信済み。GitHub UI 上の「Resolve」操作は Project Owner またはレビュアーが行う。
+5. **Codex thread 解決**: 4 件全てのスレッドにコード変更で対応済み（Thread 1/2: 第 2 コミット、Thread 3/4: 第 4 コミット）。GitHub 上のスレッド返信・Resolve 操作は本タスク内で実施予定（タスクレポート更新後）。
 
 ---
 
