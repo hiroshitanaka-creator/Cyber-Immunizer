@@ -17,16 +17,27 @@ not.
 - Ruleset: `fixtures/structured_rules/realistic_baseline.json` — 21 defensive
   detection signatures across path-traversal, XSS, SQLi, and command injection
   (canonical WAF/IDS-style `contains_literal` signatures).
-- Corpus: `fixtures/realistic_corpus/` — 34 realistic requests across the four
-  categories plus benign and the holdout / drift / counterfactual tiers.
+- Corpus: `fixtures/realistic_corpus/` — 35 realistic requests across the four
+  categories plus benign and the holdout / drift / counterfactual tiers. A
+  committed combined file `fixtures/realistic_corpus/all_cases.json` (the six tier
+  files concatenated) makes the `cli/structured_eval` metrics reproducible from a
+  clean checkout, since that CLI takes a single `--corpus <file>`.
 
 ## Results
+
+Reproduce with:
+
+```bash
+python -m cli.structured_eval \
+  --rules fixtures/structured_rules/realistic_baseline.json \
+  --corpus fixtures/realistic_corpus/all_cases.json
+```
 
 `cli/structured_eval` (per-category / per-tier):
 
 | Metric | Value |
 |---|---|
-| Overall TP / FP / TN / FN | 18 / 0 / 16 / 0 |
+| Overall TP / FP / TN / FN | 18 / 0 / 17 / 0 |
 | Overall detection rate | **100.0%** |
 | Overall false-positive rate | **0.0%** |
 | path-traversal TP rate | 100.0% (4/4) |
@@ -54,14 +65,13 @@ benign cases. It is verified end-to-end through the real structured detector
 - `contains_literal` signatures are a basic detection model (no regex); a
   production deployment would extend the signature set and tune for the live
   traffic profile.
-- This evaluates the **structured ruleset**. Making it the **default committed
-  runtime** (`genome.detector_mode = "structured_rules"`) is a separate
-  re-baselining step (it changes the audited-baseline invariants and the
-  `current_detector_hash` semantics) and is tracked as the next focused change.
+- This evaluates the **structured ruleset**. Making it the default committed
+  runtime (`genome.detector_mode = "structured_rules"`) is the focused flip
+  described in `docs/PRODUCTION_DETECTOR_FLIP_DESIGN.md`.
 
 ## Activation (today)
 
-The realistic ruleset can be activated through the existing promotion path:
+The realistic ruleset can be activated through the promotion path:
 
 ```bash
 python scripts/promote_structured_candidate.py \
@@ -70,6 +80,10 @@ python scripts/promote_structured_candidate.py \
   --baseline --owner-approved
 ```
 
-This writes `data/active_structured_rules.json` and sets
-`genome.detector_mode = "structured_rules"` so `core.active_detector` dispatches
-to the realistic ruleset.
+This writes `data/active_structured_rules.json`, sets
+`genome.detector_mode = "structured_rules"`, and records the structured
+activation in `active_structured_rules_{path,hash,score,promoted_at}`. Per the
+decoupled-lineage model, it **does not** change the legacy generation lineage
+(`generation` / `best_score` / `current_detector_hash`) — so canonical state and
+the gen-4 audit invariants are preserved, and rollback is a single
+`detector_mode="legacy"` flip.

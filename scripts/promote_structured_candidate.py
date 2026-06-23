@@ -210,49 +210,43 @@ def promote_structured_candidate(
     active_rules_text = json.dumps(rules_doc, indent=2, sort_keys=True) + "\n"
     rules_hash = hashlib.sha256(active_rules_text.encode("utf-8")).hexdigest()
 
-    new_generation = int(genome_data.get("generation", 0)) + 1
     timestamp = datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
 
-    # --- 7. Writes (active rules, then genome, then history) ---
+    # --- 7. Writes (active rules, then genome) ---
+    # Decoupled-lineage model (PRODUCTION_DETECTOR_FLIP_DESIGN.md, Option 1):
+    # the genome's generation lineage (generation / best_score /
+    # current_detector_hash) describes the legacy evolved detector and is left
+    # UNCHANGED — the structured score (realistic-corpus basis) is a different
+    # scoring basis and must not overwrite the symbolic best_score, and
+    # current_detector_hash must keep matching core/detector.py for the
+    # hash-consistency invariants. The structured runtime activation is recorded
+    # in separate fields. evolution_history (the legacy generation ledger) is
+    # NOT appended to here.
     _atomic_write(active_rules_out, active_rules_text)
 
     genome_data["detector_mode"] = "structured_rules"
     genome_data["active_structured_rules_path"] = _relative_active_path(active_rules_out)
-    genome_data["current_detector_hash"] = rules_hash
-    genome_data["best_score"] = candidate_score
-    genome_data["generation"] = new_generation
+    genome_data["active_structured_rules_hash"] = rules_hash
+    genome_data["active_structured_rules_score"] = candidate_score
+    genome_data["active_structured_rules_promoted_at"] = timestamp
     genome_data["last_updated"] = timestamp
     _atomic_write(genome_path, json.dumps(genome_data, indent=2) + "\n")
-
-    history.append({
-        "generation": new_generation,
-        "detector_hash": rules_hash,
-        "mode": "structured_rules",
-        "score": candidate_score,
-        "passed_adoption_gate": True,
-        "tp_rate": report.get("tp_rate"),
-        "fp_rate": report.get("fp_rate"),
-        "fn_rate": report.get("fn_rate"),
-        "avg_latency_ms": report.get("avg_latency_ms"),
-        "promoted_at": timestamp,
-    })
-    _atomic_write(history_path, json.dumps(history, indent=2) + "\n")
 
     result = {
         "success": True,
         "promoted": True,
         "mode": "structured_rules",
-        "generation": new_generation,
-        "detector_hash": rules_hash,
-        "score": candidate_score,
+        "active_structured_rules_hash": rules_hash,
+        "active_structured_rules_score": candidate_score,
         "active_rules_path": str(active_rules_out),
+        "legacy_lineage_unchanged": True,
     }
     if as_json:
         print(json.dumps(result, indent=2))
     else:
         print(
             f"PROMOTED: structured rules → active detector "
-            f"(generation {new_generation}, score {candidate_score:.2f}, hash {rules_hash[:12]}…)"
+            f"(score {candidate_score:.2f}, hash {rules_hash[:12]}…; legacy lineage unchanged)"
         )
     return 0
 

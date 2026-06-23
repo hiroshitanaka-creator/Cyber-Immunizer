@@ -1,0 +1,621 @@
+[
+  {
+    "id": "a-pt-1",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "path-traversal"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/download",
+      "query": {
+        "file": "../../etc/passwd"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "a-pt-2",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "path-traversal"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/static/..%2f..%2fconfig",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "a-pt-3",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "path-traversal"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/view",
+      "query": {
+        "f": "%2e%2e/secret"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "a-xss-1",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "xss"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/search",
+      "query": {
+        "q": "<script>alert(1)</script>"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "a-xss-2",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "xss"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/comment",
+      "query": {},
+      "headers": {},
+      "body": "text=<img src=x onerror=1>"
+    }
+  },
+  {
+    "id": "a-xss-3",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "xss"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/go",
+      "query": {
+        "u": "javascript:doevil"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "a-sqli-1",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "sqli"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/login",
+      "query": {},
+      "headers": {},
+      "body": "user=a&pass=x' or '1'='1"
+    }
+  },
+  {
+    "id": "a-sqli-2",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "sqli"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/items",
+      "query": {
+        "id": "1 union select pw from users"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "a-sqli-3",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "sqli"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/q",
+      "query": {
+        "id": "5 or 1=1"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "a-cmdi-1",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "cmdi"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/ping",
+      "query": {
+        "host": "127.0.0.1; rm -rf /"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "a-cmdi-2",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "cmdi"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/run",
+      "query": {},
+      "headers": {},
+      "body": "cmd=ls && cat /etc/passwd"
+    }
+  },
+  {
+    "id": "a-cmdi-3",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "cmdi"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/exec",
+      "query": {
+        "a": "x$(whoami)"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "b-1",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/",
+      "query": {},
+      "headers": {
+        "User-Agent": "Mozilla/5.0"
+      },
+      "body": ""
+    }
+  },
+  {
+    "id": "b-2",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/health",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "b-3",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/api/products",
+      "query": {
+        "q": "laptop stand"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "b-4",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/api/contact",
+      "query": {},
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"name\":\"Alice\",\"msg\":\"hello there\"}"
+    }
+  },
+  {
+    "id": "b-5",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/static/app.css",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "b-6",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/users/alice/profile",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "b-7",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/articles",
+      "query": {
+        "page": "2",
+        "sort": "date"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "b-8",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/api/orders",
+      "query": {},
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"item\":\"book\",\"qty\":2}"
+    }
+  },
+  {
+    "id": "r-1",
+    "kind": "regression",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "regression",
+      "path-traversal"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/d",
+      "query": {
+        "f": "../../etc/shadow"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "r-2",
+    "kind": "regression",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "regression"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/status",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "r-3",
+    "kind": "regression",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "regression",
+      "sqli"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/s",
+      "query": {
+        "id": "9'; drop table users"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "r-4",
+    "kind": "regression",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "regression"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/api/list",
+      "query": {
+        "limit": "50"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "h-1",
+    "kind": "holdout",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "holdout",
+      "xss"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/v2/note",
+      "query": {},
+      "headers": {},
+      "body": "b=<svg/onload=alert(1)>"
+    }
+  },
+  {
+    "id": "h-2",
+    "kind": "holdout",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "holdout",
+      "sqli"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/v2/report",
+      "query": {
+        "f": "1 sleep(5)"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "h-3",
+    "kind": "holdout",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "holdout"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/v2/upload",
+      "query": {},
+      "headers": {},
+      "body": "binary-asset-bytes"
+    }
+  },
+  {
+    "id": "c-1",
+    "kind": "counterfactual",
+    "expected_blocked": false,
+    "description": "word 'traversal' but no ../",
+    "tags": [
+      "counterfactual"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/files/quarterly-traversal-report.pdf",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "c-2",
+    "kind": "counterfactual",
+    "expected_blocked": false,
+    "description": "sql words, no injection",
+    "tags": [
+      "counterfactual"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/feedback",
+      "query": {},
+      "headers": {},
+      "body": "{\"c\":\"the sql tutorial and select-a-plan page helped\"}"
+    }
+  },
+  {
+    "id": "c-3",
+    "kind": "counterfactual",
+    "expected_blocked": false,
+    "description": "'script' word, no <script",
+    "tags": [
+      "counterfactual"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/docs/scripting-guide",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "c-4",
+    "kind": "counterfactual",
+    "expected_blocked": false,
+    "description": "'command' word, no ;rm",
+    "tags": [
+      "counterfactual"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/help/command-reference",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "c-5",
+    "kind": "counterfactual",
+    "expected_blocked": false,
+    "description": "innocuous '&&' in prose/code text \u2014 must not be blocked (narrowed cmdi signature)",
+    "tags": [
+      "counterfactual"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/api/notes",
+      "query": {},
+      "headers": {},
+      "body": "{\"note\":\"if A && B then ship; logic AND in the comment\"}"
+    }
+  },
+  {
+    "id": "d-1",
+    "kind": "drift",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "drift",
+      "xss"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/p",
+      "query": {},
+      "headers": {
+        "Referer": "https://x.test/<script>x"
+      },
+      "body": ""
+    }
+  },
+  {
+    "id": "d-2",
+    "kind": "drift",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "drift",
+      "cmdi"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/exec",
+      "query": {
+        "a": "id| sh"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "d-3",
+    "kind": "drift",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "drift"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/api/articles",
+      "query": {
+        "locale": "ja-JP"
+      },
+      "headers": {},
+      "body": ""
+    }
+  }
+]

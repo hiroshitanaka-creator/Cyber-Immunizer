@@ -104,20 +104,26 @@ def _common_args(s: dict, *, owner: bool) -> list[str]:
 
 def test_happy_path_promotes(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     s = _setup(tmp_path)
+    genome_before = json.loads(s["genome"].read_text())
     rc = main(_common_args(s, owner=True))
     assert rc == 0
     report = json.loads(capsys.readouterr().out)
     assert report["promoted"] is True
     assert report["mode"] == "structured_rules"
     genome = json.loads(s["genome"].read_text())
+    # Structured activation recorded in separate fields…
     assert genome["detector_mode"] == "structured_rules"
-    assert genome["generation"] == 5
-    assert genome["best_score"] == report["score"]
-    assert genome["current_detector_hash"] == report["detector_hash"]
+    assert genome["active_structured_rules_hash"] == report["active_structured_rules_hash"]
+    assert genome["active_structured_rules_score"] == report["active_structured_rules_score"]
+    assert "active_structured_rules_promoted_at" in genome
     assert s["active"].exists()
+    # …while the legacy generation lineage is left UNCHANGED (decoupled model).
+    assert genome["generation"] == genome_before["generation"]
+    assert genome["best_score"] == genome_before["best_score"]
+    assert genome.get("current_detector_hash") == genome_before.get("current_detector_hash")
+    # evolution_history (legacy generation ledger) is not appended to.
     history = json.loads(s["history"].read_text())
-    assert len(history) == 2
-    assert history[-1]["mode"] == "structured_rules"
+    assert len(history) == 1
 
 
 def test_refuse_without_owner_approved(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:

@@ -1915,7 +1915,25 @@ class TestCorpusDirIntegration:
         report = json.loads(capsys.readouterr().out)
         assert rc == 1
         assert report["success"] is False
-        assert "empty main tier" in str(report.get("rejection_reasons"))
+        assert "incomplete main tier" in str(report.get("rejection_reasons"))
+
+    def test_attack_tier_with_no_positive_label_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """An attack file with only expected_blocked=false records has zero positive
+        attack cases (tp_rate would be 0); the gate must refuse, not pass green."""
+        corpus_dir = write_corpus_dir(tmp_path, n_benign=3, n_attack=2, n_reg=2)
+        no_pos = [{
+            "id": f"np-{i}", "kind": "attack", "expected_blocked": False,
+            "tags": ["attack"], "request": {"method": "GET", "path": f"/ok{i}", "query": {}, "headers": {}, "body": ""},
+        } for i in range(2)]
+        (corpus_dir / "attack_requests.json").write_text(json.dumps(no_pos), encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        rc = main(["--rules", str(rules_path), "--corpus-dir", str(corpus_dir),
+                   "--baseline", "--json"])
+        report = json.loads(capsys.readouterr().out)
+        assert rc == 1
+        assert "incomplete main tier" in str(report.get("rejection_reasons"))
 
     def test_benign_outcome_in_attack_file_does_not_satisfy_benign_tier(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
@@ -1935,7 +1953,7 @@ class TestCorpusDirIntegration:
                    "--baseline", "--json"])
         report = json.loads(capsys.readouterr().out)
         assert rc == 1
-        assert "empty main tier" in str(report.get("rejection_reasons"))
+        assert "incomplete main tier" in str(report.get("rejection_reasons"))
 
     def test_non_regular_corpus_path_is_tool_failure(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
@@ -1982,3 +2000,62 @@ class TestCorpusDirIntegration:
             + len(json.loads((mod._PROJECT_ROOT / "data" / "regression_cases.json").read_text(encoding="utf-8")))
         )
         assert report["total_cases"] == expected_total
+
+
+# ---------------------------------------------------------------------------
+# Structured-to-structured baseline: when a structured ruleset is the ACTIVE
+# detector, score-improvement and parity must be graded against IT, not legacy.
+# ---------------------------------------------------------------------------
+
+def _inert_rules_doc() -> dict:
+    doc = equivalent_rules_doc()
+    doc["rules"] = [{
+        "id": "no_match", "field": "surface", "operator": "contains_literal",
+        "literal": "zzqq_nomatch_zzz", "signal": "no_match", "confidence": 0.5,
+    }]
+    return doc
+
+
+def _structured_active_genome(tmp_path: Path, *, best_score: float, active_score: float, active_path: Path) -> Path:
+    g = tmp_path / "genome.json"
+    g.write_text(json.dumps({
+        "generation": 4, "best_score": best_score, "detector_mode": "structured_rules",
+        "active_structured_rules_score": active_score,
+        "active_structured_rules_path": str(active_path),
+    }), encoding="utf-8")
+    return g
+
+
+class TestStructuredToStructuredBaseline:
+    def test_score_improvement_uses_active_structured_score(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A candidate beating the active structured score (1.0) but below a huge
+        legacy best_score (1e9) must PASS — the gate uses the active baseline."""
+        corpus = write_corpus_dir(tmp_path, n_benign=3, n_attack=2, n_reg=2)
+        candidate = write_rules(tmp_path, equivalent_rules_doc())  # detects the corpus
+        active_path = tmp_path / "active.json"
+        active_path.write_text(json.dumps(_inert_rules_doc()), encoding="utf-8")  # different outcomes
+        genome = _structured_active_genome(tmp_path, best_score=1e9, active_score=1.0, active_path=active_path)
+        rc = main(["--rules", str(candidate), "--corpus-dir", str(corpus),
+                   "--genome", str(genome), "--json"])
+        report = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert report["passed_adoption_gate"] is True
+
+    def test_parity_checked_against_active_structured_ruleset(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A candidate identical to the ACTIVE structured ruleset is parity-rejected,
+        even though it differs from the legacy detector."""
+        corpus = write_corpus_dir(tmp_path, n_benign=3, n_attack=2, n_reg=2)
+        rules_doc = equivalent_rules_doc()
+        candidate = write_rules(tmp_path, rules_doc)
+        active_path = tmp_path / "active.json"
+        active_path.write_text(json.dumps(rules_doc), encoding="utf-8")  # identical to candidate
+        genome = _structured_active_genome(tmp_path, best_score=1e9, active_score=1.0, active_path=active_path)
+        rc = main(["--rules", str(candidate), "--corpus-dir", str(corpus),
+                   "--genome", str(genome), "--json"])
+        report = json.loads(capsys.readouterr().out)
+        assert report["passed_adoption_gate"] is False
+        assert "active structured ruleset" in str(report.get("rejection_reasons"))
