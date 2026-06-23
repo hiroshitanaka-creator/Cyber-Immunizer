@@ -1,0 +1,222 @@
+[
+  {
+    "id": "a-pt-1",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "path-traversal"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/download",
+      "query": {
+        "file": "../../etc/passwd"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "a-pt-2",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "path-traversal"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/static/..%2f..%2fconfig",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "a-pt-3",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "path-traversal"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/view",
+      "query": {
+        "f": "%2e%2e/secret"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "a-xss-1",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "xss"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/search",
+      "query": {
+        "q": "<script>alert(1)</script>"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "a-xss-2",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "xss"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/comment",
+      "query": {},
+      "headers": {},
+      "body": "text=<img src=x onerror=1>"
+    }
+  },
+  {
+    "id": "a-xss-3",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "xss"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/go",
+      "query": {
+        "u": "javascript:doevil"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "a-sqli-1",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "sqli"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/login",
+      "query": {},
+      "headers": {},
+      "body": "user=a&pass=x' or '1'='1"
+    }
+  },
+  {
+    "id": "a-sqli-2",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "sqli"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/items",
+      "query": {
+        "id": "1 union select pw from users"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "a-sqli-3",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "sqli"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/q",
+      "query": {
+        "id": "5 or 1=1"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "a-cmdi-1",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "cmdi"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/ping",
+      "query": {
+        "host": "127.0.0.1; rm -rf /"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "a-cmdi-2",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "cmdi"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/run",
+      "query": {},
+      "headers": {},
+      "body": "cmd=ls && cat /etc/passwd"
+    }
+  },
+  {
+    "id": "a-cmdi-3",
+    "kind": "attack",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "attack",
+      "cmdi"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/exec",
+      "query": {
+        "a": "x$(whoami)"
+      },
+      "headers": {},
+      "body": ""
+    }
+  }
+]

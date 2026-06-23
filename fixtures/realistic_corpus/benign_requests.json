@@ -1,0 +1,141 @@
+[
+  {
+    "id": "b-1",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/",
+      "query": {},
+      "headers": {
+        "User-Agent": "Mozilla/5.0"
+      },
+      "body": ""
+    }
+  },
+  {
+    "id": "b-2",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/health",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "b-3",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/api/products",
+      "query": {
+        "q": "laptop stand"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "b-4",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/api/contact",
+      "query": {},
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"name\":\"Alice\",\"msg\":\"hello there\"}"
+    }
+  },
+  {
+    "id": "b-5",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/static/app.css",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "b-6",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/users/alice/profile",
+      "query": {},
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "b-7",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/articles",
+      "query": {
+        "page": "2",
+        "sort": "date"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "b-8",
+    "kind": "benign",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "benign"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/api/orders",
+      "query": {},
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "body": "{\"item\":\"book\",\"qty\":2}"
+    }
+  }
+]

@@ -150,6 +150,30 @@ class TestLiveStructuredProposal:
         ledger = json.loads(env["ledger"].read_text())
         assert len(ledger) == 1
 
+    def test_validator_exception_is_output_contract_failure(self, env: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Parseable JSON with an extreme numeric field (OverflowError in the
+        validator) must become a clean output-contract failure, not a traceback."""
+        overflow_doc = {
+            "schema_version": 1,
+            "features": {"surface": {"fields": ["path"], "normalization": ["lowercase"],
+                "max_collection_entries": {"query": 1000, "headers": 1000},
+                "max_scalar_bytes": {"method": 4096, "path": 1048576, "query.item": 1048576, "header.item": 1048576},
+                "body_scan": {"mode": "full", "max_bytes": 1048576}}},
+            "rules": [{"id": "r", "field": "surface", "operator": "contains_literal",
+                       "literal": "x", "signal": "s", "confidence": 10 ** 400}],
+            "decision": {"block_when": "any_rule_matches", "reason": "r",
+                         "confidence_strategy": {"type": "fixed", "default": 0.5},
+                         "matched_signals": "matched_rule_signals"},
+            "fallback": {"blocked": False, "reason": "n", "confidence": 0.0, "matched_signals": []},
+        }
+        call, cap = _mock_call(json.dumps(overflow_doc))
+        monkeypatch.setattr(pm, "_call_gemini_api", call)
+        rules, err = pm.propose_structured_rules(gemini_paid_credit=True, allow_live_model=True)
+        assert rules is None
+        assert "validator raised" in err
+        # The call succeeded; usage is still recorded in the ledger.
+        assert len(json.loads(env["ledger"].read_text())) == 1
+
     def test_schema_invalid_rules_rejected(self, env: dict, monkeypatch: pytest.MonkeyPatch) -> None:
         call, cap = _mock_call(json.dumps({"schema_version": 1, "rules": "not-a-list"}))
         monkeypatch.setattr(pm, "_call_gemini_api", call)

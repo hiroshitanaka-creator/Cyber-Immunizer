@@ -1917,6 +1917,26 @@ class TestCorpusDirIntegration:
         assert report["success"] is False
         assert "empty main tier" in str(report.get("rejection_reasons"))
 
+    def test_benign_outcome_in_attack_file_does_not_satisfy_benign_tier(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A kind='attack' record with expected_blocked=false must not stand in for
+        an empty benign tier (false-green guard counts presence by kind)."""
+        corpus_dir = write_corpus_dir(tmp_path, n_benign=3, n_attack=2, n_reg=2)
+        (corpus_dir / "benign_requests.json").write_text("[]", encoding="utf-8")
+        # attack file: valid attacks PLUS a benign-outcome record that still has kind=attack
+        attacks = [_attack_entry(0), _attack_entry(1), {
+            "id": "sneaky", "kind": "attack", "expected_blocked": False,
+            "tags": ["attack"], "request": {"method": "GET", "path": "/ok", "query": {}, "headers": {}, "body": ""},
+        }]
+        (corpus_dir / "attack_requests.json").write_text(json.dumps(attacks), encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        rc = main(["--rules", str(rules_path), "--corpus-dir", str(corpus_dir),
+                   "--baseline", "--json"])
+        report = json.loads(capsys.readouterr().out)
+        assert rc == 1
+        assert "empty main tier" in str(report.get("rejection_reasons"))
+
     def test_non_regular_corpus_path_is_tool_failure(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:

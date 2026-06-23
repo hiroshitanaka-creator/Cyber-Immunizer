@@ -1,0 +1,54 @@
+[
+  {
+    "id": "h-1",
+    "kind": "holdout",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "holdout",
+      "xss"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/v2/note",
+      "query": {},
+      "headers": {},
+      "body": "b=<svg/onload=alert(1)>"
+    }
+  },
+  {
+    "id": "h-2",
+    "kind": "holdout",
+    "expected_blocked": true,
+    "description": "",
+    "tags": [
+      "holdout",
+      "sqli"
+    ],
+    "request": {
+      "method": "GET",
+      "path": "/v2/report",
+      "query": {
+        "f": "1 sleep(5)"
+      },
+      "headers": {},
+      "body": ""
+    }
+  },
+  {
+    "id": "h-3",
+    "kind": "holdout",
+    "expected_blocked": false,
+    "description": "",
+    "tags": [
+      "holdout"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/v2/upload",
+      "query": {},
+      "headers": {},
+      "body": "binary-asset-bytes"
+    }
+  }
+]
