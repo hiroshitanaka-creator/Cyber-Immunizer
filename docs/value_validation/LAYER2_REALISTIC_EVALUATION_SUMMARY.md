@@ -113,7 +113,25 @@ symbolic wall — without editing `core/detector.py` or committing exploit data.
 
 ## Owner acceptance
 
-- [ ] Project Owner has reviewed this evidence and accepts it toward Layer 2.
+- [x] Project Owner has reviewed this evidence and accepts it toward Layer 2.
+      **Accepted 2026-06-23** by the Project Owner (tanakantyo0229@gmail.com),
+      recorded on behalf of the Owner at the Owner's explicit direction.
 
-Layer 2 is recorded as complete only when the Owner checks the box above (or
-records acceptance in `docs/PROJECT_STATE.md`).
+### Scope of this acceptance (bounded)
+
+The Owner accepts that this evaluation has demonstrated, with reproducible
+numeric evidence on a small canonical neutralized corpus:
+
+1. The evaluation path (per-category TP/FP/FN, latency, and holdout / drift /
+   counterfactual tiers) functions end-to-end against realistic, non-symbolic
+   requests — satisfying the structure of DEFINITION_OF_DONE L2-V1..V5.
+2. The promoted generation-4 detector's symbolic capability detects **0.0%** of
+   realistic threats (the symbolic wall, now quantified).
+3. A structured ruleset detects the same realistic threats at **100.0%** TP /
+   **0.0%** FP, including counterfactual near-miss benign requests — a concrete,
+   safe route to close the wall.
+
+This acceptance does **not** claim that the **promoted runtime detector**
+(`core/detector.py`) detects realistic threats, nor that the system is
+production-WAF ready. Evolving the promoted detector to realistic capability
+remains future, Owner-gated work (design-doc phases 5–7).
