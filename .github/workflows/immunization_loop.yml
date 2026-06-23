@@ -132,6 +132,19 @@ jobs:
           echo "::error::paid-credit mode may only run on main because API usage ledger persistence is canonical on main."
           exit 1
 
+      # --- Circuit breaker pre-flight (paid modes, fail-closed) ---
+      # If consecutive structured-evolution cycles keep failing, the breaker
+      # TRIPS and paid runs are refused until the Project Owner resets it
+      # (scripts/circuit_breaker.py --reset). This protects paid API credit from
+      # being burned on a loop that is not producing value. --check is
+      # fail-closed: a tripped breaker OR an unreadable state file both refuse.
+      # Only paid modes are gated; noop / offline / preflight are free and run.
+      - name: Circuit breaker pre-flight (paid modes)
+        if: >
+          steps.mode.outputs.effective_mode == 'gemini-paid-credit' ||
+          steps.mode.outputs.effective_mode == 'structured-gemini-paid-credit'
+        run: python scripts/circuit_breaker.py --check
+
       # --- Step-level secret scoping (PR-D: minimum-privilege) ---
       # Each mode step writes its propose_mutation.py exit code to
       # .cyber_immunizer/propose_exit_code.  The Aggregate step (id: propose)
@@ -899,4 +912,93 @@ jobs:
             exit 0
           fi
           echo "::error::Structured promote push failed because main moved. Re-run a fresh owner-approved dispatch."
+          exit 1
+
+  # -----------------------------------------------------------------------
+  # Job: PERSIST-CIRCUIT-BREAKER
+  # Records the outcome of a structured self-evolution cycle into the
+  # consecutive-failure circuit breaker (data/circuit_breaker.json) and commits
+  # it to main.  The breaker trips after N consecutive failures so the propose
+  # job's pre-flight --check refuses further PAID runs until the Project Owner
+  # resets it — protecting paid API credit from a non-productive loop.
+  #
+  # The success/failure decision (decide_outcome) lives in Python so it is
+  # unit-tested; this job only forwards the upstream job results.  Non-countable
+  # cycles (noop / non-structured modes / inconclusive results) write nothing.
+  #
+  # SECURITY CONSTRAINTS:
+  #   - Has write permission scoped to data/circuit_breaker.json only.
+  #   - NO model API secrets (GEMINI_API_KEY intentionally absent).
+  #   - Does NOT download candidate/patch artifacts; executes no generated code.
+  # -----------------------------------------------------------------------
+  persist-circuit-breaker:
+    name: Persist Circuit Breaker
+    needs: [propose, structured-evaluate, structured-promote]
+    if: >
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'workflow_dispatch' &&
+      (github.event.inputs.mode == 'structured-offline-sample' ||
+       github.event.inputs.mode == 'structured-gemini-paid-credit')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Record cycle outcome into the circuit breaker
+        run: |
+          python scripts/circuit_breaker.py --record-from-cycle \
+            --mode "${{ github.event.inputs.mode }}" \
+            --propose-failed "${{ needs.propose.outputs.propose_failed }}" \
+            --structured-rules-exists "${{ needs.propose.outputs.structured_rules_exists }}" \
+            --evaluate-result "${{ needs['structured-evaluate'].result }}" \
+            --evaluate-passed-gate "${{ needs['structured-evaluate'].outputs.passed_adoption_gate }}" \
+            --promote-result "${{ needs['structured-promote'].result }}" \
+            --json
+
+      - name: Commit and push circuit breaker state (with rebase retry)
+        run: |
+          git config user.name "Cyber-Immunizer Bot"
+          git config user.email "cyber-immunizer-bot@noreply.github.com"
+
+          git add data/circuit_breaker.json
+
+          if git diff --cached --quiet; then
+            echo "No circuit breaker change to commit (non-countable cycle)."
+            exit 0
+          fi
+
+          git commit -m "chore(circuit-breaker): record cycle outcome $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          max_attempts=5
+          attempt=1
+          while [ "$attempt" -le "$max_attempts" ]; do
+            echo "Attempt ${attempt}/${max_attempts}: pushing circuit breaker commit..."
+            if git push origin HEAD:main; then
+              echo "Circuit breaker push succeeded."
+              exit 0
+            fi
+            echo "Push failed. Fetching and rebasing onto origin/main..."
+            git fetch origin main
+            if ! git rebase origin/main; then
+              echo "::error::Failed to rebase circuit breaker commit onto origin/main. Manual intervention required."
+              git rebase --abort || true
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            sleep 3
+          done
+          echo "::error::Failed to persist circuit breaker state after ${max_attempts} push attempts."
           exit 1

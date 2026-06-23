@@ -474,8 +474,9 @@ class TestWorkflowJobPermissions:
     def test_only_persist_ledger_and_promote_have_contents_write(
         self, loop_workflow_text: str
     ) -> None:
-        """Only persist-ledger, promote, and structured-promote jobs may have contents: write."""
-        allowed_write_jobs = {"persist-ledger", "promote", "structured-promote"}
+        """Only persist-ledger, promote, structured-promote, and persist-circuit-breaker
+        jobs may have contents: write."""
+        allowed_write_jobs = {"persist-ledger", "promote", "structured-promote", "persist-circuit-breaker"}
         for job_name in _all_job_names(loop_workflow_text):
             section = _job_section(loop_workflow_text, job_name)
             has_write = "contents: write" in _non_comment_content(section)
@@ -483,7 +484,7 @@ class TestWorkflowJobPermissions:
                 assert job_name in allowed_write_jobs, (
                     f"Job '{job_name}' has 'contents: write' but is not in the "
                     f"allowed set {allowed_write_jobs}. Only persist-ledger, promote, "
-                    "and structured-promote may have write permissions."
+                    "structured-promote, and persist-circuit-breaker may have write permissions."
                 )
 
 
