@@ -875,3 +875,30 @@ jobs:
           fi
           echo "::error::Structured promote push failed because main moved. Re-run a fresh owner-approved dispatch."
           exit 1
+
+      # --- Self-healing: verify the live active detector; auto-rollback on regression ---
+      # Confirms inspect_active (the runtime entry point) actually uses the
+      # newly-promoted structured rules and is effective on the realistic corpus.
+      # If the promotion silently fell back to legacy or is ineffective, revert
+      # detector_mode to legacy and commit the rollback so production self-heals.
+      - name: Post-promote health check (auto-rollback on regression)
+        run: |
+          set +e
+          python scripts/post_promote_healthcheck.py --json
+          HC_EXIT=$?
+          set -e
+          if [ "$HC_EXIT" = "0" ]; then
+            echo "Post-promote health check passed; structured detector is live and effective."
+            exit 0
+          fi
+          echo "::warning::Post-promote health check failed — rolling back to the legacy detector."
+          python scripts/rollback_to_legacy_detector.py --json
+          git config user.name "Cyber-Immunizer Bot"
+          git config user.email "cyber-immunizer-bot@noreply.github.com"
+          git add data/genome.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(immunizer): auto-rollback structured promotion (post-promote health check failed)"
+            git push origin HEAD:main || echo "::error::rollback push failed; main moved — manual rollback may be required."
+          fi
+          echo "::error::Structured promotion was rolled back after failing the post-promote health check."
+          exit 1
