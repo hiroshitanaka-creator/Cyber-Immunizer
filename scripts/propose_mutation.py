@@ -2743,7 +2743,16 @@ def _propose_structured_rules_via_gemini_paid_credit(
         return None, (
             f"Structured rules validation module unavailable: {exc}."
         )
-    validation = validate_rules_schema(rules_doc)
+    # validate_rules_schema can itself raise on extreme inputs (e.g. OverflowError
+    # from a huge numeric confidence); treat that as an output-contract failure
+    # rather than a traceback after the paid call + ledger write.
+    try:
+        validation = validate_rules_schema(rules_doc)
+    except (OverflowError, RecursionError, TypeError, ValueError) as exc:
+        return None, (
+            f"Gemini structured-rules response failed schema validation "
+            f"({_OUTPUT_CONTRACT_STAGE}): validator raised {type(exc).__name__}: {exc}"
+        )
     if not validation.get("success", False):
         violations = validation.get("violations", [])
         violations_str = "; ".join(violations) if violations else "(no detail)"

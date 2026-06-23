@@ -292,20 +292,24 @@ def _validate_external_corpus_files(corpus_paths: dict[str, Path] | None) -> str
                 f"corpus file for tier {tier!r} exceeds size limit: "
                 f"{st.st_size} bytes > {_MAX_CORPUS_FILE_BYTES} bytes"
             )
-        if tier in _ADAPTIVE_TIERS:
-            try:
-                records = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-                return f"corpus file for tier {tier!r} is not readable JSON: {exc}"
-            if not isinstance(records, list):
-                return f"corpus file for tier {tier!r} must be a JSON array"
-            for i, rec in enumerate(records):
-                if isinstance(rec, dict) and "kind" in rec and rec.get("kind") != tier:
-                    return (
-                        f"corpus file for tier {tier!r} entry {i} has kind="
-                        f"{rec.get('kind')!r}; per-tier files must use kind={tier!r} "
-                        f"(or omit kind) so the adaptive floor counts it correctly"
-                    )
+        # Enforce kind matching for EVERY per-tier file (main and adaptive). A
+        # main file carrying a mismatched explicit kind (e.g. an
+        # expected_blocked=false record with kind="attack" inside
+        # attack_requests.json) could otherwise satisfy the empty-main-tier guard
+        # for a different tier and recreate a false-green gate result.
+        try:
+            records = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+            return f"corpus file for tier {tier!r} is not readable JSON: {exc}"
+        if not isinstance(records, list):
+            return f"corpus file for tier {tier!r} must be a JSON array"
+        for i, rec in enumerate(records):
+            if isinstance(rec, dict) and "kind" in rec and rec.get("kind") != tier:
+                return (
+                    f"corpus file for tier {tier!r} entry {i} has kind="
+                    f"{rec.get('kind')!r}; per-tier files must use kind={tier!r} "
+                    f"(or omit kind) so each tier is counted correctly"
+                )
     return None
 
 
@@ -500,14 +504,21 @@ def evaluate_structured_rules(
     # Reject incomplete external corpora: an Owner-supplied corpus with an empty
     # main tier could otherwise pass in --baseline mode with total_cases=0
     # (score/parity bypassed, regression pass rate defaults to 1.0).
-    if corpus_paths is not None and (
-        attack_total == 0 or benign_total == 0 or len(regression_results) == 0
-    ):
-        return _tool_failure(
-            "external corpus has an empty main tier (attack/benign/regression); "
-            "refusing to report a gate result on an incomplete corpus",
-            rules_path,
-        )
+    # Count tier presence by KIND (not by outcome): a record with
+    # expected_blocked=false but kind="attack" must not stand in for an empty
+    # benign tier, which would recreate the false-green this guard closes.
+    if corpus_paths is not None:
+        _main_kinds = [r.get("kind") for r in main_results]
+        if (
+            _main_kinds.count("attack") == 0
+            or _main_kinds.count("benign") == 0
+            or _main_kinds.count("regression") == 0
+        ):
+            return _tool_failure(
+                "external corpus has an empty main tier (attack/benign/regression); "
+                "refusing to report a gate result on an incomplete corpus",
+                rules_path,
+            )
 
     reg_pass = sum(
         1
