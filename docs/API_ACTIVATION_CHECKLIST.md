@@ -1,13 +1,17 @@
 <!--
 AI_DOC_META
-status: HISTORICAL
-scope: API activation readiness checklist, GEMINI_API_KEY terminology, Phase 3 Go/No-Go boundaries, and Phase 3 paid-credit current state as of PR #60–#62 (first controlled run pending at time of writing).
+status: CANONICAL
+scope: GEMINI_API_KEY terminology and secret-scoping definitions (canonical, not time-bound). Phase 3 API activation readiness boundaries (canonical). In-file [HISTORICAL] banners mark stale paid-credit current-state sections (PR #60–#62 era, first run pending at time of writing).
 use_for:
-  - checking API activation readiness
-  - understanding raw GEMINI_API_KEY vs GEMINI_API_KEY_PRESENT
-  - verifying secret-scoping terminology
-  - confirming Phase 3 activation PR status and paid-credit current state
+  - understanding raw GEMINI_API_KEY vs GEMINI_API_KEY_PRESENT (canonical terminology — not time-bound)
+  - verifying secret-scoping terminology and naming conventions
+  - reviewing Phase 3 activation readiness boundaries and Go/No-Go safety conditions
+  - audit evidence for safety boundaries applied during initial Phase 3 activation
 do_not_use_for:
+  - determining current paid-credit run count (use docs/PROJECT_STATE.md or data/project_state.json — success records: 14, generation 4 active)
+  - determining current promote_approved status (use data/project_state.json — promote_approved=true as of run #59)
+  - planning next paid-credit experiments (Project Owner decision required per next_action field)
+  - checking current Phase 3 paid-credit 現在地 — sections marked [HISTORICAL] reflect PR #60–#62 era only
   - performing API activation by itself
   - bypassing Project Owner approval
   - changing workflow execution logic without a dedicated activation PR
@@ -16,7 +20,8 @@ related:
   - docs/AI_ENTRYPOINT.md
   - docs/API_ACTIVATION_RUNBOOK.md
   - docs/audit_gate/PR_AUDIT_PROTOCOL.md
-last_reviewed: 2026-06-03
+  - docs/PROJECT_STATE.md
+last_reviewed: 2026-06-23
 AI_DOC_META_END
 -->
 # Cyber-Immunizer API Activation Checklist
