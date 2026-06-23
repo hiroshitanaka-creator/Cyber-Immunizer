@@ -504,19 +504,26 @@ def evaluate_structured_rules(
     # Reject incomplete external corpora: an Owner-supplied corpus with an empty
     # main tier could otherwise pass in --baseline mode with total_cases=0
     # (score/parity bypassed, regression pass rate defaults to 1.0).
-    # Count tier presence by KIND (not by outcome): a record with
-    # expected_blocked=false but kind="attack" must not stand in for an empty
-    # benign tier, which would recreate the false-green this guard closes.
+    # Require POSITIVE-LABEL coverage by kind: the attack tier must contain at
+    # least one expected_blocked=true case and the benign tier at least one
+    # expected_blocked=false case. Counting by kind alone is insufficient — a
+    # kind="attack" record with expected_blocked=false would otherwise make the
+    # attack tier "present" with tp_rate=0.0, recreating a false-green gate.
     if corpus_paths is not None:
-        _main_kinds = [r.get("kind") for r in main_results]
-        if (
-            _main_kinds.count("attack") == 0
-            or _main_kinds.count("benign") == 0
-            or _main_kinds.count("regression") == 0
-        ):
+        _attack_pos = sum(
+            1 for r in main_results
+            if r.get("kind") == "attack" and r.get("expected_blocked") is True
+        )
+        _benign_neg = sum(
+            1 for r in main_results
+            if r.get("kind") == "benign" and r.get("expected_blocked") is False
+        )
+        _regression_n = sum(1 for r in main_results if r.get("kind") == "regression")
+        if _attack_pos == 0 or _benign_neg == 0 or _regression_n == 0:
             return _tool_failure(
-                "external corpus has an empty main tier (attack/benign/regression); "
-                "refusing to report a gate result on an incomplete corpus",
+                "external corpus has an incomplete main tier — require >=1 attack "
+                "case (expected_blocked=true), >=1 benign case (expected_blocked=false), "
+                "and >=1 regression case; refusing to report a gate result",
                 rules_path,
             )
 

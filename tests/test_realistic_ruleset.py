@@ -51,6 +51,17 @@ def test_realistic_ruleset_passes_schema() -> None:
     assert validate_rules_schema(_rules()).get("success") is True
 
 
+def test_combined_corpus_matches_tier_concatenation() -> None:
+    """fixtures/realistic_corpus/all_cases.json must equal the six tier files
+    concatenated (in fixed order) so the committed cli/structured_eval evidence
+    is reproducible and cannot silently drift from the per-tier files."""
+    expected: list[dict] = []
+    for name in _TIER_FILES:
+        expected.extend(json.loads((_CORPUS / name).read_text(encoding="utf-8")))
+    combined = json.loads((_CORPUS / "all_cases.json").read_text(encoding="utf-8"))
+    assert combined == expected
+
+
 def test_realistic_ruleset_detects_all_attacks_no_false_positives() -> None:
     rules = _rules()
     tp = fp = tn = fn = 0

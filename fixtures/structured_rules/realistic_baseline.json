@@ -168,10 +168,18 @@
       "confidence": 0.85
     },
     {
-      "id": "cmdi_18",
+      "id": "cmdi_18a",
       "field": "surface",
       "operator": "contains_literal",
-      "literal": "&&",
+      "literal": "&& cat ",
+      "signal": "cmdi",
+      "confidence": 0.85
+    },
+    {
+      "id": "cmdi_18b",
+      "field": "surface",
+      "operator": "contains_literal",
+      "literal": "&& rm ",
       "signal": "cmdi",
       "confidence": 0.85
     },

@@ -71,7 +71,7 @@ _HISTORICAL_STATE_DOCS = [
 
 _HISTORICAL_LABEL = "HISTORICAL DOCUMENT"
 
-_EXPECTED_PRIMARY_MODEL_PAID_CREDIT_SUCCESS_RECORDS = 14
+_EXPECTED_PRIMARY_MODEL_PAID_CREDIT_SUCCESS_RECORDS = 15
 
 _REQUIRED_TOP_LEVEL_FIELDS = [
     "schema_version",
@@ -327,10 +327,10 @@ def test_project_state_doc_no_stale_3_calls_claim() -> None:
 
 
 # 19.
-def test_project_state_doc_shows_14_success_records() -> None:
+def test_project_state_doc_shows_15_success_records() -> None:
     text = _PROJECT_STATE_DOC.read_text(encoding="utf-8")
-    assert "**14**" in text, (
-        "docs/PROJECT_STATE.md must show 14 primary-model paid-credit success records"
+    assert "**15**" in text, (
+        "docs/PROJECT_STATE.md must show 15 primary-model paid-credit success records"
     )
 
 

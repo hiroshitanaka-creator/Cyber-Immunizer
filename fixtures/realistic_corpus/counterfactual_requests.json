@@ -62,5 +62,21 @@
       "headers": {},
       "body": ""
     }
+  },
+  {
+    "id": "c-5",
+    "kind": "counterfactual",
+    "expected_blocked": false,
+    "description": "innocuous '&&' in prose/code text — must not be blocked (narrowed cmdi signature)",
+    "tags": [
+      "counterfactual"
+    ],
+    "request": {
+      "method": "POST",
+      "path": "/api/notes",
+      "query": {},
+      "headers": {},
+      "body": "{\"note\":\"if A && B then ship; logic AND in the comment\"}"
+    }
   }
 ]
