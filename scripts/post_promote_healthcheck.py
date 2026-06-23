@@ -7,7 +7,9 @@ POINT (``core.active_detector.inspect_active``), not merely recorded in the
 genome. It catches silent failures — e.g. the active rules path being unreadable
 so ``inspect_active`` falls back to legacy (which detects 0 realistic threats).
 
-Health criteria (against a committed realistic corpus):
+Health criteria (against the SAME per-tier corpus the promotion grades against —
+``--corpus-dir``, so the health check never validates against stale data from a
+separately maintained combined file):
   - false-positive rate <= genome.max_fp_rate (default 0.05)
   - detection (tp) rate >= --min-tp-rate (default 0.5)
 
@@ -29,9 +31,31 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from core.active_detector import inspect_active  # noqa: E402
 from core.types import Request  # noqa: E402
+# Reuse the EXACT per-tier corpus filenames the promotion grades against, so a
+# health check sourced from --corpus-dir reads the same files and cannot drift
+# from a separately maintained combined file (Codex finding).
+from scripts.evaluate_structured_rules_candidate import _CORPUS_TIER_FILENAMES  # noqa: E402,PLC2701
 
 _DEFAULT_GENOME_PATH = _PROJECT_ROOT / "data" / "genome.json"
 _DEFAULT_CORPUS_PATH = _PROJECT_ROOT / "fixtures" / "realistic_corpus" / "all_cases.json"
+
+
+def _load_corpus_from_dir(corpus_dir: Path) -> list[dict]:
+    """Concatenate the per-tier corpus files in ``corpus_dir`` — the SAME source
+    the promotion grades against (``--corpus-dir``) — so the health check never
+    validates against stale data from a separately maintained combined file.
+    Tier files that are absent are skipped (the promotion likewise leaves absent
+    tiers to their ``data/`` defaults)."""
+    cases: list[dict] = []
+    for filename in _CORPUS_TIER_FILENAMES.values():
+        path = corpus_dir / filename
+        if not path.exists():
+            continue
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(loaded, list):
+            raise ValueError(f"corpus tier file {path} must be a JSON array")
+        cases.extend(loaded)
+    return cases
 
 
 def _request(entry: dict) -> Request:
@@ -43,8 +67,19 @@ def _request(entry: dict) -> Request:
     )
 
 
-def run_healthcheck(*, genome_path: Path, corpus_path: Path, min_tp_rate: float) -> tuple[dict, bool]:
-    """Return (report, healthy)."""
+def run_healthcheck(
+    *,
+    genome_path: Path,
+    min_tp_rate: float,
+    corpus_path: Path | None = None,
+    corpus_dir: Path | None = None,
+) -> tuple[dict, bool]:
+    """Return (report, healthy).
+
+    Corpus source precedence: ``corpus_dir`` (per-tier files, matching the
+    promotion's ``--corpus-dir``) wins over ``corpus_path`` (a single combined
+    file). When neither is given, the default combined corpus is used.
+    """
     try:
         genome = json.loads(genome_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -58,8 +93,11 @@ def run_healthcheck(*, genome_path: Path, corpus_path: Path, min_tp_rate: float)
     max_fp_rate = float(genome.get("max_fp_rate", 0.05))
 
     try:
-        corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        if corpus_dir is not None:
+            corpus = _load_corpus_from_dir(corpus_dir)
+        else:
+            corpus = json.loads((corpus_path or _DEFAULT_CORPUS_PATH).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         return {"healthy": False, "reason": f"could not read corpus: {exc}"}, False
     if not isinstance(corpus, list) or not corpus:
         return {"healthy": False, "reason": "corpus must be a non-empty list"}, False
@@ -106,13 +144,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify the live active detector after promotion.")
     parser.add_argument("--genome", default=None, metavar="PATH")
     parser.add_argument("--corpus", default=None, metavar="PATH")
+    parser.add_argument(
+        "--corpus-dir", default=None, metavar="DIR", dest="corpus_dir",
+        help="Per-tier corpus directory (matches the promotion's --corpus-dir); "
+             "takes precedence over --corpus.",
+    )
     parser.add_argument("--min-tp-rate", type=float, default=0.5, dest="min_tp_rate")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
     report, healthy = run_healthcheck(
         genome_path=Path(args.genome) if args.genome else _DEFAULT_GENOME_PATH,
-        corpus_path=Path(args.corpus) if args.corpus else _DEFAULT_CORPUS_PATH,
+        corpus_dir=Path(args.corpus_dir) if args.corpus_dir else None,
+        corpus_path=Path(args.corpus) if args.corpus else None,
         min_tp_rate=args.min_tp_rate,
     )
     if args.json:

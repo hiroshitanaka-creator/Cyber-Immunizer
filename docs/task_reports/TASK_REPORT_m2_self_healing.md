@@ -18,11 +18,22 @@ scheduled は noop 据え置き（自動 paid 起動なし）。本タスクで 
   - `detector_mode=legacy` に戻し `active_structured_rules_*` を除去（レガシー系統 generation/
     best_score/hash は不変＝即時・無損失）。idempotent。
 
-## ワークフロー（structured-promote）
-昇格コミット後に「Post-promote health check」ステップを追加：
-- healthcheck 合格 → 構造化検出器を本番継続。
-- 不合格 → `rollback_to_legacy_detector.py` 実行 → genome を legacy に戻して commit/push →
-  ジョブを fail（production が自己修復）。
+## ワークフロー（structured-promote）— validate-then-publish（Codex 指摘で改修）
+昇格スクリプトは local working tree に genome/active rules を書くだけ（未 push）。その直後・
+**main へ commit/push する前**に「Pre-publish health check」ステップで検証する：
+- healthcheck 合格 → README 更新 → commit/push（このとき初めて main に反映）。
+- 不合格 → `rollback_to_legacy_detector.py` で local genome を legacy へ戻し、**push せず**ジョブを
+  fail。main は一切変更されない（不健全な検出器が一瞬でも main に乗らない）。
+
+### Codex Review（PR #179）対応
+- **Finding 1（validate before publishing）**：従来は昇格 push の「後」に healthcheck していたため、
+  不健全でも一旦 main に乗り、rollback push が race/reject すると main が不健全のまま残り得た。
+  → ステップ順を **検証→公開** に変更。検証は local genome に対して行い、合格時のみ push する。
+- **Finding 2（promotion corpus 再利用）**：promote は `--corpus-dir fixtures/realistic_corpus`
+  （tier 別ファイル）で採点するのに、healthcheck は `all_cases.json` を hard-code していた。
+  → healthcheck に `--corpus-dir` を追加し、promote と**同一の tier 別ファイル**を読む
+  （tier ファイル名は evaluate スクリプトの `_CORPUS_TIER_FILENAMES` を import して単一ソース化）。
+  ワークフローも `--corpus-dir fixtures/realistic_corpus` を渡す。
 
 ## 安全性
 - healthcheck は読取専用・鍵なし。rollback は genome のみ変更（レガシー系統不変）。
@@ -37,7 +48,8 @@ scheduled は noop 据え置き（自動 paid 起動なし）。本タスクで 
 
 ## 後検証
 - スモーク：legacy→skip健全 / 有効ルール→tp1.0健全 / active 消失→不健全(fallback検知) / rollback→legacy化・フィールド除去。
-- `pytest tests/ -q` → **3031 passed**。`validate_state.py` → PASS。YAML 妥当。
+- `--corpus-dir fixtures/realistic_corpus` スモーク → tp 18/fp 0/healthy（all_cases.json と同一内容）。
+- `pytest tests/ -q` → **3034 passed**（Codex 対応で corpus-dir 整合 + validate-before-publish 順序テスト追加）。`validate_state.py` → PASS。YAML 妥当。
 
 ## Which layer did this task advance?
 - [x] Layer 1（自律ループの自己修復＝継続自走の安全装置）

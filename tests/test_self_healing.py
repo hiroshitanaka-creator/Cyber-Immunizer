@@ -72,6 +72,35 @@ class TestHealthcheck:
         assert healthy is True
         assert report["tp_rate"] == 1.0 and report["fp_rate"] == 0.0
 
+    def test_corpus_dir_matches_promotion_source(self, tmp_path: Path) -> None:
+        """The health check can grade the SAME per-tier corpus the promotion uses
+        (--corpus-dir), so it never drifts from a separately maintained combined
+        file (Codex finding)."""
+        g = _write_genome(
+            tmp_path, detector_mode="structured_rules",
+            active_structured_rules_path=_REALISTIC_RULES, max_fp_rate=0.05,
+        )
+        report, healthy = hc.run_healthcheck(
+            genome_path=g,
+            corpus_dir=_ROOT / "fixtures" / "realistic_corpus",
+            min_tp_rate=0.5,
+        )
+        assert healthy is True
+        assert report["tp_rate"] == 1.0 and report["fp_rate"] == 0.0
+
+    def test_corpus_dir_has_no_drift_from_combined_file(self) -> None:
+        """The per-tier source the promotion grades against must contain exactly
+        the same cases as the committed combined file (order-independent)."""
+        combined = json.loads(
+            (_ROOT / "fixtures" / "realistic_corpus" / "all_cases.json").read_text(encoding="utf-8")
+        )
+        from_dir = hc._load_corpus_from_dir(_ROOT / "fixtures" / "realistic_corpus")
+
+        def _key(c: dict) -> str:
+            return json.dumps(c, sort_keys=True)
+
+        assert sorted(map(_key, from_dir)) == sorted(map(_key, combined))
+
     def test_missing_active_rules_unhealthy(self, tmp_path: Path) -> None:
         """Silent fallback to legacy (active rules unreadable) => detects 0 realistic
         threats => unhealthy => caller rolls back."""
@@ -95,8 +124,20 @@ class TestHealthcheck:
 
 # --- workflow wiring --------------------------------------------------------
 
-def test_workflow_has_post_promote_autorollback() -> None:
+def test_workflow_has_pre_publish_healthcheck_with_rollback() -> None:
     wf = (_ROOT / ".github" / "workflows" / "immunization_loop.yml").read_text(encoding="utf-8")
     assert "post_promote_healthcheck.py" in wf
     assert "rollback_to_legacy_detector.py" in wf
-    assert "Post-promote health check" in wf
+    assert "Pre-publish health check" in wf
+    # The health check must grade the SAME per-tier corpus the promotion uses.
+    assert "--corpus-dir fixtures/realistic_corpus" in wf
+
+
+def test_workflow_validates_before_publishing_to_main() -> None:
+    """Validate-then-publish: the health check (and its local rollback) must run
+    BEFORE the structured rules are committed/pushed to main, so main never
+    receives an unhealthy detector (Codex finding)."""
+    wf = (_ROOT / ".github" / "workflows" / "immunization_loop.yml").read_text(encoding="utf-8")
+    healthcheck_idx = wf.index("Pre-publish health check (validate before pushing to main)")
+    commit_idx = wf.index("Commit promoted structured rules")
+    assert healthcheck_idx < commit_idx, "health check must precede the commit/push to main"
