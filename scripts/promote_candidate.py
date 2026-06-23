@@ -416,6 +416,12 @@ def promote_candidate(
     genome_data["current_detector_hash"] = actual_hash
     genome_data["best_score"] = candidate_score
     genome_data["last_updated"] = datetime.datetime.utcnow().isoformat() + "Z"
+    # Promoting a Python detector makes the legacy path authoritative again.
+    # Reset any structured-rules activation so a prior structured promotion can
+    # never leave core.active_detector dispatching to a stale rules document
+    # after this freshly promoted core/detector.py.
+    genome_data["detector_mode"] = "legacy"
+    genome_data.pop("active_structured_rules_path", None)
     genome_path.write_text(json.dumps(genome_data, indent=2) + "\n", encoding="utf-8")
 
     # --- 14. Append to evolution_history.json ---

@@ -813,6 +813,34 @@ class TestPromoteSuccess:
         assert genome["generation"] == 1, "Generation should increment to 1"
         assert genome["best_score"] == 999.0, "best_score should be updated"
 
+    def test_legacy_promotion_resets_structured_detector_mode(self, tmp_path):
+        """Promoting a Python detector must reset a prior structured-rules activation,
+        so core.active_detector cannot stay stuck on a stale rules document."""
+        candidate = _copy_real_candidate(tmp_path)
+        report = _make_passing_report(tmp_path, candidate, score=999.0)
+
+        # Seed a genome that is currently in structured_rules mode.
+        real = json.loads(_REAL_GENOME.read_text(encoding="utf-8"))
+        real["best_score"] = -1e9
+        real["generation"] = 0
+        real["detector_mode"] = "structured_rules"
+        real["active_structured_rules_path"] = "data/active_structured_rules.json"
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(real, indent=2), encoding="utf-8")
+
+        exit_code = promote_candidate(
+            candidate, report, as_json=True,
+            detector_path=_make_isolated_detector_out(tmp_path),
+            genome_path=genome_path,
+            history_path=_make_isolated_history(tmp_path),
+            readme_path=_make_isolated_readme(tmp_path),
+        )
+        assert exit_code == 0
+
+        genome = json.loads(genome_path.read_text())
+        assert genome["detector_mode"] == "legacy"
+        assert "active_structured_rules_path" not in genome
+
     def test_updates_history_on_successful_promotion(self, tmp_path):
         """After promotion, evolution_history.json gets a new entry."""
         candidate = _copy_real_candidate(tmp_path)

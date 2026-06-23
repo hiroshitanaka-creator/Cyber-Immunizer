@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+import scripts.promote_structured_candidate as psc
 from scripts.promote_structured_candidate import main
 
 _DETECT_TOKEN = "special_threat_token"  # unknown to the legacy detector
@@ -174,3 +175,60 @@ def test_refuse_missing_history(tmp_path: Path, capsys: pytest.CaptureFixture) -
     assert rc == 1
     assert json.loads(capsys.readouterr().out)["promoted"] is False
     assert not s["active"].exists()
+
+
+def test_refuse_non_regular_rules_path(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """A directory (non-regular file) as --rules is refused before any read."""
+    s = _setup(tmp_path)
+    a_dir = tmp_path / "rules_dir"
+    a_dir.mkdir()
+    args = [
+        "--rules", str(a_dir), "--corpus-dir", str(s["corpus"]),
+        "--genome", str(s["genome"]), "--history", str(s["history"]),
+        "--active-rules-out", str(s["active"]), "--owner-approved", "--json",
+    ]
+    rc = main(args)
+    assert rc == 1
+    assert "not a regular file" in json.loads(capsys.readouterr().out)["reason"]
+    assert not s["active"].exists()
+
+
+def test_refuse_validator_exception(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """A rules file that makes the validator raise (OverflowError) is a clean refusal."""
+    s = _setup(tmp_path)
+    s["rules"].write_text(json.dumps({
+        "schema_version": 1,
+        "features": {"surface": {"fields": ["path"], "normalization": ["lowercase"],
+            "max_collection_entries": {"query": 1000, "headers": 1000},
+            "max_scalar_bytes": {"method": 4096, "path": 1048576, "query.item": 1048576, "header.item": 1048576},
+            "body_scan": {"mode": "full", "max_bytes": 1048576}}},
+        "rules": [{"id": "r", "field": "surface", "operator": "contains_literal",
+                   "literal": "x", "signal": "s", "confidence": 10 ** 400}],
+        "decision": {"block_when": "any_rule_matches", "reason": "r",
+                     "confidence_strategy": {"type": "fixed", "default": 0.5},
+                     "matched_signals": "matched_rule_signals"},
+        "fallback": {"blocked": False, "reason": "n", "confidence": 0.0, "matched_signals": []},
+    }), encoding="utf-8")
+    rc = main(_common_args(s, owner=True))
+    assert rc == 1
+    assert "validation raised" in json.loads(capsys.readouterr().out)["reason"]
+    assert not s["active"].exists()
+
+
+def test_refuse_when_rules_file_changes_during_evaluation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    """TOCTOU guard: if the rules file changes between validation and the gate, refuse."""
+    s = _setup(tmp_path)
+
+    def mutating_eval(rules_path, *, genome_path, baseline_mode, corpus_paths):
+        # Simulate the file being replaced after the first read; return a pass.
+        rules_path.write_text(rules_path.read_text(encoding="utf-8") + "\n ", encoding="utf-8")
+        return ({"passed_adoption_gate": True, "score": 999.0, "tp_rate": 1.0,
+                 "fp_rate": 0.0, "fn_rate": 0.0, "avg_latency_ms": 0.1}, False)
+
+    monkeypatch.setattr(psc, "evaluate_structured_rules", mutating_eval)
+    rc = main(_common_args(s, owner=True))
+    assert rc == 1
+    assert "changed during evaluation" in json.loads(capsys.readouterr().out)["reason"]
+    assert json.loads(s["genome"].read_text())["detector_mode"] == "legacy"

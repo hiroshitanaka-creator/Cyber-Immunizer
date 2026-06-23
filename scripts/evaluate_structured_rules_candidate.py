@@ -255,6 +255,60 @@ def _load_test_cases_kwargs(corpus_paths: dict[str, Path] | None) -> dict[str, P
     }
 
 
+# Owner-supplied corpus files are user-controlled CLI inputs; bound their size
+# before load_test_cases reads them with Path.read_text() (no size/type guard).
+_MAX_CORPUS_FILE_BYTES = 5_242_880  # 5 MiB
+_ADAPTIVE_TIERS: frozenset[str] = frozenset({"holdout", "counterfactual", "drift"})
+
+
+def _validate_external_corpus_files(corpus_paths: dict[str, Path] | None) -> str | None:
+    """Validate Owner-supplied corpus paths before load_test_cases reads them.
+
+    Returns an error string (tool failure) or None. Checks, for each provided path:
+      - the path is a regular file (rejects FIFO/device/dir that could block reads)
+      - the file is within the size bound
+    For adaptive-tier files (holdout/counterfactual/drift) it additionally rejects
+    records whose explicit ``kind`` does not match the tier, because the adaptive
+    floor counts tier membership by ``kind`` — a mismatch can let a failing
+    holdout/drift/counterfactual case be scored as a main case and inflate the
+    tier pass rate to a false green.
+    """
+    if not corpus_paths:
+        return None
+    for tier, path in corpus_paths.items():
+        if path is None:
+            continue
+        try:
+            st = path.stat()
+        except OSError as exc:
+            return f"corpus file for tier {tier!r} could not be stat'd: {exc}"
+        if not stat.S_ISREG(st.st_mode):
+            return (
+                f"corpus path for tier {tier!r} is not a regular file "
+                f"(mode={stat.filemode(st.st_mode)!r}): {path}"
+            )
+        if st.st_size > _MAX_CORPUS_FILE_BYTES:
+            return (
+                f"corpus file for tier {tier!r} exceeds size limit: "
+                f"{st.st_size} bytes > {_MAX_CORPUS_FILE_BYTES} bytes"
+            )
+        if tier in _ADAPTIVE_TIERS:
+            try:
+                records = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                return f"corpus file for tier {tier!r} is not readable JSON: {exc}"
+            if not isinstance(records, list):
+                return f"corpus file for tier {tier!r} must be a JSON array"
+            for i, rec in enumerate(records):
+                if isinstance(rec, dict) and "kind" in rec and rec.get("kind") != tier:
+                    return (
+                        f"corpus file for tier {tier!r} entry {i} has kind="
+                        f"{rec.get('kind')!r}; per-tier files must use kind={tier!r} "
+                        f"(or omit kind) so the adaptive floor counts it correctly"
+                    )
+    return None
+
+
 def _make_detector_callable(rules_doc: dict):
     """Return a detector callable that invokes the runtime selector in structured_rules mode."""
     def _detector(request):
@@ -412,6 +466,9 @@ def evaluate_structured_rules(
     # Load test cases with fail-closed adaptive-tier behavior (require_adaptive_tiers=True,
     # the default). Missing adaptive tier files are treated as tool failures so the floor
     # gate cannot be silently bypassed by absent holdout/counterfactual/drift corpora.
+    corpus_validation_error = _validate_external_corpus_files(corpus_paths)
+    if corpus_validation_error:
+        return _tool_failure(corpus_validation_error, rules_path)
     try:
         cases = load_test_cases(**_load_test_cases_kwargs(corpus_paths))
     except Exception as exc:
@@ -439,6 +496,19 @@ def evaluate_structured_rules(
     fn_rate = fn / attack_total if attack_total else 0.0
 
     regression_results = [r for r in main_results if r.get("kind") == "regression"]
+
+    # Reject incomplete external corpora: an Owner-supplied corpus with an empty
+    # main tier could otherwise pass in --baseline mode with total_cases=0
+    # (score/parity bypassed, regression pass rate defaults to 1.0).
+    if corpus_paths is not None and (
+        attack_total == 0 or benign_total == 0 or len(regression_results) == 0
+    ):
+        return _tool_failure(
+            "external corpus has an empty main tier (attack/benign/regression); "
+            "refusing to report a gate result on an incomplete corpus",
+            rules_path,
+        )
+
     reg_pass = sum(
         1
         for r in regression_results

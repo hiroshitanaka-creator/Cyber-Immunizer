@@ -97,10 +97,13 @@ def inspect_active(
     rules_doc = _read_json_dict(rules_path)
     if rules_doc is None:
         return inspect_request(request)
-    if validate_rules_schema(rules_doc).get("success") is not True:
-        return inspect_request(request)
 
+    # Validation and dispatch share one fail-safe boundary: validate_rules_schema
+    # can itself raise (e.g. OverflowError on an extreme numeric literal), so it
+    # must be inside the try to preserve the "never raises" contract.
     try:
+        if validate_rules_schema(rules_doc).get("success") is not True:
+            return inspect_request(request)
         return inspect_request_with_runtime_selector(
             request, mode="structured_rules", structured_rules_doc=rules_doc
         )

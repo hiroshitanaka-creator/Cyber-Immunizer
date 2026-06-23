@@ -1903,6 +1903,51 @@ class TestCorpusDirIntegration:
         assert report["success"] is False
         assert report["evaluation_completed"] is False
 
+    def test_empty_main_tier_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """An external corpus with an empty attack tier is rejected (no false green)."""
+        corpus_dir = write_corpus_dir(tmp_path, n_benign=3, n_attack=2, n_reg=2)
+        (corpus_dir / "attack_requests.json").write_text("[]", encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        rc = main(["--rules", str(rules_path), "--corpus-dir", str(corpus_dir),
+                   "--baseline", "--json"])
+        report = json.loads(capsys.readouterr().out)
+        assert rc == 1
+        assert report["success"] is False
+        assert "empty main tier" in str(report.get("rejection_reasons"))
+
+    def test_non_regular_corpus_path_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A directory passed as a per-tier corpus path is rejected before reading."""
+        corpus_dir = write_corpus_dir(tmp_path, n_benign=3, n_attack=2, n_reg=2)
+        a_dir = tmp_path / "attack_as_dir"
+        a_dir.mkdir()
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        rc = main(["--rules", str(rules_path), "--corpus-dir", str(corpus_dir),
+                   "--attack-path", str(a_dir), "--baseline", "--json"])
+        report = json.loads(capsys.readouterr().out)
+        assert rc == 1
+        assert "not a regular file" in str(report.get("rejection_reasons"))
+
+    def test_tier_kind_mismatch_is_tool_failure(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A holdout file whose records carry kind='attack' is rejected (avoids false tier green)."""
+        corpus_dir = write_corpus_dir(tmp_path, n_benign=3, n_attack=2, n_reg=2)
+        (corpus_dir / "holdout_requests.json").write_text(
+            json.dumps([{
+                "id": "h-bad", "kind": "attack", "expected_blocked": True,
+                "tags": ["attack", "holdout"], "request": _attack_entry(0)["request"],
+            }]), encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        rc = main(["--rules", str(rules_path), "--corpus-dir", str(corpus_dir),
+                   "--baseline", "--json"])
+        report = json.loads(capsys.readouterr().out)
+        assert rc == 1
+        assert "kind=" in str(report.get("rejection_reasons"))
+
     def test_default_still_uses_data_corpus(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:

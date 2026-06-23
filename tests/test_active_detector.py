@@ -117,6 +117,29 @@ def test_oversize_rules_falls_back_to_legacy(tmp_path: Path) -> None:
     assert inspect_active(r, genome_path=genome, active_rules_path=big) == inspect_request(r)
 
 
+def test_validator_exception_falls_back_to_legacy(tmp_path: Path) -> None:
+    """A rules file that makes validate_rules_schema raise (e.g. OverflowError on a
+    huge confidence) must fall back to legacy, not propagate the exception."""
+    genome = _write_genome(tmp_path, detector_mode="structured_rules")
+    rules = tmp_path / "overflow.json"
+    rules.write_text(json.dumps({
+        "schema_version": 1,
+        "features": {"surface": {"fields": ["path"], "normalization": ["lowercase"],
+            "max_collection_entries": {"query": 1000, "headers": 1000},
+            "max_scalar_bytes": {"method": 4096, "path": 1048576, "query.item": 1048576, "header.item": 1048576},
+            "body_scan": {"mode": "full", "max_bytes": 1048576}}},
+        "rules": [{"id": "r", "field": "surface", "operator": "contains_literal",
+                   "literal": "x", "signal": "s", "confidence": 10 ** 400}],
+        "decision": {"block_when": "any_rule_matches", "reason": "r",
+                     "confidence_strategy": {"type": "fixed", "default": 0.5},
+                     "matched_signals": "matched_rule_signals"},
+        "fallback": {"blocked": False, "reason": "n", "confidence": 0.0, "matched_signals": []},
+    }), encoding="utf-8")
+    r = _req(path="/x/PATH_TRAVERSAL_INDICATOR")
+    # Must not raise; must equal the legacy result.
+    assert inspect_active(r, genome_path=genome, active_rules_path=rules) == inspect_request(r)
+
+
 def test_never_returns_bool(tmp_path: Path) -> None:
     genome = _write_genome(tmp_path, detector_mode="structured_rules")
     r = _req(path="/x/PATH_TRAVERSAL_INDICATOR")
