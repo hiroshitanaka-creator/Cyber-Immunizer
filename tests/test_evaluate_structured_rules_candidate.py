@@ -2059,3 +2059,95 @@ class TestStructuredToStructuredBaseline:
         report = json.loads(capsys.readouterr().out)
         assert report["passed_adoption_gate"] is False
         assert "active structured ruleset" in str(report.get("rejection_reasons"))
+
+
+def _baseline_genome(tmp_path: Path, **overrides) -> Path:
+    """A minimal genome carrying the baseline generalization floors."""
+    g = {
+        "best_score": -1e9,
+        "max_fp_rate": 0.05,
+        "min_regression_pass_rate": 1.0,
+        "min_holdout_pass_rate_baseline": 0.5,
+        "min_drift_pass_rate_baseline": 0.5,
+        "max_avg_latency_ms": 100.0,
+    }
+    g.update(overrides)
+    p = tmp_path / "genome.json"
+    p.write_text(json.dumps(g), encoding="utf-8")
+    return p
+
+
+def _corpus_with_partial_holdout(tmp_path: Path) -> Path:
+    """Corpus where the equivalent rules catch 1 of 2 holdout cases (rate 0.5)."""
+    d = write_corpus_dir(tmp_path, n_benign=3, n_attack=2, n_reg=2)
+    (d / "holdout_requests.json").write_text(json.dumps([
+        _blocking_tier_entry("holdout"),  # caught (indicator present)
+        {  # missed: a novel unseen attack with no known signature
+            "id": "ext-holdout-miss", "kind": "holdout", "expected_blocked": True,
+            "tags": ["holdout", "novel"],
+            "request": {"method": "GET", "path": "/ext/holdout/novel-unseen-threat",
+                        "query": {}, "headers": {}, "body": ""},
+        },
+    ]), encoding="utf-8")
+    return d
+
+
+class TestBaselineGeneralizationFloor:
+    """First-activation baseline relaxes ONLY holdout/drift; fp safety + regression stay strict."""
+
+    def test_baseline_relaxes_holdout_floor(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+        corpus = _corpus_with_partial_holdout(tmp_path)
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        genome = _baseline_genome(tmp_path)
+        rc = main(["--rules", str(rules_path), "--corpus-dir", str(corpus),
+                   "--genome", str(genome), "--baseline", "--json"])
+        rep = json.loads(capsys.readouterr().out)
+        assert rc == 0
+        assert rep["baseline_mode"] is True
+        assert rep["holdout_pass_rate"] == 0.5
+        assert rep["min_holdout_pass_rate_applied"] == 0.5
+        # holdout 0.5 >= baseline floor 0.5 -> floor passes -> candidate activates
+        assert rep["passed_adoption_gate"] is True
+        assert not any("holdout_pass_rate" in r for r in rep["rejection_reasons"])
+
+    def test_non_baseline_keeps_strict_holdout_floor(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+        corpus = _corpus_with_partial_holdout(tmp_path)
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        genome = _baseline_genome(tmp_path)
+        rc = main(["--rules", str(rules_path), "--corpus-dir", str(corpus),
+                   "--genome", str(genome), "--soft-reject", "--json"])
+        rep = json.loads(capsys.readouterr().out)
+        assert rep["baseline_mode"] is False
+        assert rep["min_holdout_pass_rate_applied"] == 1.0
+        # strict 1.0 floor -> 0.5 rejected; the same candidate cannot activate
+        assert rep["passed_adoption_gate"] is False
+        assert any("holdout_pass_rate=0.500 < min=1.000" in r for r in rep["rejection_reasons"])
+
+    def test_baseline_does_not_relax_false_positive_safety(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+        """Even in baseline mode, a candidate that over-blocks a benign counterfactual
+        is rejected — fp safety is never relaxed."""
+        corpus = write_corpus_dir(tmp_path, n_benign=3, n_attack=2, n_reg=2)
+        # Make the single counterfactual a benign request that the rules WILL block.
+        (corpus / "counterfactual_requests.json").write_text(json.dumps([{
+            "id": "ext-cf-overblock", "kind": "counterfactual", "expected_blocked": False,
+            "tags": ["counterfactual"],
+            "request": {"method": "GET", "path": "/ext/PATH_TRAVERSAL_INDICATOR/safe",
+                        "query": {}, "headers": {}, "body": ""},
+        }]), encoding="utf-8")
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        genome = _baseline_genome(tmp_path)
+        main(["--rules", str(rules_path), "--corpus-dir", str(corpus),
+              "--genome", str(genome), "--baseline", "--json"])
+        rep = json.loads(capsys.readouterr().out)
+        assert rep["counterfactual_pass_rate"] == 0.0
+        assert rep["passed_adoption_gate"] is False
+        assert any("counterfactual_pass_rate" in r for r in rep["rejection_reasons"])
+
+    def test_baseline_threshold_keys_are_validated(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+        """Out-of-range baseline floors are a tool failure (fail-closed)."""
+        rules_path = write_rules(tmp_path, equivalent_rules_doc())
+        genome = _baseline_genome(tmp_path, min_holdout_pass_rate_baseline=1.5)
+        rc = main(["--rules", str(rules_path), "--genome", str(genome), "--baseline", "--json"])
+        rep = json.loads(capsys.readouterr().out)
+        assert rc == 1
+        assert "min_holdout_pass_rate_baseline" in str(rep.get("error", ""))

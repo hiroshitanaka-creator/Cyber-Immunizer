@@ -211,10 +211,19 @@ class TestCLI:
 
 # --- committed state + workflow wiring --------------------------------------
 
-def test_committed_state_file_is_valid_and_untripped() -> None:
+def test_committed_state_file_is_valid() -> None:
+    # The committed state reflects LIVE operation: it may be tripped (the breaker
+    # is doing its job after consecutive gate failures). Assert structural
+    # validity and consistency, not a specific untripped value.
     state = cb.load_state(_ROOT / "data" / "circuit_breaker.json")
-    assert state["tripped"] is False
-    assert state["consecutive_failures"] == 0
+    assert isinstance(state["tripped"], bool)
+    assert isinstance(state["consecutive_failures"], int)
+    assert state["consecutive_failures"] >= 0
+    assert isinstance(state["failure_threshold"], int) and state["failure_threshold"] >= 1
+    assert isinstance(state["history"], list)
+    # Trip flag must be consistent with the counter vs threshold.
+    if state["consecutive_failures"] >= state["failure_threshold"]:
+        assert state["tripped"] is True
 
 
 def test_workflow_gates_paid_runs_and_persists_outcome() -> None:

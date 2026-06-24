@@ -165,6 +165,8 @@ def _validate_genome_thresholds(genome: dict) -> str | None:
         "min_holdout_pass_rate",
         "min_counterfactual_pass_rate",
         "min_drift_pass_rate",
+        "min_holdout_pass_rate_baseline",
+        "min_drift_pass_rate_baseline",
     )
     for field in _rate_fields:
         if field not in genome:
@@ -503,6 +505,20 @@ def evaluate_structured_rules(
     min_holdout_pass_rate: float = float(genome.get("min_holdout_pass_rate", 1.0))
     min_cf_pass_rate: float = float(genome.get("min_counterfactual_pass_rate", 1.0))
     min_drift_pass_rate: float = float(genome.get("min_drift_pass_rate", 1.0))
+    # First-activation (baseline) floor for the GENERALIZATION tiers only.
+    # The incumbent legacy detector catches ~0% of realistic/unseen threats, so
+    # requiring a from-scratch structured candidate to hit 100% on the held-out
+    # (unseen) and drift tiers makes those a pass/fail wall instead of the
+    # generalization MEASURE they are meant to be — no candidate that strictly
+    # beats the incumbent could ever activate. In baseline mode we therefore
+    # relax ONLY holdout/drift to a realistic floor; false-positive safety
+    # (counterfactual + max_fp_rate), known-attack coverage (regression), and
+    # latency stay strict. Generation 2+ runs are NOT baseline: they keep the
+    # strict floors AND must beat the active structured score (parity guard),
+    # which ratchets generalization upward over time.
+    if baseline_mode:
+        min_holdout_pass_rate = float(genome.get("min_holdout_pass_rate_baseline", 0.5))
+        min_drift_pass_rate = float(genome.get("min_drift_pass_rate_baseline", 0.5))
 
     # Build the detector callable via runtime selector.
     detector_fn = _make_detector_callable(rules_doc)
@@ -672,6 +688,9 @@ def evaluate_structured_rules(
         "counterfactual_pass_rate": cf_rate if cf_rate is not None else 1.0,
         "drift_pass_rate": drift_rate if drift_rate is not None else 1.0,
         "score_comparison_mode": "structured_rules_parity_guard",
+        "baseline_mode": baseline_mode,
+        "min_holdout_pass_rate_applied": min_holdout_pass_rate,
+        "min_drift_pass_rate_applied": min_drift_pass_rate,
         "mode": "structured_rules",
         "rules_path": str(rules_path),
     }
