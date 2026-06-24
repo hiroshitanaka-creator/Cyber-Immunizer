@@ -232,3 +232,27 @@ class TestMainCli:
         rc = pm.main(["--structured-rules", "--offline-sample", "--json"])
         assert rc == 0
         assert json.loads(capsys.readouterr().out)["mode"] == "structured-rules-offline-sample"
+
+
+# ---------------------------------------------------------------------------
+# Proposer prompt: comprehensive, precise coverage guidance (M-real ignition)
+# ---------------------------------------------------------------------------
+
+def test_structured_prompt_requests_comprehensive_precise_coverage() -> None:
+    """The proposer prompt must push broad, multi-signature coverage of the
+    canonical threat classes AND precision (no benign over-matching), so a
+    candidate can clear the known-attack/regression bar with fp ~ 0."""
+    prompt = pm._build_structured_rules_prompt({})
+    lower = prompt.lower()
+    # Comprehensiveness + multiple signatures per category.
+    assert "comprehensive" in lower
+    assert "multiple distinct signatures" in lower or "several signatures" in lower
+    # Coverage breadth beyond the original four categories.
+    for cls in ("path traversal", "sql injection", "xss", "command injection",
+                "ssrf", "xxe", "ssti"):
+        assert cls in lower, f"prompt missing coverage guidance for {cls!r}"
+    # Obfuscation awareness and precision (no benign over-blocking).
+    assert "encoding" in lower
+    assert "precision" in lower
+    # Still strictly defensive — detection signatures, not exploit payloads.
+    assert "not" in lower and "exploit payload" in lower

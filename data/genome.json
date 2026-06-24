@@ -9,6 +9,8 @@
   "max_model_requests_per_run": 1,
   "max_fp_rate": 0.05,
   "min_regression_pass_rate": 1.0,
+  "min_holdout_pass_rate_baseline": 0.5,
+  "min_drift_pass_rate_baseline": 0.5,
   "max_avg_latency_ms": 100.0,
   "model_provider": "gemini",
   "api_mode": "gemini_paid_credit",
