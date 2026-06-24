@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "consecutive_failures": 3,
+  "consecutive_failures": 0,
   "failure_threshold": 3,
-  "tripped": true,
-  "last_outcome": "failure",
-  "last_reason": "structured candidate did not pass the adoption gate",
-  "last_updated": "2026-06-23T23:43:50.262844+00:00",
+  "tripped": false,
+  "last_outcome": "reset",
+  "last_reason": "owner: baseline adoption floor fixed in PR #182 (relax holdout/drift baseline floor); re-arm paid ignition",
+  "last_updated": "2026-06-24T03:24:50.513859+00:00",
   "history": [
     {
       "timestamp": "2026-06-23T23:32:41.226901+00:00",
@@ -27,6 +27,13 @@
       "reason": "structured candidate did not pass the adoption gate",
       "consecutive_failures_after": 3,
       "tripped_after": true
+    },
+    {
+      "timestamp": "2026-06-24T03:24:50.513859+00:00",
+      "outcome": "reset",
+      "reason": "owner: baseline adoption floor fixed in PR #182 (relax holdout/drift baseline floor); re-arm paid ignition",
+      "consecutive_failures_after": 0,
+      "tripped_after": false
     }
   ]
 }
