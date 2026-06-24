@@ -151,12 +151,12 @@ The candidate was not promoted to `main` via the original run 8 workflow (push-r
 | `promote_approved=true` means the generation 4 promotion has been merged to main | ✅ Correct — run #59 promotion merged on 2026-06-18; generation 4 is now active on main |
 
 The primary-model paid-credit API calls **have been executed** and are recorded in the ledger
-(15 success records). Run 8 (2026-06-17) passed the adoption gate. The candidate was recovered
+(21 success records). Run 8 (2026-06-17) passed the adoption gate. The candidate was recovered
 via owner-audited recovery on 2026-06-18: hash verified against run 8 job-log fitness report,
 `promote_candidate.py` re-executed, generation 3 written. Recovery was completed via
 owner-audited PR #117 (merged 2026-06-18). That recovery is historical; generation 4 is now active on main after run #59 promotion.
 
-The ledger now contains **15** primary-model `success=true` records. Some records, including run 10 (2026-06-19T14:43:51+00:00), run 14 (2026-06-22T02:32:07+00:00), and run 15 (2026-06-23T10:44:04+00:00), are API/token success only unless separately triaged from job logs/artifacts. They must not be treated as evidence that apply, evaluate, or promote were reached.
+The ledger now contains **21** primary-model `success=true` records. Some records, including run 10 (2026-06-19T14:43:51+00:00), run 14 (2026-06-22T02:32:07+00:00), run 15 (2026-06-23T10:44:04+00:00), and runs #75/#76 (2026-06-24, API success but output-contract truncation), are API/token success only unless separately triaged from job logs/artifacts. They must not be treated as evidence that apply, evaluate, or promote were reached.
 
 ---
 
