@@ -71,7 +71,7 @@ _HISTORICAL_STATE_DOCS = [
 
 _HISTORICAL_LABEL = "HISTORICAL DOCUMENT"
 
-_EXPECTED_PRIMARY_MODEL_PAID_CREDIT_SUCCESS_RECORDS = 19
+_EXPECTED_PRIMARY_MODEL_PAID_CREDIT_SUCCESS_RECORDS = 21
 
 _REQUIRED_TOP_LEVEL_FIELDS = [
     "schema_version",
@@ -327,10 +327,21 @@ def test_project_state_doc_no_stale_3_calls_claim() -> None:
 
 
 # 19.
-def test_project_state_doc_shows_15_success_records() -> None:
+def test_project_state_doc_shows_current_success_count() -> None:
+    # Dynamic: the doc must show whatever count project_state.json declares (which
+    # the ledger-sync test ties to the ledger). This catches stale-count drift
+    # automatically instead of hard-coding a number that goes stale each run.
     text = _PROJECT_STATE_DOC.read_text(encoding="utf-8")
-    assert "**15**" in text, (
-        "docs/PROJECT_STATE.md must show 15 primary-model paid-credit success records"
+    declared = _load(_PROJECT_STATE_PATH)["paid_credit_api_calls"][
+        "gemini_3_flash_preview_success_records"
+    ]
+    assert f"**{declared}**" in text, (
+        f"docs/PROJECT_STATE.md must show the current count **{declared}** "
+        "primary-model paid-credit success records (it drifted from project_state.json)"
+    )
+    # And it must NOT still show the previous stale count as a bolded total.
+    assert "**15**" not in text, (
+        "docs/PROJECT_STATE.md still shows the stale **15** total; update it to the current count"
     )
 
 

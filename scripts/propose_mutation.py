@@ -2589,7 +2589,9 @@ def _build_structured_rules_prompt(genome: dict) -> str:
     across the standard threat categories. It never requests or contains exploit
     payloads — rule literals are detection signatures (substrings to match).
     """
-    example = json.dumps(build_offline_sample_structured_rules(), indent=2)
+    # Compact (minified) example so the model mimics compact output and the
+    # generated document stays well within max_output_tokens (no truncation).
+    example = json.dumps(build_offline_sample_structured_rules(), separators=(",", ":"))
     return (
         "Produce a structured detection rules JSON document for a defensive "
         "request inspector. The document MUST conform to this schema "
@@ -2631,9 +2633,14 @@ def _build_structured_rules_prompt(genome: dict) -> str:
         "an exploit payload or a runnable attack string. Precision matters as much "
         "as recall: do NOT use signatures so broad they would match ordinary "
         "benign requests (avoid bare single characters or common words). Keep the "
-        "non-blocking fallback. Output ONLY the JSON document.\n\n"
-        "Shape example (replace the symbolic literals with real defensive "
-        "detection signatures; keep the structure):\n"
+        "non-blocking fallback. Output ONLY the JSON document.\n"
+        "SIZE BOUND: output COMPACT, minified JSON on a single line — no indentation, "
+        "no newlines, no extra whitespace between tokens. Keep each rule's id, literal, "
+        "and signal short. Produce roughly 24-40 concise signatures in total (the "
+        "schema allows at most 64). Compact output is REQUIRED so the whole document "
+        "fits well within the response token limit and is never truncated.\n\n"
+        "Shape example (compact/minified — replace the symbolic literals with real "
+        "defensive detection signatures; keep the structure and the compact format):\n"
         f"{example}\n"
     )
 

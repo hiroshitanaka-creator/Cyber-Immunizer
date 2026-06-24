@@ -256,3 +256,43 @@ def test_structured_prompt_requests_comprehensive_precise_coverage() -> None:
     assert "precision" in lower
     # Still strictly defensive — detection signatures, not exploit payloads.
     assert "not" in lower and "exploit payload" in lower
+
+
+def test_structured_prompt_bounds_ruleset_size_and_requires_compact_output() -> None:
+    """The prompt must bound the ruleset size AND require compact/minified JSON so the
+    output is never truncated by max_output_tokens at the unchanged 2048 cap
+    (root cause of the run #75/#76 output-contract failures)."""
+    prompt = pm._build_structured_rules_prompt({}).lower()
+    assert "at most 64" in prompt  # schema MAX_RULES communicated
+    assert "concise" in prompt
+    assert "truncat" in prompt  # explicit instruction to keep JSON from truncating
+    # Compact output is the lever that fits a comprehensive ruleset within 2048
+    # tokens without changing the paid-credit token cap.
+    assert "compact" in prompt or "minif" in prompt
+
+
+def test_structured_prompt_example_is_minified() -> None:
+    """The shape example must be compact (single line) so the model mimics compact
+    output — pretty-printed examples caused the model to over-spend tokens."""
+    prompt = pm._build_structured_rules_prompt({})
+    # The minified example has no 2-space-indented object keys.
+    assert '\n    "' not in prompt
+
+
+def test_paid_call_fits_daily_budget_at_current_cap() -> None:
+    """One paid structured call must fit the unchanged daily USD budget at the
+    current (un-raised) max_output_tokens."""
+    import json
+    import scripts.api_budget as budget
+    genome = json.loads((_PROJECT_ROOT / "data" / "genome.json").read_text())
+    mot = int(genome["max_output_tokens"])
+    model = genome["model_name"]
+    out_tokens = mot + (pm._GEMINI3_THINKING_ESTIMATE_LOW_TOKENS if model.startswith("gemini-3") else 0)
+    in_tokens = budget.estimate_tokens_from_chars(
+        len(pm._STRUCTURED_SYSTEM_PROMPT) + len(pm._build_structured_rules_prompt(genome))
+    )
+    est = budget.estimate_cost_usd(in_tokens, out_tokens, model)
+    assert est <= float(genome["daily_api_budget_usd"]), (
+        f"one paid call (est ${est:.4f}) must fit the daily budget "
+        f"${genome['daily_api_budget_usd']}"
+    )
