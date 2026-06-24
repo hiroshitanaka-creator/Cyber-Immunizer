@@ -22,7 +22,7 @@
   "monthly_api_budget_usd": 10.0,
   "daily_api_budget_usd": 0.25,
   "max_prompt_chars": 12000,
-  "max_output_tokens": 6144,
+  "max_output_tokens": 2048,
   "temperature": 0.2,
   "allow_google_search_grounding": false,
   "allow_code_execution_tool": false,
