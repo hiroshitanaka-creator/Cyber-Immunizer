@@ -43,8 +43,13 @@ Owner 承認が必要）と Owner 指示「他の方法を探す」を受け、*
   正しく生成される状態に戻す。安全境界・予算は不変）。
 
 ## 残存・次アクション
-- 本 PR マージ後、そのまま再 ignition（`structured-gemini-paid-credit` + `structured_baseline=true`
-  + `promote_approved=true`）。compact 出力で JSON が切れず、候補が evaluate→gate まで到達する見込み。
+- 本 PR マージ後、再 ignition（`structured-gemini-paid-credit` + `structured_baseline=true`）。
+  compact 出力で JSON が切れず、候補が evaluate→gate まで到達する見込み。
+- **`promote_approved` は既定で `false`** にして再実行すること。これは truncation 修正の
+  retry であり、`promote_approved=true` にすると evaluate 合格時に structured ルールが
+  main の active detector へ**自動昇格**されてしまう（`.github/workflows/immunization_loop.yml`
+  の promote ジョブが `--owner-approved` で発火）。**その特定の run について Project Owner が
+  昇格を明示承認した場合に限り** `promote_approved=true` を指定する。
 - **重要**：本 PR がマージされるまでは再 ignition しないこと（compact 化前は再び truncation で
   paid を浪費する）。
 - paid/モデル/予算設定は一切変更していない（max_output_tokens=2048 据え置き、daily 0.25 不変）。
