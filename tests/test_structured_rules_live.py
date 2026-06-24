@@ -258,6 +258,21 @@ def test_structured_prompt_requests_comprehensive_precise_coverage() -> None:
     assert "not" in lower and "exploit payload" in lower
 
 
+def test_structured_prompt_mandates_canonical_regression_signatures() -> None:
+    """The proposer prompt must explicitly require the canonical signatures that the
+    regression (known-attack) tier needs, so a candidate reaches
+    regression_pass_rate=1.0. run #78 failed ONLY on regression_pass_rate=0.750
+    because destructive/stacked SQLi (e.g. 'drop table') was not guaranteed."""
+    lower = pm._build_structured_rules_prompt({}).lower()
+    # Destructive / stacked SQL injection must be called out, not just read-based.
+    assert "drop table" in lower
+    # Core path-traversal canonical signatures.
+    assert "../" in lower
+    assert "/etc/passwd" in lower or "/etc/shadow" in lower
+    # Explicit mandate so the model treats these as required, not optional.
+    assert "mandatory" in lower or "must include" in lower
+
+
 def test_structured_prompt_bounds_ruleset_size_and_requires_compact_output() -> None:
     """The prompt must bound the ruleset size AND require compact/minified JSON so the
     output is never truncated by max_output_tokens at the unchanged 2048 cap
