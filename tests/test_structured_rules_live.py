@@ -256,3 +256,33 @@ def test_structured_prompt_requests_comprehensive_precise_coverage() -> None:
     assert "precision" in lower
     # Still strictly defensive — detection signatures, not exploit payloads.
     assert "not" in lower and "exploit payload" in lower
+
+
+def test_structured_prompt_bounds_ruleset_size() -> None:
+    """The prompt must bound the ruleset size so the JSON output is never truncated
+    by max_output_tokens (root cause of the run #75/#76 output-contract failures)."""
+    prompt = pm._build_structured_rules_prompt({}).lower()
+    assert "at most 64" in prompt  # schema MAX_RULES communicated
+    assert "concise" in prompt
+    assert "truncat" in prompt  # explicit instruction to keep JSON from truncating
+
+
+def test_genome_output_token_budget_fits_daily_cap() -> None:
+    """genome.max_output_tokens must be large enough for a comprehensive ruleset
+    yet still leave room for at least one paid call within the daily budget."""
+    import json
+    import scripts.api_budget as budget
+    genome = json.loads((_PROJECT_ROOT / "data" / "genome.json").read_text())
+    mot = int(genome["max_output_tokens"])
+    assert mot >= 4096, "output cap must be large enough to avoid truncating the ruleset"
+    model = genome["model_name"]
+    out_tokens = mot + (pm._GEMINI3_THINKING_ESTIMATE_LOW_TOKENS if model.startswith("gemini-3") else 0)
+    # Conservative input estimate from the structured prompt.
+    in_tokens = budget.estimate_tokens_from_chars(
+        len(pm._STRUCTURED_SYSTEM_PROMPT) + len(pm._build_structured_rules_prompt(genome))
+    )
+    est = budget.estimate_cost_usd(in_tokens, out_tokens, model)
+    assert est <= float(genome["daily_api_budget_usd"]), (
+        f"one paid call (est ${est:.4f}) must fit the daily budget "
+        f"${genome['daily_api_budget_usd']}"
+    )

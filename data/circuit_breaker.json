@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "consecutive_failures": 2,
+  "consecutive_failures": 0,
   "failure_threshold": 3,
   "tripped": false,
-  "last_outcome": "failure",
-  "last_reason": "proposal failed (no usable candidate produced)",
-  "last_updated": "2026-06-24T03:33:59.360714+00:00",
+  "last_outcome": "reset",
+  "last_reason": "owner: re-arm after fixing output-token truncation (runs #75/#76 failed on max_output_tokens=2048 truncating the larger ruleset; raised to 6144 + bounded prompt)",
+  "last_updated": "2026-06-24T03:39:09.929601+00:00",
   "history": [
     {
       "timestamp": "2026-06-23T23:32:41.226901+00:00",
@@ -47,6 +47,13 @@
       "outcome": "failure",
       "reason": "proposal failed (no usable candidate produced)",
       "consecutive_failures_after": 2,
+      "tripped_after": false
+    },
+    {
+      "timestamp": "2026-06-24T03:39:09.929601+00:00",
+      "outcome": "reset",
+      "reason": "owner: re-arm after fixing output-token truncation (runs #75/#76 failed on max_output_tokens=2048 truncating the larger ruleset; raised to 6144 + bounded prompt)",
+      "consecutive_failures_after": 0,
       "tripped_after": false
     }
   ]

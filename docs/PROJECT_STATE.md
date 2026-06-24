@@ -49,7 +49,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Model provider | gemini |
 | Primary model | gemini-3-flash-preview |
 | Fallback model | gemini-3.1-flash-lite |
-| paid-credit API success records (primary model) | **19** |
+| paid-credit API success records (primary model) | **21** |
 | Valid mutation patch produced | **Yes** (S4 run #47 2026-06-11; runs 5, 6 & 8 also produced valid patches; runs 11, 12 & 13 produced patches that reached evaluate but were rejected — `missing_baseline_symbolic_indicator_runtime`) |
 | apply reached | **Yes** (runs 5, 6, 8, 11, 12 & 13 apply succeeded; S4 run #47 reached apply and failed at G1) |
 | evaluate reached | **Yes** (runs 5, 6 & 8 reached evaluate and were processed; runs 11, 12 & 13 reached evaluate → rejected as `evaluate_rejected`) |
@@ -72,6 +72,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | run 15 (2026-06-23T10:44:04, untriaged) | API/token success only — no artifact or job-log triage available |
 | run #71 (2026-06-23, id 28063817339) | **triage complete** → first ignition; **legacy** gemini-paid-credit mode (raw-Python path); no structured candidate; legacy Promote Candidate skipped |
 | runs #72-#74 (2026-06-23, id 28064261701 / 28064587565 / 28064742034) | **triage complete** → `structured_evaluate_rejected` — structured-gemini-paid-credit + structured_baseline; each produced a structured candidate with fp_rate 0.0 but failed the adoption gate (regression/holdout/drift floors). After 3 consecutive structured gate failures the **circuit breaker TRIPPED** (`data/circuit_breaker.json`: tripped=true, 3/3); detector_mode stayed legacy (no unsafe promotion). Motivated the realistic baseline-floor fix + proposer strengthening. |
+| runs #75-#76 (2026-06-24, id 28073200820 / 28073247419) | **triage complete** → `propose_output_contract_failure` — structured-gemini-paid-credit; the strengthened (larger) ruleset was truncated mid-JSON (`Unterminated string ... char 5596`) because `max_output_tokens=2048`. API calls succeeded (ledger +2) but no candidate produced; breaker recorded 2 failures (2/3). Fix: `max_output_tokens` 2048→6144 + proposer bounded to ~24-40 concise signatures; breaker reset to 0. |
 | Propose-side baseline-preservation hardening | **Implemented** (Gemini propose prompt now requires preserving all five symbolic indicators, the full request inspection surface, and the non-blocking fallback) |
 | Score-schema migration | **Implemented** — `changed_lines` removed from score formula (generation-invariant scoring). `best_score` migrated from 729.34 (old formula) to 939.34 (generation 2 under new formula), then to **947.66** (generation 3, run 8 candidate, 2026-06-18). |
 | state_id | `phase3_generation4_paid_credit_promotion_active` |
@@ -86,7 +87,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Source | What it proves |
 |---|---|
 | `data/genome.json` | `live_model_enabled=true`, `api_mode=gemini_paid_credit`, `model_provider=gemini`, `model_name=gemini-3-flash-preview`, `fallback_model_name=gemini-3.1-flash-lite`, `generation=4`, `best_score=948.04`, `current_detector_hash=ebb8799d…` (generation 4 promoted via owner-approved paid-credit run #59 on 2026-06-18) |
-| `data/api_usage_ledger.json` | **19** primary-model paid-credit success records (`provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true`). Timestamps: 2026-06-03 / 2026-06-04 ×3 / 2026-06-11 / 2026-06-15 / 2026-06-16 ×2 / 2026-06-17 / 2026-06-18 / 2026-06-19 / 2026-06-21 ×3 / 2026-06-22 / 2026-06-23 ×5 (runs #71-#74 ignition). **Proves API/token success count and timestamp/cost fields only.** Does **not** prove apply, evaluate, adoption-gate, or promote stage outcomes — do not infer stage results from ledger success alone. |
+| `data/api_usage_ledger.json` | **21** primary-model paid-credit success records (`provider=gemini`, `api_mode=gemini_paid_credit`, `model=gemini-3-flash-preview`, `success=true`). Timestamps: 2026-06-03 / 2026-06-04 ×3 / 2026-06-11 / 2026-06-15 / 2026-06-16 ×2 / 2026-06-17 / 2026-06-18 / 2026-06-19 / 2026-06-21 ×3 / 2026-06-22 / 2026-06-23 ×5 (runs #71-#74) / 2026-06-24 ×2 (runs #75/#76 — API success but output-contract truncation, no candidate). **Proves API/token success count and timestamp/cost fields only.** Does **not** prove apply, evaluate, adoption-gate, or promote stage outcomes — do not infer stage results from ledger success alone. |
 | `docs/audit_gate/PAID_CREDIT_RUN_RESULT_REVIEW_INVENTORY.md` | First 3 runs: no valid mutation patch (propose output-contract failures). S4 run #47: valid mutation_patch.json produced; apply reached and failed at G1 repeat-multiplier runtime allocation risk |
 | GitHub Actions (runs 26919888348 / 26922191264 / 26924388218) | First three runs concluded `failure` at finalize-propose-status; evaluate / promote jobs skipped |
 | GitHub Actions (S4 run #47, 2026-06-11) | Materialize reached; apply reached; apply failed (G1 repeat-multiplier); evaluate / promote not reached |
@@ -96,7 +97,7 @@ Historical docs, old task reports, roadmap snapshots, old PR bodies, and old pha
 | Owner-audited recovery (2026-06-18) | Historical generation 3 recovery: candidate hash verified (c488855e…) against run 8 job-log fitness report. `promote_candidate.py` re-executed locally. `core/detector.py` updated to generation 3 (score 947.66). `data/genome.json` and `data/evolution_history.json` updated. No Gemini API call; no new paid-credit run. |
 | Generation 4 paid-credit promotion (2026-06-18, run #59) | Current active baseline: API/token success recorded, candidate promoted and merged as generation 4 (score 948.04, hash ebb8799d…). |
 
-Machine evidence (`data/genome.json`, `data/evolution_history.json`, `data/api_usage_ledger.json`, and current HEAD) establishes generation 4 as the active baseline. `data/project_state.json` records that current state and now matches the ledger's 19 primary-model paid-credit success records. Stage outcomes (apply/evaluate/adoption-gate/promote) are derived from GitHub Actions job logs, promotion path, and committed state, not from the ledger alone.
+Machine evidence (`data/genome.json`, `data/evolution_history.json`, `data/api_usage_ledger.json`, and current HEAD) establishes generation 4 as the active baseline. `data/project_state.json` records that current state and now matches the ledger's 21 primary-model paid-credit success records. Stage outcomes (apply/evaluate/adoption-gate/promote) are derived from GitHub Actions job logs, promotion path, and committed state, not from the ledger alone.
 
 ---
 
