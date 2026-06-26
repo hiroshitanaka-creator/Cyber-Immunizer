@@ -33,10 +33,24 @@ def _write_genome(tmp_path: Path, **fields) -> Path:
 
 # --- legacy mode -----------------------------------------------------------
 
-def test_default_genome_is_legacy_and_matches_inspect_request() -> None:
-    # The repository genome ships detector_mode="legacy".
+def test_shipped_genome_active_detector_is_consistent_and_safe() -> None:
+    # The repository genome's detector_mode reflects the latest owner-approved
+    # promotion: it ships "structured_rules" after the run #80 structured
+    # promotion, and an owner-approved rollback would return it to "legacy".
+    # The shipped genome's active detector must honor the DetectionResult
+    # contract in either mode, keep a clearly-benign request allowed, and —
+    # when legacy — stay equivalent to inspect_request. (Explicit-legacy
+    # equivalence is also covered by test_explicit_legacy_mode_matches_inspect_request.)
+    genome = json.loads(Path("data/genome.json").read_text(encoding="utf-8"))
+    mode = genome.get("detector_mode", "legacy")
     for r in (_req(path="/x/PATH_TRAVERSAL_INDICATOR"), _req(path="/clean")):
-        assert inspect_active(r) == inspect_request(r)
+        result = inspect_active(r)
+        assert isinstance(result, DetectionResult)
+        assert not isinstance(result, bool)
+    assert inspect_active(_req(path="/clean")).blocked is False
+    if mode == "legacy":
+        for r in (_req(path="/x/PATH_TRAVERSAL_INDICATOR"), _req(path="/clean")):
+            assert inspect_active(r) == inspect_request(r)
 
 
 def test_explicit_legacy_mode_matches_inspect_request(tmp_path: Path) -> None:

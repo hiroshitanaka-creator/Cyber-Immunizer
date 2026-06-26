@@ -286,7 +286,14 @@ class TestRuntimeSelectorUsed:
 
         rules_doc = equivalent_rules_doc()
         rules_path = write_rules(tmp_path, rules_doc)
-        main(["--rules", str(rules_path), "--json", "--soft-reject"])
+        # Isolate from the live repository genome: a permissive (legacy) genome
+        # has no active structured baseline, so the selector is only invoked with
+        # the candidate doc. Without this, a repo genome in structured_rules mode
+        # (e.g. after an owner-approved structured promotion) would also feed the
+        # active baseline doc to the selector and break the candidate-doc check.
+        genome_path = tmp_path / "genome.json"
+        genome_path.write_text(json.dumps(permissive_genome()), encoding="utf-8")
+        main(["--rules", str(rules_path), "--json", "--soft-reject", "--genome", str(genome_path)])
 
         assert received_docs, "No structured_rules_doc was passed to the selector"
         # All calls should receive the same doc (loaded from file).
