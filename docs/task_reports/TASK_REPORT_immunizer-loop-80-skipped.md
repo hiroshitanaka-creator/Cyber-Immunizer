@@ -67,6 +67,15 @@ Project Owner の依頼「このリポジトリを完成に向けて進める為
 - **注記（cosmetic regression）**: README は gen-4 legacy fitness 表示（15件 / 8/0/7/0）を失い N/A 表示。
   数値自体は `data/evolution_history.json` に保持。手動復元は次回 structured 昇格で再 N/A 化するため不採用。表示復元を望む場合は別タスク（生成器設計）で対応可能。
 
+### README テキスト/進行状況の更新（Owner 依頼）
+- 自動生成ステータスブロックではなく、README の**人間可読のテキスト・進行状況部分**を現状に更新（`README.md` のみ変更）:
+  - 冒頭に「現在の状態（要約）」セクションを新設（generation 4 / active=structured_rules（run #80）/ paid-credit 23件 / R3 live / Layer 1-3 状況 / 次ステップ M1）。正典（PROJECT_STATE.md / MISSION_ROADMAP.md / COMPLETION_TASKLIST.md / DEFINITION_OF_DONE.md）へのリンクを明記。
+  - 「Phase 2 …（現在進行中）」→「（完了・歴史的記録）」に修正＋歴史注記。
+  - 「Phase 3 … 実行待機中」→「（実行済み・generation 4 昇格・structured 昇格 live）」に修正。歴史バナーの「paid-credit success 14 件」→「23 件、active detector_mode=structured_rules（run #80）」。
+  - 今後のロードマップ v0.3 行を 23件/2026-06-26/run #80 structured 昇格 に更新＋正典ロードマップ/タスクリストへのポインタ追加。
+- テスト要件（Phase 2=API未接続の記載・Phase 2-A〜E 完了・PHASE_2_PLAN.md リンク・Phase 3 言及）は歴史セクション本文に温存し非破壊。
+- 検証: `pytest tests/ -q` → **3077 passed**（README doc テスト 220 件含む全 green）。スコープは `README.md` のみ。
+
 ### 全体の結論
 - main HEAD は run #80 の structured 昇格に起因し計5件失敗していた。Owner 承認（方向A: run #80 を正として受容）で全件修正。
 - `python -m pytest tests/ -q` → **3077 passed**。製品コード（`core/** scripts/** .github/**`）は無変更。`data/genome.json` は無変更（昇格を取り消さない）。

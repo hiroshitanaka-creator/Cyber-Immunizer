@@ -24,6 +24,28 @@
 
 ---
 
+## 現在の状態（要約）
+
+> 正典は [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) / `data/project_state.json`。本要約と矛盾する場合は正典が優先します。
+
+| 項目 | 状態 |
+|---|---|
+| Phase | Phase 3 — generation 4 が active baseline |
+| Active 検出器 | **structured_rules** — 2026-06-26 の owner-approved structured 昇格（Evolution Loop run #80）で legacy→structured_rules に切替。中和済み realistic コーパスの検知 100% / FP 0% |
+| Generation / Score | generation 4 / best_score 948.04（legacy lineage、構造化昇格後も不変） |
+| paid-credit API success | **23 件**（primary model `gemini-3-flash-preview`、2026-06-03〜2026-06-26） |
+| 構造化ルール昇格経路 (R3) | 実装済み・稼働中（`core/active_detector.py` + `scripts/promote_structured_candidate.py`、pre-publish health-check + 自動 rollback 付き） |
+| Layer 1 / 2 / 3 | L1 達成 / L2 owner-accepted（bounded、完全達成は未）/ L3 docs 整備済み・L3-A4 提案段階 |
+| 次の実行ステップ | M1（LLM 自身が防御を書き、ゲート通過で auto-promote）。詳細は下記タスクリスト参照 |
+
+- ミッション正典ロードマップ: [`docs/MISSION_ROADMAP.md`](docs/MISSION_ROADMAP.md)（M0–M5）
+- 完成条件（Definition of Done）: [`docs/DEFINITION_OF_DONE.md`](docs/DEFINITION_OF_DONE.md)（Layer 1–3）
+- 完成に向けた実行タスク分解: [`docs/COMPLETION_TASKLIST.md`](docs/COMPLETION_TASKLIST.md)
+
+> このページ下部の自動生成ステータスブロック（`update_readme.py` 生成）は機械可読の最新値を示します。本セクションは人間可読の現状サマリです。
+
+---
+
 ## 設計パラダイムの再定義：静的最適化から動的適応セキュリティゲームへ
 
 Cyber-Immunizer は、セキュリティを「固定されたテストコーパス上での静的最適化問題」（fixed-corpus fitness score maximization）として扱う従来のアプローチから、**動的競争・適応システム（Dynamic Competitive & Adaptive Security Game）**として根本的に再定義します。
@@ -732,7 +754,9 @@ python -m pytest -v
 
 ---
 
-## Phase 2: API未接続運用強化（現在進行中）
+## Phase 2: API未接続運用強化（完了・歴史的記録）
+
+> ℹ️ Phase 2 は readiness マイルストーンとして**完了済み**です。以下は当時の記録（API未接続運用強化）であり、現在の状態は上部「現在の状態（要約）」と `docs/PROJECT_STATE.md` を参照してください。
 
 **Phase 2 は API を接続しないまま、運用耐性・ドキュメント品質・監査品質を強化するフェーズです。**
 
@@ -817,9 +841,9 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 
 ---
 
-## Phase 3: Paid-Credit API 実行待機中
+## Phase 3: Paid-Credit API（実行済み・generation 4 昇格・structured 昇格 live）
 
-> **[HISTORICAL — PR #60–#73 merge 前の記録]** このセクションは gemini-3-flash-preview の初回 paid-credit run 実行前の状態を記録した歴史的証拠です。現在の状態は `docs/PROJECT_STATE.md` を参照してください（paid-credit success 14 件、generation 4 昇格済み、promote_approved=true）。
+> **[HISTORICAL — PR #60–#73 merge 前の記録]** このセクションは gemini-3-flash-preview の初回 paid-credit run 実行前の状態を記録した歴史的証拠です。現在の状態は `docs/PROJECT_STATE.md` を参照してください（paid-credit success **23 件**、generation 4 昇格済み、`promote_approved=true`、active `detector_mode=structured_rules` — run #80 / 2026-06-26 の structured 昇格で切替）。
 
 > **⚠️ Phase 3 activation PR (#58–#62) は main に merge 済み。**  
 > **paid-credit path は準備完了。過去の paid-credit API call 記録は存在する（`data/api_usage_ledger.json` 参照）。**  
@@ -891,9 +915,11 @@ API activation checklist is documented in **[`docs/API_ACTIVATION_CHECKLIST.md`]
 | **v0.1** | ローカルファーストの MVP スキャフォールド |
 | **v0.2** | Gemini API 統合基盤（安全なフリーティア戦略・スキーマ拘束・プリフライトスキャン・API予算管理） |
 | **v0.2.x（Phase 2）** | API未接続運用強化（rollback設計・evolution_history監査・offline-sample dry-run分離・運用チェックリスト整備）— **完了** |
-| **v0.3（Phase 3 / 現在）** | 実 Gemini API 接続 — activation PR #58–#62 merge 済み、hardening PR #63–#68 完了、X-007 spec frozen (PR #69)、X-007 check 11 implemented (PR #73)、primary-model paid-credit API success records 14件（2026-06-03〜2026-06-22）、generation 4 active baseline（score 948.04、run #59 2026-06-18 昇格済み） |
+| **v0.3（Phase 3 / 現在）** | 実 Gemini API 接続 — activation PR #58–#62 merge 済み、hardening PR #63–#68 完了、X-007 spec frozen (PR #69)、X-007 check 11 implemented (PR #73)、primary-model paid-credit API success records **23件**（2026-06-03〜2026-06-26）、generation 4 active baseline（score 948.04、run #59 2026-06-18 昇格済み）、構造化ルール昇格経路 (R3) live、**run #80（2026-06-26）で初の structured 昇格 → active `detector_mode=structured_rules`** |
 | **v0.4** | 複数検出器の並列評価、アンサンブル昇格 |
 | **将来** | 実WAFへの統合（別途セキュリティレビュー必須） |
+
+> 正典のミッションロードマップ（M0–M5）と完成に向けた実行タスク分解は [`docs/MISSION_ROADMAP.md`](docs/MISSION_ROADMAP.md) / [`docs/COMPLETION_TASKLIST.md`](docs/COMPLETION_TASKLIST.md) を参照してください。上表は README 内の簡易版です。
 
 ---
 
