@@ -121,7 +121,7 @@ realistic corpus 上の実検知（100% / FP 0%）。証拠: PR #171–#173、`d
 | ID | タスク | DoD | 現状 |
 |---|---|---|---|
 | X-L2 | **[Owner-gate]** Layer 2 完成: L2-V1〜V5 の証拠収集 + Owner 最終受理。Owner 提供の realistic corpus が必要 | `docs/DEFINITION_OF_DONE.md:80-87` | `owner_accepted_bounded`（完全達成は未） |
-| X-L3 | L3-A4: Skill / Custom GPT / Codex post-task classifier の実装 | `docs/DEFINITION_OF_DONE.md:131,133` | 提案段階 |
+| X-L3 | L3-A4: Skill / Custom GPT / Codex post-task classifier | `docs/DEFINITION_OF_DONE.md:131,133` | **提案済み**（[`docs/audit_gate/L3A4_POSTASK_CLASSIFIER_PROPOSAL.md`](audit_gate/L3A4_POSTASK_CLASSIFIER_PROPOSAL.md)）。実装は別タスク・Owner 承認 |
 | X-HY | **[FROZEN][Owner-gate]** `config.backup.toml` 除去（衛生） | `docs/DEFINITION_OF_DONE.md:172` | 未処理 |
 
 ---
