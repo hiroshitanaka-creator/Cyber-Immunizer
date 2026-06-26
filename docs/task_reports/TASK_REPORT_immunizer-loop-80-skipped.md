@@ -45,11 +45,31 @@ Project Owner の依頼「このリポジトリを完成に向けて進める為
 - 影響範囲調査: genome flip の影響を受ける実 genome 依存テストは本件1件のみ（他の legacy assertion は tmp_path fixture）。
 - 結果: `tests/test_active_detector.py` → **13 passed**。
 
-### 未対応の4件（HEAD 既存・方向判断のため Owner に確認中）
-1. `test_project_state_sync.py::test_project_state_matches_ledger_success_count` — ledger 23 success vs project_state.json 宣言 22。
-2. `test_evaluate_structured_rules_candidate.py::TestRuntimeSelectorUsed::test_selector_called_with_explicit_doc` — active structured rules が realistic literal 化、テストは symbolic sample 期待。
-3-4. `test_update_readme.py::...generation4_fitness_values_present` / `...metrics_present_unconditional` — README status block が structured 昇格で書換わり、gen-4 legacy の `| Total Test Cases | 15 |` / `8 / 0 / 7 / 0` が消失。
-- これらは `data/project_state.json`・`README.md`・別テストの修正方向（テスト更新 vs データ/README 修正）が分かれるため、本コミットには含めず Owner 判断を仰ぐ。
+### 残り4件も Owner 承認（方向A）で修正 → 全件 green（3077 passed）
+
+**#2 ledger count 同期（SSOT）**
+- `data/api_usage_ledger.json` は run #80 で 23番目の primary-model paid-credit success を記録（owner-approved・検証済み）。
+- 修正: `data/project_state.json` の `gemini_3_flash_preview_success_records` 22→23＋note に run 23(#80) を追記／
+  `tests/test_project_state_sync.py` の定数 22→23／`docs/PROJECT_STATE.md` の count 3箇所 22→23＋run #80 行追加＋R3 行の「default legacy」記述を現状（committed genome=structured_rules）に更新。
+- 検証: declared=23 == ledger=23。
+
+**#3 selector テスト分離（テスト不備の修正）**
+- 原因: `scripts/evaluate_structured_rules_candidate.py:329 _active_structured_baseline` が genome の structured_rules 時に
+  active baseline doc（run #80 で realistic 化）を selector に渡す。当該テストは `--genome` 未指定で live repo genome に依存していた。
+- 修正: `test_selector_called_with_explicit_doc` に permissive(legacy) genome を `--genome` 注入し live 状態から分離（製品コードは変更なし）。
+
+**#4/#5 README fitness テストの過剰厳格（生成器契約への整合）**
+- 事実: run #80 の structured 昇格が `update_readme.py` で README を再生成し、fitness テーブルを N/A 化
+  （`Total Test Cases | N/A` / `Fitness Report | Not available`）。`update_readme.py`（FROZEN）は legacy fitness report 不在時に N/A を出すのが契約。
+- 失敗2テストは gen-4 metrics を**無条件**要求していたが、docstring 自体が「may show」であり、兄弟テスト
+  `test_real_readme_fitness_report_values_or_explanation`（N/A 許容・pass）と矛盾していた。
+- 修正: 2テストを「gen-4 metrics **または** N/A 説明」を許容する形へ緩和（docstring・兄弟テスト・生成器契約に整合）。
+- **注記（cosmetic regression）**: README は gen-4 legacy fitness 表示（15件 / 8/0/7/0）を失い N/A 表示。
+  数値自体は `data/evolution_history.json` に保持。手動復元は次回 structured 昇格で再 N/A 化するため不採用。表示復元を望む場合は別タスク（生成器設計）で対応可能。
+
+### 全体の結論
+- main HEAD は run #80 の structured 昇格に起因し計5件失敗していた。Owner 承認（方向A: run #80 を正として受容）で全件修正。
+- `python -m pytest tests/ -q` → **3077 passed**。製品コード（`core/** scripts/** .github/**`）は無変更。`data/genome.json` は無変更（昇格を取り消さない）。
 
 ## 残存事項・注意点
 1. **[要 Owner 判断] HEAD 既存のテスト不整合**: `test_default_genome_is_legacy_and_matches_inspect_request`
