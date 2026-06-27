@@ -27,26 +27,29 @@ supplied, neutralized) corpus, and promote a passing candidate to the active
 detector via the R3 path. This is the "autonomous immune loop" applied to
 realistic threat coverage rather than the symbolic corpus.
 
-## The gap that must be built first (Owner-gated code change)
+## Current implementation status (live structured mode exists)
 
-The proposer has **no live structured-rules mode**. Today:
+The live structured-rules proposal mode has now been implemented and exercised
+by the autonomous loop. Current code supports:
 
 - `propose_mutation.py --structured-rules --offline-sample` → emits a structured
   rules JSON **offline** (symbolic indicators only, no API).
 - `propose_mutation.py --gemini-paid-credit --allow-live-model` → calls Gemini
-  but emits a **raw-Python** mutation for `core/detector.py`, scored against the
-  **symbolic** `data/` corpus.
+  and emits a **raw-Python** mutation for `core/detector.py`, scored against the
+  legacy symbolic `data/` corpus.
+- `propose_mutation.py --structured-rules --gemini-paid-credit --allow-live-model`
+  → calls Gemini and asks for a structured-rules JSON document, then validates it
+  with the strict structured-rules schema before writing the candidate.
 
-There is no `--structured-rules --gemini-paid-credit` path. **R4 requires adding
-a live structured-rules proposal mode** that asks Gemini to return a structured
-rules JSON (validated by `core.structured_validator`), so the proposal can be
-evaluated against a realistic corpus and promoted via R3.
+Run #80 (2026-06-26, GitHub Actions id `28220768075`) used the structured
+Gemini paid-credit path with `promote_approved=true`; the structured candidate
+passed the adoption gate and was promoted, flipping the committed
+`data/genome.json` runtime mode to `structured_rules`. This document is therefore
+no longer a request to build live structured mode. It is a planning record for
+the remaining R4/M1 work: one-trigger end-to-end operation, Owner-gated live
+experiments, realistic-corpus evaluation, and any future auto-promotion wiring.
 
-This is a `scripts/**` (FROZEN) change and must be approved separately before
-implementation. It does not itself call the API; the API call happens only when
-the Owner later runs the paid-credit step.
-
-## Intended pipeline (once the live structured mode exists)
+## Intended pipeline (current live structured path)
 
 ```
 [1] propose   python scripts/propose_mutation.py --structured-rules \
@@ -65,14 +68,12 @@ the Owner later runs the paid-credit step.
               -> flips genome detector_mode=structured_rules (R3)
 ```
 
-Steps [2] and [3] already exist and were validated in R1/R3/R4-demo. Only step
-[1]'s live structured mode is missing.
+Steps [1], [2], and [3] now exist. Step [1] was validated by paid-credit structured runs, culminating in run #80 promotion; further live execution remains Owner-gated.
 
 ## Required Owner gates (each is a separate explicit approval)
 
-1. **Build approval** — add the live structured-rules proposal mode to
-   `propose_mutation.py` (FROZEN scripts change). Includes tests; no API call.
-2. **Paid-credit run approval** — run step [1]: requires `GEMINI_API_KEY` in CI
+1. **Build approval** — already completed for the live structured-rules proposal mode; future changes to scripts/workflows remain separately Owner-gated.
+2. **Paid-credit run approval** — run step [1] again: requires `GEMINI_API_KEY` in CI
    secrets, `live_model_enabled=true`, and the paid-credit run trigger. Per
    CLAUDE.md this is Owner-only.
 3. **Realistic corpus** — Owner supplies the realistic (neutralized) corpus from
@@ -120,7 +121,9 @@ spend would exceed a cap.
 
 ## Recommended next action
 
-Approve **gate 1 (build the live structured-rules proposal mode)** first — it is
-paid-credit-free and testable with mocked model output, and it is the only
-missing piece between today and a real autonomous R4 run. Gates 2–4 follow when
-the Owner is ready to spend paid credit.
+Do **not** rebuild the live structured-rules proposal mode; it already exists.
+The next implementation breakthrough is an API-free one-trigger dry-run that
+exercises structured proposal output, evaluation, and adoption-gate handling
+without spending paid credit. Any further live paid-credit run, workflow trigger,
+realistic external corpus use, or promotion remains Owner-gated at execution
+time.
