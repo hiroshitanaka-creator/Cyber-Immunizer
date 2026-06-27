@@ -201,7 +201,7 @@
     "evidence": "docs/value_validation/LAYER2_REALISTIC_EVALUATION_SUMMARY.md",
     "meaning": "Evaluation path validated on a small canonical neutralized corpus; the gen-4 symbolic detector detected 0.0% of realistic threats and a structured ruleset detected 100.0% (FP 0.0%). Acceptance is bounded: it validates the evaluation path and quantifies the symbolic wall plus a safe route to close it.",
     "does_not_mean": "promoted_runtime_detector_detects_realistic_threats_or_production_waf_ready",
-    "structured_rules_promotion_path": "implemented (core/active_detector.py + scripts/promote_structured_candidate.py; genome.detector_mode default legacy)"
+    "structured_rules_promotion_path": "implemented and active (core/active_detector.py + scripts/promote_structured_candidate.py; committed genome.detector_mode=structured_rules after run #80)"
   },
   "next_action": "generation4_audited_baseline_owner_decide_next_phase3_step",
   "fresh_verification_policy": {
@@ -209,5 +209,6 @@
     "workflow_dispatch_in_this_pr": "forbidden",
     "gemini_api_call_in_this_pr": "forbidden",
     "no_api_tests_required": true
-  }
+  },
+  "r4_live_structured_proposal": "implemented_and_exercised_by_run_80; docs/R4_LLM_AUTONOMOUS_PROPOSAL_PLAN.md reconciled so it no longer describes this path as missing; further live runs remain Owner-gated"
 }
