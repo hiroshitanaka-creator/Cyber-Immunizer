@@ -1,16 +1,14 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-cd "${CLAUDE_PROJECT_DIR:?CLAUDE_PROJECT_DIR is not set}"
-
-if [ -d ".venv" ]; then
-  echo "Python venv exists: skip setup"
-else
-  echo "Missing .venv. Please run setup manually."
-fi
-
-if [ -f "requirements.txt" ]; then
-  echo "requirements.txt detected"
-fi
-
-echo "SessionStart environment check complete."
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
